@@ -28,7 +28,7 @@ app.set('trust proxy', true);
 // Rate limiting
 const limiter = rateLimit({
     windowMs: config.server.rateLimit.windowMs,
-    max: config.server.rateLimit.max,
+    limit: config.server.rateLimit.max,
     message: { message: 'Too many requests, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false
