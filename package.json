@@ -45,5 +45,10 @@
     "mysql2": "^3.23.0",
     "ua-parser-js": "^2.0.10",
     "url-parse": "^1.5.10"
+  },
+  "overrides": {
+    "geoip-country": {
+      "ip-address": "^10.2.0"
+    }
   }
 }
