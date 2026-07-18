@@ -1,6 +1,26 @@
+# Agent instructions — private, never published from this public repo
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+agent-instructions/
+
+# Agent-tool local state (settings, scheduled-task locks, worktrees) — never shared
+.claude/
+.gemini/
+.antigravity/
+.cursor/
+.codex/
+
+# Anything with ".ignore" anywhere in the file or folder name — scratch/local-only content
+*.ignore*
+
 # Config files
 dbInfo.json
 allowed.json
+
+# Visitor-hash server secret. Generated on first run at mode 0600. Committing
+# it would make every stored visitor hash reversible to the IP behind it.
+.visitor-secret
 
 # Test coverage and reports
 coverage/
