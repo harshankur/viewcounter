@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 1/10/2026, 4:45:10 PM  
+**Generated**: 7/18/2026, 3:15:05 PM  
 **Status**: ✓ GOOD  
-**Overall Coverage**: 76.07%
+**Overall Coverage**: 75.63%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 75.84% (292/385) | ✓ |
-| **Branches** | 68.57% (168/245) | ✓ |
+| **Statements** | 75.58% (291/385) | ✓ |
+| **Branches** | 67.34% (165/245) | ✓ |
 | **Functions** | 82.81% (53/64) | ✅ |
-| **Lines** | 77.07% (279/362) | ✓ |
+| **Lines** | 76.79% (278/362) | ✓ |
 
 ---
 
@@ -22,10 +22,10 @@
 | File | Statements | Branches | Functions | Lines |
 |------|------------|----------|-----------|-------|
 | index.js | 76.1% | 57.74% | 78.94% | 77.56% |
-| index.js | 83.33% | 90.62% | 100% | 83.33% |
+| index.js | 87.5% | 87.5% | 100% | 87.5% |
 | DatabaseManager.js | 72.82% | 72.46% | 92.85% | 72.82% |
-| validation.js | 94.73% | 71.42% | 100% | 100% |
-| privacyUtils.js | 85.71% | 70% | 100% | 90% |
+| validation.js | 94.73% | 57.14% | 100% | 100% |
+| privacyUtils.js | 76.19% | 60% | 100% | 80% |
 | referrerParser.js | 65.11% | 57.14% | 57.14% | 63.88% |
 | userAgentParser.js | 74.07% | 71.42% | 100% | 78.94% |
 

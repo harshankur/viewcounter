@@ -4,55 +4,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>View Counter | Documentation</title>
-    <link rel="icon" type="image/png" href="favicon.png">
+    <title>ViewCounter — Privacy-First Analytics</title>
+    <meta name="description"
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design. Open source Node.js + MySQL middleware.">
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="alternate icon" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://viewcounter.harshankur.com/">
+    <meta property="og:title" content="ViewCounter — Privacy-First Analytics">
+    <meta property="og:description"
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design.">
+    <meta property="og:image" content="https://viewcounter.harshankur.com/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ViewCounter — Privacy-First Analytics">
+    <meta name="twitter:description"
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design.">
+    <meta name="twitter:image" content="https://viewcounter.harshankur.com/og-image.png">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
         rel="stylesheet">
     <style>
         :root {
-            --primary: #6366f1;
-            --primary-glow: rgba(99, 102, 241, 0.4);
-            --bg: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --text: #f8fafc;
-            --text-muted: #94a3b8;
-            --border: rgba(255, 255, 255, 0.1);
-            --gradient: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-            --nav-bg: rgba(15, 23, 42, 0.8);
-            --code-bg: #1e293b;
+            --primary: #3ddc84;
+            --primary-bright: #7dffb3;
+            --primary-glow: rgba(61, 220, 132, 0.35);
+            --secondary: #ffb454;
+            --bg: #0a0f0c;
+            --card-bg: rgba(16, 24, 20, 0.75);
+            --text: #e8f6ec;
+            --text-muted: #7c9686;
+            --border: rgba(61, 220, 132, 0.22);
+            --gradient: linear-gradient(135deg, var(--primary) 0%, var(--primary-bright) 100%);
+            --nav-bg: rgba(8, 11, 9, 0.86);
+            --code-bg: #0d1310;
             --btn-secondary-bg: transparent;
-            --btn-secondary-border: rgba(255, 255, 255, 0.2);
-            --btn-secondary-text: #f8fafc;
+            --btn-secondary-border: rgba(61, 220, 132, 0.4);
+            --btn-secondary-text: #e8f6ec;
+            --danger: #ef4444;
+            --info: #5aa9e6;
+            --scanline-opacity: 0.4;
         }
 
         [data-theme="light"] {
-            --primary: #4f46e5;
-            --primary-glow: rgba(79, 70, 229, 0.15);
-            --bg: #f8fafc;
-            --card-bg: rgba(255, 255, 255, 0.8);
-            --text: #0f172a;
-            --text-muted: #475569;
-            --border: rgba(0, 0, 0, 0.1);
-            --nav-bg: rgba(248, 250, 252, 0.8);
-            --code-bg: #f1f5f9;
-            --btn-secondary-bg: #ffffff;
-            --btn-secondary-border: rgba(0, 0, 0, 0.1);
-            --btn-secondary-text: #0f172a;
-        }
-
-        body {
-            transition: background-color 0.3s, color 0.3s;
-        }
-
-        /* Fix Redoc syntax highlighting in light mode */
-        [data-theme="light"] .token.property,
-        [data-theme="light"] .token.string,
-        [data-theme="light"] .token.operator,
-        [data-theme="light"] .token.punctuation {
-            color: #1e293b !important;
+            --primary: #1f7a4a;
+            --primary-bright: #12653c;
+            --primary-glow: rgba(31, 122, 74, 0.16);
+            --secondary: #b5590f;
+            --bg: #f3efe2;
+            --card-bg: rgba(255, 253, 246, 0.72);
+            --text: #1b2a20;
+            --text-muted: #5f6f63;
+            --border: rgba(31, 122, 74, 0.25);
+            --nav-bg: rgba(243, 239, 226, 0.88);
+            --code-bg: #eae4d1;
+            --btn-secondary-bg: #fffdf7;
+            --btn-secondary-border: rgba(31, 122, 74, 0.3);
+            --btn-secondary-text: #1b2a20;
+            --info: #1c6fa8;
+            --scanline-opacity: 0;
         }
 
         * {
@@ -62,54 +77,80 @@
         }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
             background-color: var(--bg);
             color: var(--text);
             line-height: 1.6;
             overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
         }
 
-        h1,
-        h2,
-        h3 {
-            font-family: 'Outfit', sans-serif;
+        h1, h2, h3, h4 {
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
             font-weight: 700;
         }
 
-        .background-blobs {
+        a { color: inherit; }
+
+        code {
+            font-family: 'JetBrains Mono', ui-monospace, monospace;
+        }
+
+        /* Fix Redoc syntax highlighting in light mode */
+        [data-theme="light"] .token.property,
+        [data-theme="light"] .token.string,
+        [data-theme="light"] .token.operator,
+        [data-theme="light"] .token.punctuation {
+            color: #1b2a20 !important;
+        }
+
+        /* ---------- Ambient background ---------- */
+
+        .bg-grid {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            inset: 0;
+            z-index: -2;
+            pointer-events: none;
+            background-image:
+                linear-gradient(var(--border) 1px, transparent 1px),
+                linear-gradient(90deg, var(--border) 1px, transparent 1px);
+            background-size: 48px 48px;
+            opacity: 0.4;
+            -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black 30%, transparent 100%);
+            mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, black 30%, transparent 100%);
+        }
+
+        .bg-glow {
+            position: fixed;
+            top: -10%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 900px;
+            height: 500px;
+            background: radial-gradient(ellipse at center, var(--primary-glow) 0%, transparent 70%);
             z-index: -1;
-            overflow: hidden;
             pointer-events: none;
         }
 
-        .blob {
-            position: absolute;
-            width: 500px;
-            height: 500px;
-            background: var(--primary-glow);
-            filter: blur(80px);
-            border-radius: 50%;
-            opacity: 0.5;
-            animation: move 20s infinite alternate;
+        .crt-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            pointer-events: none;
+            background: repeating-linear-gradient(to bottom,
+                    rgba(255, 255, 255, 0.05) 0px,
+                    rgba(255, 255, 255, 0.05) 1px,
+                    transparent 1px,
+                    transparent 3px);
+            opacity: var(--scanline-opacity);
+            mix-blend-mode: overlay;
+            transition: opacity 0.3s;
         }
 
-        @keyframes move {
-            from {
-                transform: translate(-10%, -10%);
-            }
-
-            to {
-                transform: translate(100%, 80%);
-            }
-        }
+        /* ---------- Nav ---------- */
 
         nav {
-            padding: 1.5rem 2rem;
+            padding: 1.25rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -122,184 +163,316 @@
             transition: background-color 0.3s, border-color 0.3s;
         }
 
-        .theme-switcher {
-            display: flex;
-            background: var(--border);
-            padding: 0.25rem;
-            border-radius: 50px;
-            gap: 0.25rem;
-        }
-
-        .theme-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
+        .logo {
             display: flex;
             align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 1rem;
-        }
-
-        .theme-btn:hover {
+            gap: 0.55rem;
+            text-decoration: none;
             color: var(--text);
         }
 
-        .theme-btn.active {
-            background: var(--primary);
-            color: white;
-            box-shadow: 0 2px 8px var(--primary-glow);
+        .logo-mark {
+            height: 26px;
+            width: auto;
+            color: var(--primary);
+            flex-shrink: 0;
         }
 
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            background: var(--gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+        .logo-cursor {
+            animation: blink 1.1s steps(1) infinite;
+        }
+
+        .logo-text {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: -0.02em;
         }
 
         .nav-links {
             display: flex;
-            gap: 2rem;
+            gap: 1.75rem;
         }
 
         .nav-links a {
-            color: var(--text);
             text-decoration: none;
-            font-weight: 600;
+            font-weight: 500;
             font-size: 0.9rem;
-            transition: color 0.3s;
+            transition: color 0.2s;
+        }
+
+        .nav-links a .prompt-char {
+            color: var(--primary);
+            opacity: 0.55;
+            margin-right: 0.15rem;
+            transition: opacity 0.2s;
         }
 
         .nav-links a:hover {
             color: var(--primary);
         }
 
+        .nav-links a:hover .prompt-char {
+            opacity: 1;
+        }
+
+        .theme-switcher {
+            display: flex;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            padding: 0.2rem;
+            border-radius: 8px;
+            gap: 0.2rem;
+        }
+
+        .theme-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            width: 30px;
+            height: 30px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.95rem;
+        }
+
+        .theme-btn:hover {
+            color: var(--text);
+            background: var(--border);
+        }
+
+        .theme-btn.active {
+            background: var(--primary);
+            color: var(--bg);
+            box-shadow: 0 0 12px var(--primary-glow);
+        }
+
+        /* ---------- Terminal window chrome ---------- */
+
+        .term-window {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+
+        .term-titlebar {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.65rem 1rem;
+            background: var(--code-bg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .term-dots {
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .term-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+
+        .term-dot.red { background: #ef4444; }
+        .term-dot.amber { background: #f5b942; }
+        .term-dot.green { background: var(--primary); }
+
+        .term-title {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-left: 0.25rem;
+        }
+
+        .term-body {
+            padding: 1.75rem;
+        }
+
+        .prompt-line {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
+        .prompt-line .prompt-char {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* ---------- Hero ---------- */
+
         header {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 8rem 2rem;
+            padding: 6rem 2rem 5rem;
             text-align: center;
         }
 
+        .hero-terminal {
+            max-width: 640px;
+            margin: 0 auto 2.5rem;
+            text-align: left;
+            box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.35);
+        }
+
+        .hero-terminal .term-body {
+            padding: 1.5rem 1.75rem;
+        }
+
+        .hero-cmd {
+            display: flex;
+            font-size: 0.92rem;
+            flex-wrap: wrap;
+        }
+
+        .hero-cmd .prompt-char {
+            color: var(--primary);
+            font-weight: 700;
+            margin-right: 0.6rem;
+        }
+
+        .hero-typed {
+            color: var(--text);
+        }
+
+        .hero-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.05rem;
+            background: var(--primary);
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: blink 1s steps(1) infinite;
+        }
+
+        .hero-output {
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .hero-output.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .hero-output .json-line {
+            color: var(--text);
+        }
+
+        .hero-output .counter-line {
+            margin-top: 0.6rem;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .hero-output .counter-line .num {
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .hero-output .hint {
+            display: block;
+            margin-top: 0.85rem;
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            opacity: 0.75;
+        }
+
+        .status-line {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
+            margin-bottom: 2.25rem;
+        }
+
+        .status-pass {
+            background: var(--primary);
+            color: var(--bg);
+            font-weight: 800;
+            font-size: 0.68rem;
+            letter-spacing: 0.06em;
+            padding: 0.15rem 0.45rem;
+            border-radius: 4px;
+        }
+
+        header .eyebrow {
+            display: block;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        header .eyebrow .prompt-char {
+            color: var(--primary);
+        }
+
         header h1 {
-            font-size: 4rem;
+            font-size: 3.4rem;
             margin-bottom: 1.5rem;
-            letter-spacing: -2px;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
         }
 
         header p {
-            font-size: 1.25rem;
+            font-size: 1.05rem;
+            font-family: 'IBM Plex Mono', monospace;
             color: var(--text-muted);
-            max-width: 700px;
+            max-width: 620px;
             margin: 0 auto 2.5rem;
         }
 
         .btn {
-            display: inline-block;
-            padding: 1rem 2.5rem;
-            border-radius: 50px;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.9rem 1.6rem;
+            border-radius: 8px;
             text-decoration: none;
-            font-weight: 700;
-            transition: all 0.3s;
+            font-weight: 600;
+            font-size: 0.92rem;
+            transition: all 0.2s;
+            border: 1px solid transparent;
         }
 
         .btn-primary {
-            background: var(--gradient);
-            color: white;
-            box-shadow: 0 10px 20px rgba(99, 102, 241, 0.3);
+            background: var(--primary);
+            color: var(--bg);
         }
 
         .btn-primary:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 15px 30px rgba(99, 102, 241, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px var(--primary-glow);
         }
 
         .btn-secondary {
             background: var(--btn-secondary-bg);
             color: var(--btn-secondary-text);
-            border: 1px solid var(--btn-secondary-border);
-            backdrop-filter: blur(10px);
+            border-color: var(--btn-secondary-border);
         }
 
         .btn-secondary:hover {
-            background: var(--btn-secondary-text);
-            color: var(--bg);
-            transform: translateY(-3px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-        }
-
-        .badge-gdpr {
-            display: inline-flex;
-            align-items: center;
-            background: rgba(34, 197, 94, 0.1);
-            color: #4ade80;
-            padding: 0.5rem 1rem;
-            border-radius: 99px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            border: 1px solid rgba(34, 197, 94, 0.2);
-            margin-bottom: 2rem;
-            gap: 0.5rem;
-        }
-
-        .lifecycle-container {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 3rem;
-            background: var(--nav-bg);
-            border-radius: 32px;
-            border: 1px solid var(--border);
-            margin: 4rem 0;
-            flex-wrap: wrap;
-            gap: 2rem;
-            transition: background-color 0.3s;
-        }
-
-        .lifecycle-step {
-            text-align: center;
-            flex: 1;
-            min-width: 150px;
-            position: relative;
-        }
-
-        .lifecycle-step .icon {
-            font-size: 2rem;
-            margin-bottom: 1rem;
-        }
-
-        .lifecycle-step h4 {
-            font-size: 1rem;
-            margin-bottom: 0.5rem;
-            color: var(--text);
-        }
-
-        .lifecycle-step p {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-
-        .lifecycle-divider {
+            transform: translateY(-2px);
+            border-color: var(--primary);
             color: var(--primary);
-            font-size: 1.5rem;
-            opacity: 0.5;
         }
 
-        @media (max-width: 768px) {
-            .lifecycle-container {
-                flex-direction: column;
-            }
-
-            .lifecycle-divider {
-                transform: rotate(90deg);
-            }
-        }
+        /* ---------- Layout / sections ---------- */
 
         main {
             max-width: 1200px;
@@ -307,174 +480,430 @@
             padding: 0 2rem 8rem;
         }
 
+        .section-title {
+            text-align: center;
+            margin-bottom: 3.5rem;
+        }
+
+        .section-title .eyebrow {
+            display: inline-block;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 0.85rem;
+        }
+
+        .section-title .eyebrow .prompt-char {
+            color: var(--primary);
+            margin-right: 0.35rem;
+        }
+
+        .section-title h2 {
+            font-size: 2.4rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .section-title p {
+            color: var(--text-muted);
+        }
+
         .feature-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin-top: 4rem;
+            gap: 1.75rem;
+            margin-top: 3rem;
         }
 
-        .card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            padding: 2.5rem;
-            border-radius: 24px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s;
+        .card .term-body {
+            padding: 1.75rem 1.75rem 2rem;
         }
 
         .card:hover {
             border-color: var(--primary);
-            transform: translateY(-5px);
         }
 
         .card h3 {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
+            font-size: 1.15rem;
+            margin-bottom: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
         }
 
         .card p {
             color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        .card code {
+            background: var(--code-bg);
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            font-size: 0.85em;
+            color: var(--primary);
+        }
+
+        /* ---------- Privacy pipeline ---------- */
+
+        .pipeline-strip {
+            margin: 3rem 0 2.5rem;
+            font-size: 0.85rem;
+            overflow-x: auto;
+        }
+
+        .pipeline-strip .term-body {
+            padding: 1.25rem 1.5rem;
+            white-space: nowrap;
+        }
+
+        .pipeline-strip .pipe {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        .pipeline-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 1.25rem;
+            flex-wrap: wrap;
+            margin: 0 0 4rem;
+        }
+
+        .pipe-step {
+            text-align: center;
+            flex: 1;
+            min-width: 150px;
+            position: relative;
+            padding: 1.5rem 1rem;
+        }
+
+        .pipe-step.highlight {
+            background: var(--primary-glow);
+            border-radius: 10px;
+        }
+
+        .pipe-step .icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.85rem;
+        }
+
+        .pipe-step h4 {
+            font-size: 0.9rem;
+            margin-bottom: 0.4rem;
+            color: var(--text);
+        }
+
+        .pipe-step p {
+            font-size: 0.76rem;
+            color: var(--text-muted);
+        }
+
+        .pipe-divider {
+            display: flex;
+            align-items: center;
+            color: var(--primary);
+            font-size: 1.3rem;
+            font-weight: 700;
+            opacity: 0.6;
+        }
+
+        @media (max-width: 768px) {
+            .pipeline-container {
+                flex-direction: column;
+            }
+
+            .pipe-divider {
+                transform: rotate(90deg);
+                margin: -0.5rem 0;
+            }
+        }
+
+        /* ---------- Code blocks ---------- */
+
+        .code-block {
+            font-size: 0.85rem;
+        }
+
+        .code-block .term-body {
+            padding: 1.25rem 1.5rem;
+            overflow-x: auto;
+        }
+
+        .code-line {
+            display: flex;
+            gap: 0.6rem;
+            white-space: nowrap;
+        }
+
+        .code-line + .code-line {
+            margin-top: 0.4rem;
+        }
+
+        .code-line .prompt-char {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        /* ---------- API reference ---------- */
+
+        #api-reference-window {
+            margin-top: 3rem;
         }
 
         #api-docs {
-            margin-top: 8rem;
             background: var(--bg);
-            border-radius: 24px;
-            overflow: hidden;
             min-height: 800px;
-            border: 1px solid var(--border);
         }
 
-        .section-title {
-            text-align: center;
-            margin-bottom: 4rem;
-        }
-
-        .section-title h2 {
-            font-size: 3rem;
-            margin-bottom: 1rem;
-        }
+        /* ---------- Footer ---------- */
 
         footer {
             text-align: center;
             padding: 4rem 2rem;
             border-top: 1px solid var(--border);
             color: var(--text-muted);
+            font-size: 0.85rem;
         }
 
-        .code-block {
-            background: var(--code-bg);
-            padding: 1.5rem;
-            border-radius: 12px;
-            font-family: 'Courier New', Courier, monospace;
-            text-align: left;
-            margin: 2rem 0;
-            overflow-x: auto;
-            border-left: 4px solid var(--primary);
-            transition: background-color 0.3s;
+        footer .prompt-char {
+            color: var(--primary);
+        }
+
+        footer .footer-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 0.9rem;
+            background: var(--primary);
+            margin-left: 3px;
+            vertical-align: text-bottom;
+            animation: blink 1.1s steps(1) infinite;
+        }
+
+        /* ---------- Motion ---------- */
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .logo-cursor, .hero-cursor, .footer-cursor {
+                animation: none;
+                opacity: 1;
+            }
         }
 
         @media (max-width: 768px) {
+            nav {
+                padding: 1rem 1.25rem;
+            }
+
+            .logo-text {
+                display: none;
+            }
+
+            .theme-btn {
+                width: 26px;
+                height: 26px;
+                font-size: 0.85rem;
+            }
+
+            header {
+                padding: 4rem 1.5rem 3rem;
+            }
+
             header h1 {
-                font-size: 2.5rem;
+                font-size: 2.15rem;
             }
 
             .nav-links {
                 display: none;
+            }
+
+            .hero-terminal .term-body {
+                padding: 1.25rem;
+            }
+
+            .pipeline-strip {
+                font-size: 0.72rem;
+            }
+
+            .section-title h2 {
+                font-size: 1.7rem;
+            }
+
+            .feature-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
 </head>
 
 <body>
-    <div class="background-blobs">
-        <div class="blob"></div>
-    </div>
+    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
+    <div class="crt-overlay"></div>
 
     <nav>
-        <div class="logo">ViewCounter</div>
+        <a href="#" class="logo" aria-label="ViewCounter — back to top">
+            <svg class="logo-mark" viewBox="0 0 96 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+                <polyline points="3,6 15,16 3,26" fill="none" stroke="currentColor" stroke-width="5"
+                    stroke-linecap="round" stroke-linejoin="round" />
+                <text x="24" y="24" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="22"
+                    font-weight="800" fill="currentColor">VC</text>
+                <rect class="logo-cursor" x="70" y="7" width="10" height="19" fill="currentColor" />
+            </svg>
+            <span class="logo-text">viewcounter</span>
+        </a>
         <div class="nav-links">
-            <a href="#features">Features</a>
-            <a href="#quick-start">Quick Start</a>
-            <a href="#api-reference">API Reference</a>
-            <a href="https://github.com/harshankur/viewcounter">GitHub</a>
+            <a href="#features"><span class="prompt-char">❯</span>features</a>
+            <a href="#quick-start"><span class="prompt-char">❯</span>quick-start</a>
+            <a href="#api-reference"><span class="prompt-char">❯</span>api-reference</a>
+            <a href="https://github.com/harshankur/viewcounter"><span class="prompt-char">❯</span>github</a>
         </div>
         <div class="theme-switcher">
-            <button class="theme-btn" id="theme-light" title="Light Mode">☀️</button>
-            <button class="theme-btn" id="theme-dark" title="Dark Mode">🌙</button>
-            <button class="theme-btn" id="theme-auto" title="System Preference">🌓</button>
+            <button class="theme-btn" id="theme-light" title="Light Mode" aria-label="Light mode">☀️</button>
+            <button class="theme-btn" id="theme-dark" title="Dark Mode" aria-label="Dark mode">🌙</button>
+            <button class="theme-btn" id="theme-auto" title="System Preference" aria-label="System preference">🌓</button>
         </div>
     </nav>
 
     <header>
-        <div class="badge-gdpr">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-                stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            100% GDPR Compliant By Design
+        <div class="hero-terminal term-window">
+            <div class="term-titlebar">
+                <div class="term-dots">
+                    <span class="term-dot red"></span>
+                    <span class="term-dot amber"></span>
+                    <span class="term-dot green"></span>
+                </div>
+                <span class="term-title">visitor@viewcounter:~</span>
+            </div>
+            <div class="term-body">
+                <div class="hero-cmd">
+                    <span class="prompt-char">❯</span>
+                    <span><span class="hero-typed" id="hero-typed"></span><span class="hero-cursor"
+                            id="hero-cursor"></span></span>
+                </div>
+                <div class="hero-output" id="hero-output">
+                    <div class="json-line">{ "message": "Success!", "duplicate": false }</div>
+                    <div class="counter-line">▸ views_logged .... <span class="num" id="hero-counter">0</span></div>
+                    <span class="hint">// sample output — self-hosted, so it's really your data</span>
+                </div>
+            </div>
         </div>
+
+        <div class="status-line">
+            <span class="status-pass">PASS</span>
+            100% GDPR compliant — zero cookies, zero tracking IDs
+        </div>
+
+        <span class="eyebrow"><span class="prompt-char">#</span> self-hosted analytics middleware</span>
         <h1>Privacy-First <span style="color: var(--primary)">Analytics</span></h1>
-        <p>A lightweight, high-performance middleware for tracking views and events without compromising user privacy.
-            Self-hosted, secure, and ready for production.</p>
-        <div style="display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap;">
-            <a href="#api-reference" class="btn btn-primary">API Reference</a>
-            <a href="https://github.com/harshankur/viewcounter" class="btn btn-secondary">Fork on GitHub</a>
+        <p>A lightweight, high-performance middleware for tracking views and events without compromising user
+            privacy. Self-hosted, secure, and ready for production.</p>
+        <div style="display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap;">
+            <a href="#api-reference" class="btn btn-primary"><span class="prompt-char">❯</span>api-reference</a>
+            <a href="https://github.com/harshankur/viewcounter" class="btn btn-secondary"><span
+                    class="prompt-char">❯</span>fork-on-github</a>
         </div>
     </header>
 
     <main>
         <section id="features">
             <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>man viewcounter</span>
                 <h2>Why ViewCounter?</h2>
                 <p>Designed for speed, security, and simplicity.</p>
             </div>
             <div class="feature-grid">
-                <div class="card">
-                    <h3>🚀 Built-in Performance</h3>
-                    <p>Powered by MySQL2 with connection pooling, optimized for concurrent high-traffic apps.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">perf.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🚀 Built-in Performance</h3>
+                        <p>Powered by MySQL2 with connection pooling, optimized for concurrent high-traffic apps.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>🛡️ Production Ready</h3>
-                    <p>Full security hardening with Helmet, Rate-limiting, and SQL injection prevention via prepared
-                        statements.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">security.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🛡️ Production Ready</h3>
+                        <p>Full security hardening with Helmet, Rate-limiting, and SQL injection prevention via
+                            prepared statements.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>📊 Rich Insights</h3>
-                    <p>Track page paths, titles, traffic sources, and browsers. Now supporting both <b>Total Views</b>
-                        and <b>Unique Visitors</b>.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">insights.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>📊 Rich Insights</h3>
+                        <p>Track page paths, titles, traffic sources, and browsers. Now supporting both <b>Total
+                                Views</b> and <b>Unique Visitors</b>.</p>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section id="privacy" style="margin-top: 8rem;">
             <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>trace request.log</span>
                 <h2>Trust & Transparency</h2>
                 <p>We believe in "Show, Don't Tell". Here is the exact lifecycle of a request.</p>
             </div>
 
-            <div class="lifecycle-container">
-                <div class="lifecycle-step">
+            <div class="pipeline-strip term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">pipeline.sh</span>
+                </div>
+                <div class="term-body">
+                    <span class="prompt-char">❯</span> request <span class="pipe">|</span> mask-ip --to .0 <span
+                        class="pipe">|</span> hash --sha256 --salt daily <span class="pipe">|</span> discard --raw-ip
+                    <span class="pipe">></span> mysql
+                </div>
+            </div>
+
+            <div class="pipeline-container">
+                <div class="pipe-step">
                     <div class="icon">🌍</div>
                     <h4>Request</h4>
                     <p>Raw IP + UserAgent</p>
                 </div>
-                <div class="lifecycle-divider">➜</div>
-                <div class="lifecycle-step"
-                    style="background: rgba(99,102,241,0.1); padding: 1rem; border-radius: 16px;">
+                <div class="pipe-divider">|</div>
+                <div class="pipe-step highlight">
                     <div class="icon">⚙️</div>
                     <h4>Processing</h4>
                     <p>IP masked to .0<br>Salted Hashing</p>
                 </div>
-                <div class="lifecycle-divider">➜</div>
-                <div class="lifecycle-step">
+                <div class="pipe-divider">|</div>
+                <div class="pipe-step">
                     <div class="icon">🗑️</div>
                     <h4>Discarded</h4>
                     <p>Raw IP deleted from memory</p>
                 </div>
-                <div class="lifecycle-divider">➜</div>
-                <div class="lifecycle-step">
+                <div class="pipe-divider">></div>
+                <div class="pipe-step">
                     <div class="icon">💾</div>
                     <h4>Storage</h4>
                     <p>Masked IP + Hash<br>Saved to DB</p>
@@ -482,86 +911,189 @@
             </div>
 
             <div class="feature-grid">
-                <div class="card">
-                    <h3>🍪 Zero Cookies</h3>
-                    <p>No <code>Set-Cookie</code> headers, no <code>localStorage</code>, and no "Cookie Consent" banners
-                        needed.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">cookies.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🍪 Zero Cookies</h3>
+                        <p>No <code>Set-Cookie</code> headers, no <code>localStorage</code>, and no "Cookie Consent"
+                            banners needed.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>🆔 Transient Hashing</h3>
-                    <p>We replace your IP with a <code>SHA256</code> hash salted daily. We track "Unique Views" without
-                        ever storing your real identity.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">hash.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🆔 Transient Hashing</h3>
+                        <p>We replace your IP with a <code>SHA256</code> hash salted daily. We track "Unique Views"
+                            without ever storing your real identity.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>🏠 Data Ownership</h3>
-                    <p>Self-hosted data. Your analytics never leave your infrastructure or get shared with big tech.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">ownership.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🏠 Data Ownership</h3>
+                        <p>Self-hosted data. Your analytics never leave your infrastructure or get shared with big
+                            tech.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>🤏 IP Masking</h3>
-                    <p>We only use your IP for initial Country lookup, then immediately mask it (e.g.
-                        <code>1.2.3.0</code>) before storage.
-                    </p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">mask.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🤏 IP Masking</h3>
+                        <p>We only use your IP for initial Country lookup, then immediately mask it (e.g.
+                            <code>1.2.3.0</code>) before storage.
+                        </p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h3>✅ Automated Guardrails</h3>
-                    <p>Our build pipeline includes <b>Fail-Safe Tests</b> that scan database queries to ensure raw IPs
-                        never leak into storage.</p>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">ci.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>✅ Automated Guardrails</h3>
+                        <p>Our build pipeline includes <b>Fail-Safe Tests</b> that scan database queries to ensure
+                            raw IPs never leak into storage.</p>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section id="quick-start" style="margin-top: 8rem;">
             <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>getting-started --fast</span>
                 <h2>Quick Start</h2>
                 <p>Get up and running in under 60 seconds.</p>
             </div>
-            <div style="max-width: 800px; margin: 0 auto;">
-                <h3>1. Installation</h3>
-                <div class="code-block">
-                    git clone https://github.com/harshankur/viewcounter.git<br>
-                    npm install
+            <div style="max-width: 700px; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem;">
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">1. install.sh</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="prompt-char">❯</span><span>git clone
+                                https://github.com/harshankur/viewcounter.git</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>npm install</span></div>
+                    </div>
                 </div>
-                <h3>2. Setup</h3>
-                <div class="code-block">
-                    npm run setup
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">2. setup.sh</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="prompt-char">❯</span><span>npm run setup</span></div>
+                    </div>
                 </div>
-                <h3>3. Launch</h3>
-                <div class="code-block">
-                    npm start
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">3. start.sh</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="prompt-char">❯</span><span>npm start</span></div>
+                    </div>
                 </div>
             </div>
         </section>
 
         <section id="api-reference" style="margin-top: 8rem;">
             <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>man api</span>
                 <h2>API Specification</h2>
                 <p>Explore the endpoints and response formats.</p>
             </div>
-            <!-- Redoc will sit here -->
-            <div id="api-docs"></div>
+            <div id="api-reference-window" class="term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">openapi.yaml</span>
+                </div>
+                <!-- Redoc will sit here -->
+                <div id="api-docs"></div>
+            </div>
         </section>
 
         <section id="debugging" style="margin-top: 8rem;">
             <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>tail -f debug.log</span>
                 <h2>Debugging & Tips</h2>
             </div>
-            <div class="card">
-                <h3>Check Server Readiness</h3>
-                <p>Use the <code>/health</code> endpoint to verify server and database connectivity. If returns 503,
-                    check your database credentials in <code>dbInfo.json</code>.</p>
-                <br>
-                <h3>Testing with Mocks</h3>
-                <p>Run <code>npm test</code> to execute 60+ tests using our custom mocking system. No real database
-                    required!</p>
-                <br>
-                <h3>View Persistent Data</h3>
-                <p>Run <code>PERSIST_TEST_DB=true npm test</code> to keep the test database for inspection.</p>
+            <div class="card term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">debug.log</span>
+                </div>
+                <div class="term-body">
+                    <h3>Check Server Readiness</h3>
+                    <p>Use the <code>/health</code> endpoint to verify server and database connectivity. If returns
+                        503, check your database credentials in <code>dbInfo.json</code>.</p>
+                    <br>
+                    <h3>Testing with Mocks</h3>
+                    <p>Run <code>npm test</code> to execute 60+ tests using our custom mocking system. No real
+                        database required!</p>
+                    <br>
+                    <h3>View Persistent Data</h3>
+                    <p>Run <code>PERSIST_TEST_DB=true npm test</code> to keep the test database for inspection.</p>
+                </div>
             </div>
         </section>
     </main>
 
     <footer>
-        <p>&copy; 2026 View Counter. Built with ❤️ for the Open Source community.</p>
+        <p><span class="prompt-char">❯</span> echo "Built with ❤️ for the Open Source community." &amp;&amp; echo
+            "© 2026 ViewCounter"<span class="footer-cursor"></span></p>
     </footer>
 
     <!-- Redoc for interactive API documentation -->
@@ -599,6 +1131,7 @@
         }
 
         function initRedoc(theme) {
+            if (typeof Redoc === 'undefined') return;
             const isDark = theme === 'dark';
             Redoc.init(
                 'openapi.yaml',
@@ -606,41 +1139,41 @@
                     theme: {
                         colors: {
                             primary: {
-                                main: '#6366f1'
+                                main: isDark ? '#3ddc84' : '#1f7a4a'
                             },
                             text: {
-                                primary: isDark ? '#f8fafc' : '#0f172a',
-                                secondary: isDark ? '#94a3b8' : '#475569'
+                                primary: isDark ? '#e8f6ec' : '#1b2a20',
+                                secondary: isDark ? '#7c9686' : '#5f6f63'
                             },
                             http: {
-                                get: '#22c55e',
-                                post: '#6366f1',
-                                put: '#f59e0b',
+                                get: isDark ? '#3ddc84' : '#1f7a4a',
+                                post: isDark ? '#ffb454' : '#b5590f',
+                                put: isDark ? '#5aa9e6' : '#1c6fa8',
                                 delete: '#ef4444',
                             }
                         },
                         typography: {
-                            fontFamily: 'Inter, sans-serif',
+                            fontFamily: "'IBM Plex Mono', monospace",
                             headings: {
-                                fontFamily: 'Outfit, sans-serif',
+                                fontFamily: "'JetBrains Mono', monospace",
                             },
                             code: {
-                                color: isDark ? '#e2e8f0' : '#475569',
-                                backgroundColor: isDark ? '#1e293b' : '#f1f5f9',
+                                color: isDark ? '#d7ffe6' : '#1b2a20',
+                                backgroundColor: isDark ? '#0d1310' : '#eae4d1',
                             }
                         },
                         sidebar: {
-                            backgroundColor: isDark ? '#111827' : '#f8fafc',
-                            textColor: isDark ? '#e2e8f0' : '#475569',
-                            activeTextColor: '#6366f1',
-                            activeBackgroundColor: isDark ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.05)',
+                            backgroundColor: isDark ? '#0a0f0c' : '#f3efe2',
+                            textColor: isDark ? '#c9e6d3' : '#5f6f63',
+                            activeTextColor: isDark ? '#3ddc84' : '#1f7a4a',
+                            activeBackgroundColor: isDark ? 'rgba(61, 220, 132, 0.1)' : 'rgba(31, 122, 74, 0.08)',
                         },
                         rightPanel: {
-                            backgroundColor: isDark ? '#0f172a' : '#ffffff',
-                            textColor: isDark ? '#f8fafc' : '#0f172a',
+                            backgroundColor: isDark ? '#0a0f0c' : '#ffffff',
+                            textColor: isDark ? '#e8f6ec' : '#1b2a20',
                         },
                         codeBlock: {
-                            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+                            backgroundColor: isDark ? '#0d1310' : '#f3efe2',
                         }
                     }
                 },
@@ -662,6 +1195,56 @@
 
         // Initial setup
         updateThemeUI(getTheme());
+
+        // Hero terminal: typed command + count-up counter
+        (function initHero() {
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const cmd = 'curl -s viewcounter.dev/registerView?appId=demo';
+            const typedEl = document.getElementById('hero-typed');
+            const cursorEl = document.getElementById('hero-cursor');
+            const outputEl = document.getElementById('hero-output');
+            const counterEl = document.getElementById('hero-counter');
+            const target = 1337042;
+
+            function countUp() {
+                if (reduceMotion) {
+                    counterEl.textContent = target.toLocaleString('en-US');
+                    return;
+                }
+                const duration = 1200;
+                const start = performance.now();
+                function frame(now) {
+                    const progress = Math.max(0, Math.min((now - start) / duration, 1));
+                    const eased = 1 - Math.pow(1 - progress, 3);
+                    counterEl.textContent = Math.floor(eased * target).toLocaleString('en-US');
+                    if (progress < 1) requestAnimationFrame(frame);
+                }
+                requestAnimationFrame(frame);
+            }
+
+            function revealOutput() {
+                cursorEl.style.display = 'none';
+                outputEl.classList.add('visible');
+                countUp();
+            }
+
+            if (reduceMotion) {
+                typedEl.textContent = cmd;
+                revealOutput();
+                return;
+            }
+
+            let i = 0;
+            const speed = 28;
+            const timer = setInterval(() => {
+                typedEl.textContent += cmd[i];
+                i++;
+                if (i >= cmd.length) {
+                    clearInterval(timer);
+                    setTimeout(revealOutput, 350);
+                }
+            }, speed);
+        })();
     </script>
 </body>
 
