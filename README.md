@@ -1,8 +1,9 @@
-# View Counter
+# ViewCounter
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blueviolet)](https://harshankur.github.io/viewcounter/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-61%20passing-success)](TEST_REPORT.md)
+[![CI](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml/badge.svg)](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-264%20passing-success)](TEST_REPORT.md)
 
 A comprehensive Node.js/Express analytics server for tracking website views with MySQL storage, featuring auto-database creation, advanced tracking, and rich analytics.
 
@@ -20,9 +21,9 @@ Visit our [Interactive Documentation](https://harshankur.github.io/viewcounter/)
 graph LR
     A[Visitor Request] --> B{Privacy Filter}
     B -->|Transient| C[Geo-lookup]
-    B -->|Transient| D[Daily Salting]
+    B -->|Transient| D[Keyed with server secret]
     C --> E[Masked IP: 1.2.3.0]
-    D --> F[SHA256 Hash]
+    D --> F[HMAC-SHA256, rotating]
     E --> G[(MySQL Database)]
     F --> G
     B -.->|Discarded| H[Raw IP Address]
@@ -31,10 +32,11 @@ graph LR
 
 ### 🧬 What happens to the IP?
 We believe in total transparency regarding your visitors' data:
-1. **Transient Use Only**: The raw IP address is used only in memory for the initial Country lookup and for generating the daily unique visitor hash.
-2. **Immediate Masking**: Before being saved to disk, the IP is masked (IPv4 last octet is zeroed).
-3. **No Storage**: The raw, identifiable IP address **never** touches the database disk.
-4. **Automated Guards**: Our build pipeline includes fail-safe regex tests to ensure no code changes can accidentally start saving raw IPs.
+1. **Transient Use Only**: The raw IP address is used only in memory, for the country lookup and for deriving the visitor hash. It is never written to the database, and log lines record the *masked* address.
+2. **Immediate Masking**: Before being saved, the IP is masked (IPv4 last octet zeroed; IPv6 interface identifier zeroed).
+3. **Keyed, Not Just Hashed**: The visitor identifier is an HMAC-SHA-256 keyed with a 32-byte server secret generated on first run and stored at mode `0600`. This matters: an *unkeyed* hash of an IP is reversible by exhausting the 2^32 IPv4 space, which takes about an hour on one CPU core. Without the secret, that search is infeasible.
+4. **Rotating**: The hash also mixes in a time window (`UNIQUE_VISITOR_WINDOW_HOURS`), so the same visitor hashes differently after each window and their visits cannot be linked over time.
+5. **Automated Guards**: [`tests/privacyFailSafe.test.js`](tests/privacyFailSafe.test.js) asserts that no raw IP or User-Agent reaches either the bound parameters *or* the SQL text of any statement, and that the hash is genuinely keyed. CI runs it on every push, so a change that started storing raw IPs would fail the build.
 
 ## ✨ Features
 
@@ -113,12 +115,23 @@ npm start
 }
 ```
 
-### Environment Variables (optional)
-See `.env.example` for all options. Key settings:
-- `DB_MODE`: `connect` or `create`
-- `PORT`: Server port (default: 3030)
-- `RATE_LIMIT_MAX`: Max requests per minute (default: 100)
-- `UNIQUE_VISITOR_WINDOW_HOURS`: Duplicate prevention window (default: 24, 0 to disable)
+### Environment Variables
+See [`.env.example`](.env.example) for the full surface with prose on each one.
+
+**Required in production** — the server refuses to start without these rather
+than running on a guessable default:
+- `DB_USER` / `DB_PASSWORD`: refuses to boot while still `root` with an empty password
+- `DB_NAME`: database to write into
+- `ALLOWED_APP_IDS` (or `allowed.json`): the placeholder `example_app` is rejected
+- `CORS_ORIGINS`: browser origins allowed to call the write endpoints
+
+**Recommended**:
+- `READ_API_KEYS`: comma-separated keys for the analytics read endpoints. Unset means the read API is disabled.
+- `TRUST_PROXY`: hop count or CIDR list. **Never set this to `true`** — trusting every hop lets any caller forge their own IP via `X-Forwarded-For`, which fakes geolocation, inflates unique-visitor counts, and bypasses rate limiting. `true` and `*` are downgraded to one hop with a warning. Your proxy must set `X-Forwarded-For`; `X-Real-IP` alone is not read.
+- `VISITOR_SECRET_PATH` / `VISITOR_SECRET`: where the visitor-hash secret lives, or the value itself.
+
+**Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
+`RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`.
 
 ## API Endpoints
 
@@ -162,6 +175,21 @@ Content-Type: application/json
 ```
 
 ### 📈 Analytics
+
+> **These endpoints require authentication.** They return your analytics data,
+> so every one of them expects a valid key in the `x-api-key` header. Configure
+> keys via `READ_API_KEYS` (comma-separated, minimum 32 characters each). With
+> none configured the read API returns `503` — it fails closed rather than
+> serving your data to anyone who asks.
+>
+> ```bash
+> curl -H "x-api-key: $VIEWCOUNTER_KEY" https://your-server.com/stats/blog
+> ```
+>
+> The tracking endpoints above stay public by design: a browser on your site has
+> to be able to reach them. They are bounded by validation, rate limiting, and
+> per-app origin binding instead.
+
 
 #### Get Statistics
 ```bash
@@ -302,17 +330,21 @@ GET /views/:appId?limit=10&offset=0
 
 #### List Apps
 ```bash
-GET /apps
+GET /apps                       # requires x-api-key; filtered to the key's scope
 ```
+
+#### Register an App
+```bash
+POST /apps                      # requires an ADMIN x-api-key
+Content-Type: application/json
+
+{ "appId": "newcustomer", "origins": ["https://newcustomer.example"] }
+```
+Creates the table and adds the app to the live allowlist without a restart.
 
 #### Health Check
 ```bash
-GET /health
-```
-
-#### Test IP Detection
-```bash
-GET /ip
+GET /health                     # public; reports liveness only
 ```
 
 ## Deployment
@@ -384,12 +416,205 @@ This makes ViewCounter not just "Privacy-First" by design, but **Privacy-Guarant
 
 ## Security Features
 
-- ✅ SQL injection prevention (prepared statements)
-- ✅ Rate limiting (100 req/min default)
-- ✅ Security headers (Helmet.js)
-- ✅ Input validation (express-validator)
-- ✅ IP validation
-- ✅ Duplicate view prevention
+**Trust model.** The two write endpoints (`/registerView`, `/event`) are public
+because a browser on your site must be able to reach them. Everything that
+*reads* analytics is authenticated.
+
+- ✅ **Authenticated, scoped read API** — every analytics endpoint requires `x-api-key`, compared in constant time, and each key is authorized against the specific `appId` requested. Fails closed when unconfigured.
+- ✅ **Separate admin tier** — provisioning apps uses its own credential; a read key cannot provision and an admin key cannot read.
+- ✅ **Per-tenant rate limits** — an `appId`-keyed budget alongside the per-IP limit.
+- ✅ **Keyed visitor hashing** — HMAC-SHA-256 with a persisted 32-byte server secret, rotating per window, so stored hashes are not reversible to an IP.
+- ✅ **SQL injection prevention** — every value is a bound parameter; the only interpolated identifier is `appId`, gated by the allowlist.
+- ✅ **Explicit CORS allowlist** — no wildcard, and writes can be bound to registered origins per app.
+- ✅ **Proxy-aware IP derivation** — client-supplied forwarding headers are not trusted unless `TRUST_PROXY` says so.
+- ✅ **Bounded input** — length caps matching every column width, integer ranges on `limit`/`days`/`offset`, a 16 kB body cap and a 4 kB `eventData` cap.
+- ✅ **Resource guards** — finite pool queue, per-statement timeout, rate limiting.
+- ✅ **No error leakage** — failures return a request id; the detail goes only to the server log.
+- ✅ **Security headers** (Helmet.js) and `Cache-Control: no-store` on all analytics responses.
+- ✅ **Fail-fast config validation** — insecure defaults stop the boot rather than being silently accepted.
+- ✅ **Adversarial regression suite** — [`tests/security.test.js`](tests/security.test.js) covers header spoofing, auth bypass, injection-shaped input, oversized payloads, and prototype pollution.
+
+Report a vulnerability through [private advisory reporting](https://github.com/harshankur/viewcounter/security/advisories/new), not a public issue. See [SECURITY.md](SECURITY.md).
+
+## Usage Patterns
+
+### The deciding question: who holds the visitor's IP?
+
+This determines whether an integration works or silently produces garbage.
+
+**The browser calls ViewCounter directly.** It sees the real visitor IP, so
+masking, geolocation, and the visitor hash all work. This is the intended path.
+
+**Your server calls on the visitor's behalf** (SSR, a proxy route, a backend
+hook). ViewCounter sees *your server's* address, so every visitor hashes
+identically: unique visitors collapses to 1 and geo reports your datacenter
+forever. Total views still count. If you must do this, forward the real address
+and tell ViewCounter to believe you:
+
+```
+X-Forwarded-For: <real visitor IP>     # set by your code
+TRUST_PROXY=1                          # otherwise the header is ignored
+```
+
+**A process with no visitor at all** (cron, CLI, worker, webhook) should use
+`POST /event`. Custom events are never deduplicated, so "unique visitors" is
+simply not a meaningful column for those rows.
+
+### Self-hosted blogs
+
+One snippet in the layout every page includes.
+
+| Platform | Where it goes |
+|---|---|
+| Hugo, Jekyll, Eleventy, Astro | `baseof.html` / `_layouts/default.html` / base layout |
+| Ghost | Settings → Code injection → Site Footer |
+| WordPress | `wp_footer` hook in the theme, or a small plugin |
+| Docusaurus, MkDocs | theme footer partial |
+| Next.js, Nuxt, SvelteKit | root layout, **plus a router hook** |
+
+Static generators are the easy case: every navigation is a real page load, so
+one fetch in the layout is complete coverage.
+
+**SPAs are the trap.** Client-side routing fires no page load, so you record the
+entry page and nothing else. Track again on route change:
+
+```js
+router.afterEach(() => track());        // Vue / Nuxt
+useEffect(() => track(), [pathname]);   // Next.js app router
+```
+
+Run one instance for all your sites — one `appId` each, each with its own table
+and its own origin list.
+
+## Multi-Tenancy
+
+Each `appId` is a tenant: its own table, its own origin allowlist, its own
+request budget, and its own read credentials.
+
+**`appId` is not a secret.** It travels in a URL the browser fetches, so anyone
+can read it from your page source. What stops a stranger writing into your table
+is the `origins` list, not the ID being unguessable. Configure origins per app.
+
+### Scoped read keys
+
+A key maps to the apps it may read. Keys in `READ_API_KEYS` are unscoped (they
+read everything, which is what you want when all the apps are yours). Scoped
+keys live in `allowed.json`:
+
+```json
+{
+  "appId": ["acme", "globex"],
+  "origins": {
+    "acme":   ["https://acme.example"],
+    "globex": ["https://globex.example"]
+  },
+  "apiKeys": {
+    "<32+ char key for acme>":   ["acme"],
+    "<32+ char key for globex>": ["globex"],
+    "<32+ char key for you>":    "*"
+  }
+}
+```
+
+Acme's key on `GET /stats/globex` returns **403**. `GET /apps` returns only the
+apps in the presented key's scope, so the listing cannot be used to discover
+which other tenants exist. A nonexistent app returns the same 403 as an
+out-of-scope one, for the same reason.
+
+### Provisioning a tenant at runtime
+
+`POST /apps` creates the app's table, records it, and adds it to the live
+allowlist — no restart, no config edit. It requires an **admin** key
+(`ADMIN_API_KEYS`), which is a separate tier: a read key cannot provision, and
+an admin key cannot read analytics.
+
+```bash
+curl -X POST https://your-server.com/apps \
+  -H "x-api-key: $VIEWCOUNTER_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"appId": "newcustomer", "origins": ["https://newcustomer.example"]}'
+```
+
+Registered apps live in an `_apps` table and are reloaded on every boot, so they
+survive restarts. Re-registering is idempotent.
+
+The `appId` becomes a MySQL table name, so it is restricted to 1–64 characters
+of letters, digits, underscore, and hyphen, and may not start with an underscore
+(reserved for internal tables). Anything else is rejected with 422.
+
+### Per-tenant request budgets
+
+Two independent limits apply to writes:
+
+- `RATE_LIMIT_MAX` — per client IP. The single-abuser backstop.
+- `APP_RATE_LIMIT_MAX` — per `appId`. Stops one tenant consuming the budget
+  everyone else on the instance depends on. Keyed on `appId` alone, so it cannot
+  be bypassed by rotating addresses. Set `0` to disable for single-tenant use.
+
+### What is still yours to build
+
+Tenancy here is data isolation and quota, not a billing system. There is no
+usage metering, no plan enforcement, and no self-serve signup flow — `POST /apps`
+is an admin action you would call from your own onboarding code.
+
+## Deployment Modes
+
+ViewCounter can run three ways. All three share the same route layer
+([`routes/analytics.js`](routes/analytics.js)), so behaviour is identical.
+
+### 1. Standalone server
+
+The default. Runs its own Express app on its own port.
+
+```bash
+npm start                       # listens on PORT (default 3030)
+```
+
+### 2. Mounted as Express middleware
+
+Mount the router into an application you already have, under any path prefix.
+Useful when you would rather not run and reverse-proxy a second service.
+
+```js
+const express = require('express');
+const { createAnalyticsRouter, DatabaseManager } = require('viewcounter');
+
+const app = express();
+app.use(express.json({ limit: '16kb' }));
+
+const dbManager = new DatabaseManager({
+  mode: 'connect',
+  host: '127.0.0.1',
+  port: 3306,
+  database: 'viewcounterdb',
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+});
+await dbManager.initialize(['blog']);
+
+app.use('/analytics', createAnalyticsRouter({
+  dbManager,
+  config: {
+    allowed: { appId: ['blog'], deviceSize: ['small', 'medium', 'large'], origins: {} },
+    auth:    { readApiKeys: [process.env.VIEWCOUNTER_KEY] },
+    privacy: { visitorSecret: process.env.VISITOR_SECRET },
+    server:  { uniqueVisitorWindowHours: 24 },
+  },
+}));
+```
+
+Endpoints then live under the prefix — `POST /analytics/event`,
+`GET /analytics/stats/blog`, and so on.
+
+Two things the host application owns in this mode, because the router does not
+install them itself: `helmet()` and the CORS allowlist, and `trust proxy`. Set
+`app.set('trust proxy', <hop count>)` — never `true`, or callers can forge
+their own IP through `X-Forwarded-For`.
+
+### 3. Browser client
+
+There is no published client package yet; the snippets below are the
+integration surface. See [Client-Side Integration](#client-side-integration).
 
 ## Client-Side Integration
 
@@ -403,9 +628,11 @@ This makes ViewCounter not just "Privacy-First" by design, but **Privacy-Guarant
 
 ### Enhanced Tracking
 ```javascript
-// Generate session ID (store in sessionStorage)
-const sessionId = sessionStorage.getItem('sessionId') || 
-  Math.random().toString(36).substring(2);
+// Generate a session ID (store in sessionStorage).
+// Use crypto.randomUUID(), not Math.random(): Math.random() is not a CSPRNG,
+// its output is short and predictable, and collisions merge two visitors'
+// sessions into one.
+const sessionId = sessionStorage.getItem('sessionId') || crypto.randomUUID();
 sessionStorage.setItem('sessionId', sessionId);
 
 // Track page view with full context

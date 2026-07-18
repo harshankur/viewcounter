@@ -9,13 +9,38 @@ info:
     - **Privacy-First**: No cookies, lightweight tracking.
     - **Secure**: Helmet, rate-limiting, and SQL injection protection.
     - **Rich Analytics**: Page tracking, referrer analysis, user agent parsing.
-  version: 2.1.0
+
+    ### Authentication
+    The tracking endpoints (`/registerView`, `/event`) are public — a browser on
+    your site must be able to reach them. Every **analytics read** endpoint
+    requires an API key in the `x-api-key` header. Configure keys via the
+    `READ_API_KEYS` environment variable; with none set the read API returns
+    503 rather than serving data unauthenticated.
+
+    Keys can be **scoped** to specific apps via `apiKeys` in `allowed.json`. A
+    key used against an app outside its scope receives 403, and `GET /apps`
+    lists only the apps that key may read.
+
+    Provisioning (`POST /apps`) uses a separate **admin** credential
+    (`ADMIN_API_KEYS`): a read key cannot provision, and an admin key cannot
+    read analytics.
+  version: 3.0.0
   contact:
     name: Harsh Ankur
     url: https://github.com/harshankur/viewcounter
 servers:
   - url: http://localhost:3030
     description: Local development server
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+      description: |
+        Read-API credential, compared in constant time. Minimum 32 characters.
+        Several may be configured so one consumer can be revoked independently.
+
 paths:
   /registerView:
     get:
@@ -106,6 +131,8 @@ paths:
 
   /stats/{appId}:
     get:
+      security:
+        - ApiKeyAuth: []
       summary: Get aggregated statistics
       parameters:
         - name: appId
@@ -138,6 +165,8 @@ paths:
 
   /trends/{appId}:
     get:
+      security:
+        - ApiKeyAuth: []
       summary: Get time-based trends
       parameters:
         - name: appId
@@ -162,6 +191,8 @@ paths:
 
   /referrers/{appId}:
     get:
+      security:
+        - ApiKeyAuth: []
       summary: Get top traffic sources
       parameters:
         - name: appId
@@ -175,6 +206,8 @@ paths:
 
   /browsers/{appId}:
     get:
+      security:
+        - ApiKeyAuth: []
       summary: Get browser/OS breakdown
       parameters:
         - name: appId
@@ -188,6 +221,8 @@ paths:
 
   /pages/{appId}:
     get:
+      security:
+        - ApiKeyAuth: []
       summary: Get most viewed pages
       parameters:
         - name: appId
@@ -198,6 +233,53 @@ paths:
       responses:
         '200':
           description: Success
+
+  /apps:
+    get:
+      summary: List apps visible to the presented key
+      description: Returns only the apps within the presented key's scope.
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: Apps in scope
+        '401':
+          description: Missing or invalid API key
+    post:
+      summary: Provision a new app
+      description: |
+        Creates the app's table, records it in the registry, and adds it to the
+        live allowlist without a restart. Requires an admin key. Idempotent.
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appId]
+              properties:
+                appId:
+                  type: string
+                  pattern: '^[A-Za-z0-9_-]{1,64}$'
+                  description: Becomes a table name. May not start with an underscore.
+                  example: newcustomer
+                origins:
+                  type: array
+                  maxItems: 20
+                  items:
+                    type: string
+                    format: uri
+                  description: Site origins permitted to write to this app.
+                  example: ['https://newcustomer.example']
+      responses:
+        '200':
+          description: App registered (or already present)
+        '401':
+          description: Missing or invalid admin key
+        '422':
+          description: Invalid appId or origins
 
   /health:
     get:

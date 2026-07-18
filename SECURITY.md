@@ -6,12 +6,18 @@ Currently, the following versions of View Counter are supported with security up
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.0.x   | :white_check_mark: |
-| < 2.0   | :x:                |
+| 3.0.x   | :white_check_mark: |
+| < 3.0   | :x:                |
+
+Versions before 3.0 are not supported: the analytics read endpoints were
+unauthenticated and visitor hashes were derived without a server secret, which
+made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
 ## Reporting a Vulnerability
 
-We take the security of this project seriously. If you believe you have found a security vulnerability, please report it to us by [emailing your direct email].
+We take the security of this project seriously. If you believe you have found a security vulnerability, **please do not open a public issue.**
+
+Report it privately through GitHub's [private vulnerability reporting](https://github.com/harshankur/viewcounter/security/advisories/new). That opens a draft advisory visible only to you and the maintainers, and lets us coordinate a fix and disclosure in one place.
 
 Please include:
 - The version of the project you are using.
