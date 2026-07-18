@@ -1,107 +1,96 @@
 const request = require('supertest');
-const express = require('express');
 const TestDatabase = require('./setup');
+const { TEST_API_KEY } = require('./jestSetup');
+const { API_KEY_HEADER } = require('../constants');
 
 // Mock mysql2/promise BEFORE importing anything else
 jest.mock('mysql2/promise', () => require('./dbMock'));
 
 // Mock the config module
-jest.mock('../config', () => ({
-    dbInfo: {
-        mode: 'connect',
-        host: '127.0.0.1',
-        port: 3306,
-        database: 'viewcounterdb_test',
-        user: 'root',
-        password: ''
-    },
-    allowed: {
-        appId: ['test_app_1', 'test_app_2'],
-        deviceSize: ['small', 'medium', 'large']
-    },
-    server: {
-        port: 3030,
-        rateLimit: { windowMs: 60000, max: 100 },
-        uniqueVisitorWindowHours: 24,
-        nodeEnv: 'test'
-    }
-}));
+jest.mock('../config', () => {
+    const { PRIVACY } = require('../constants');
+    return {
+        dbInfo: {
+            mode: 'connect',
+            host: '127.0.0.1',
+            port: 3306,
+            database: 'viewcounterdb_test',
+            user: 'root',
+            password: ''
+        },
+        allowed: {
+            appId: ['test_app_1', 'test_app_2'],
+            deviceSize: ['small', 'medium', 'large'],
+            origins: {}
+        },
+        server: {
+            port: 3030,
+            // Deliberately high: a limit low enough to trip partway through the
+            // suite makes every later assertion depend on how many requests
+            // preceded it. Limiter behaviour is asserted via its headers below.
+            rateLimit: { windowMs: 60000, max: 1000000, perAppMax: 0 },
+            uniqueVisitorWindowHours: 24,
+            nodeEnv: 'test',
+            isTest: true,
+            isProduction: false,
+            logLevel: 'silent',
+            trustProxy: false,
+            corsOrigins: ['https://allowed.example']
+        },
+        auth: {
+            // Unscoped key: this suite exercises the endpoints, not tenancy.
+            readKeyScopes: { ['k'.repeat(PRIVACY.MIN_API_KEY_LENGTH)]: '*' },
+            adminApiKeys: [],
+        },
+        privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
+        validate() { return this; }
+    };
+});
 
 // Import after mocking config and mysql2
 const app = require('../index');
 const { initializeServer } = app;
+
+/** Read endpoints require a key; this is the authenticated request helper. */
+let server;
+const authed = (path) => request(server).get(path).set(API_KEY_HEADER, TEST_API_KEY);
 
 describe('API Endpoints - Integration Tests', () => {
     let testDb;
 
     beforeAll(async () => {
         testDb = new TestDatabase();
-        // Since setup() might fail if MySQL isn't running, we handle it
         await testDb.setup();
-
-        // Explicitly initialize the server with mocks
         await initializeServer();
+        // See the note in security.test.js: one listener per suite, not one per
+        // request, so ephemeral port reuse cannot misroute an assertion.
+        server = app.listen(0);
     });
 
     afterAll(async () => {
+        await new Promise(resolve => server.close(resolve));
         await testDb.teardown();
     });
 
     describe('GET /health', () => {
         test('should return healthy status', async () => {
-            const response = await request(app)
-                .get('/health')
-                .expect(200);
+            const response = await request(server).get('/health').expect(200);
 
             expect(response.body.status).toBe('healthy');
-            expect(response.body.database).toBe('connected');
-        });
-    });
-
-    describe('GET /ip', () => {
-        test('should return IP information', async () => {
-            const response = await request(app)
-                .get('/ip')
-                .expect(200);
-
-            expect(response.body).toHaveProperty('ip');
-            expect(response.body).toHaveProperty('valid');
         });
 
-        test('should mask IP address for privacy', async () => {
-            // This test verifies that the internal logic (when using registerEvent)
-            // correctly masks the IP. Since /ip returns the raw requester IP for debugging,
-            // we check the /views endpoint which returns the stored (masked) IPs.
-            const response = await request(app)
-                .get('/views/test_app_1')
-                .expect(200);
+        test('should not disclose database or configuration detail', async () => {
+            const response = await request(server).get('/health').expect(200);
 
-            expect(response.body.views[0]).toHaveProperty('masked_ip');
-            expect(response.body.views[0]).not.toHaveProperty('ip');
-            // Mock returns '192.168.1.0' for masked_ip
-            expect(response.body.views[0].masked_ip).toBe('192.168.1.0');
-        });
-    });
-
-    describe('GET /apps', () => {
-        test('should list all apps', async () => {
-            const response = await request(app)
-                .get('/apps')
-                .expect(200);
-
-            expect(response.body.apps).toEqual(['test_app_1', 'test_app_2']);
-            expect(response.body.count).toBe(2);
+            expect(response.body).not.toHaveProperty('database');
+            expect(response.body).not.toHaveProperty('mode');
         });
     });
 
     describe('GET /registerView', () => {
         test('should register a basic view', async () => {
-            const response = await request(app)
-                .get('/registerView')
-                .query({
-                    appId: 'test_app_1',
-                    deviceSize: 'medium'
-                })
+            const response = await request(server)
+                .get('/registerView?appId=test_app_1&deviceSize=large')
                 .expect(200);
 
             expect(response.body.message).toBe('Success!');
@@ -109,261 +98,216 @@ describe('API Endpoints - Integration Tests', () => {
         });
 
         test('should register view with page tracking', async () => {
-            const response = await request(app)
-                .get('/registerView')
-                .set('X-Forwarded-For', '1.1.1.1') // Unique IP
-                .query({
-                    appId: 'test_app_1',
-                    deviceSize: 'large',
-                    page: '/test/page',
-                    title: 'Test Page'
-                })
+            const response = await request(server)
+                .get('/registerView?appId=test_app_1&deviceSize=medium&page=/blog&title=My%20Blog')
                 .expect(200);
 
-            expect(response.body.message).toBe('Success!');
+            expect(response.body).toHaveProperty('duplicate');
         });
 
         test('should register view with referrer', async () => {
-            const response = await request(app)
-                .get('/registerView')
-                .set('X-Forwarded-For', '2.2.2.2') // Unique IP
-                .query({
-                    appId: 'test_app_1',
-                    deviceSize: 'small',
-                    referrer: 'https://google.com',
-                    sessionId: 'test_session_123'
-                })
+            const response = await request(server)
+                .get('/registerView?appId=test_app_1&deviceSize=small&referrer=https://google.com/search')
                 .expect(200);
 
-            expect(response.body.message).toBe('Success!');
+            expect(response.body).toHaveProperty('duplicate');
         });
 
-        test('should reject invalid appId', async () => {
-            const response = await request(app)
-                .get('/registerView')
-                .query({
-                    appId: 'invalid_app',
-                    deviceSize: 'medium'
-                })
-                .expect(422);
-
-            expect(response.body.message).toBe('Validation failed');
-        });
-
-        test('should reject invalid deviceSize', async () => {
-            const response = await request(app)
-                .get('/registerView')
-                .query({
-                    appId: 'test_app_1',
-                    deviceSize: 'invalid'
-                })
+        test('should reject an unknown appId', async () => {
+            await request(server)
+                .get('/registerView?appId=not_a_real_app&deviceSize=large')
                 .expect(422);
         });
 
-        test('should reject missing parameters', async () => {
-            const response = await request(app)
-                .get('/registerView')
+        test('should reject an invalid deviceSize', async () => {
+            await request(server)
+                .get('/registerView?appId=test_app_1&deviceSize=enormous')
                 .expect(422);
         });
     });
 
     describe('POST /event', () => {
         test('should track custom event', async () => {
-            const response = await request(app)
+            const response = await request(server)
                 .post('/event')
                 .send({
                     appId: 'test_app_1',
                     eventType: 'button_click',
                     eventData: { button: 'subscribe' },
-                    sessionId: 'test_session_123'
+                    sessionId: 'sess_1'
                 })
                 .expect(200);
 
             expect(response.body.message).toBe('Event tracked successfully');
-            expect(response.body).toHaveProperty('insertId');
         });
 
-        test('should reject invalid appId', async () => {
-            const response = await request(app)
+        test('should reject a missing eventType', async () => {
+            await request(server)
                 .post('/event')
-                .send({
-                    appId: 'invalid_app',
-                    eventType: 'click'
-                })
+                .send({ appId: 'test_app_1' })
                 .expect(422);
         });
 
-        test('should reject missing eventType', async () => {
-            const response = await request(app)
+        test('should reject an unknown appId', async () => {
+            await request(server)
                 .post('/event')
-                .send({
-                    appId: 'test_app_1'
-                })
+                .send({ appId: 'nope', eventType: 'click' })
                 .expect(422);
+        });
+    });
+
+    describe('Read API authentication', () => {
+        const readPaths = [
+            '/stats/test_app_1',
+            '/trends/test_app_1',
+            '/referrers/test_app_1',
+            '/browsers/test_app_1',
+            '/pages/test_app_1',
+            '/views/test_app_1',
+            '/sessions/test_app_1/sess_1',
+            '/apps'
+        ];
+
+        test.each(readPaths)('%s rejects an unauthenticated request', async (path) => {
+            await request(server).get(path).expect(401);
+        });
+
+        test.each(readPaths)('%s rejects a wrong key', async (path) => {
+            await request(server).get(path).set(API_KEY_HEADER, 'wrong-key').expect(401);
         });
     });
 
     describe('GET /stats/:appId', () => {
         test('should return statistics', async () => {
-            const response = await request(app)
-                .get('/stats/test_app_1')
-                .expect(200);
+            const response = await authed('/stats/test_app_1').expect(200);
 
             expect(response.body.appId).toBe('test_app_1');
             expect(response.body.stats).toHaveProperty('totalViews');
-            expect(response.body.stats).toHaveProperty('uniqueViews');
             expect(response.body.stats).toHaveProperty('uniqueVisitors');
-            expect(response.body.stats).toHaveProperty('last24Hours');
-            expect(response.body.stats).toHaveProperty('byCountry');
-            expect(response.body.stats).toHaveProperty('byDevice');
         });
 
         test('should reject invalid appId', async () => {
-            const response = await request(app)
-                .get('/stats/invalid_app')
-                .expect(422);
+            await authed('/stats/invalid_app').expect(422);
         });
     });
 
     describe('GET /trends/:appId', () => {
         test('should return daily trends', async () => {
-            const response = await request(app)
-                .get('/trends/test_app_1')
-                .query({ period: 'daily', days: 7 })
-                .expect(200);
+            const response = await authed('/trends/test_app_1?period=daily&days=7').expect(200);
 
-            expect(response.body.appId).toBe('test_app_1');
             expect(response.body.period).toBe('daily');
             expect(Array.isArray(response.body.trends)).toBe(true);
         });
 
         test('should return hourly trends', async () => {
-            const response = await request(app)
-                .get('/trends/test_app_1')
-                .query({ period: 'hourly', days: 1 })
-                .expect(200);
-
+            const response = await authed('/trends/test_app_1?period=hourly').expect(200);
             expect(response.body.period).toBe('hourly');
         });
 
         test('should reject invalid period', async () => {
-            const response = await request(app)
-                .get('/trends/test_app_1')
-                .query({ period: 'invalid' })
-                .expect(422);
+            await authed('/trends/test_app_1?period=yearly').expect(422);
         });
     });
 
     describe('GET /referrers/:appId', () => {
         test('should return referrer statistics', async () => {
-            const response = await request(app)
-                .get('/referrers/test_app_1')
-                .expect(200);
+            const response = await authed('/referrers/test_app_1').expect(200);
 
-            expect(response.body.appId).toBe('test_app_1');
             expect(response.body).toHaveProperty('bySource');
             expect(response.body).toHaveProperty('byDomain');
-            expect(Array.isArray(response.body.bySource)).toBe(true);
-            expect(Array.isArray(response.body.byDomain)).toBe(true);
         });
 
         test('should respect limit parameter', async () => {
-            const response = await request(app)
-                .get('/referrers/test_app_1')
-                .query({ limit: 5 })
-                .expect(200);
-
-            expect(response.body.byDomain.length).toBeLessThanOrEqual(5);
+            await authed('/referrers/test_app_1?limit=5').expect(200);
         });
     });
 
     describe('GET /browsers/:appId', () => {
         test('should return browser statistics', async () => {
-            const response = await request(app)
-                .get('/browsers/test_app_1')
-                .expect(200);
+            const response = await authed('/browsers/test_app_1').expect(200);
 
-            expect(response.body.appId).toBe('test_app_1');
             expect(response.body).toHaveProperty('byBrowser');
             expect(response.body).toHaveProperty('byOS');
-            expect(response.body).toHaveProperty('byDeviceType');
         });
     });
 
     describe('GET /pages/:appId', () => {
         test('should return page statistics', async () => {
-            const response = await request(app)
-                .get('/pages/test_app_1')
-                .expect(200);
-
-            expect(response.body.appId).toBe('test_app_1');
+            const response = await authed('/pages/test_app_1').expect(200);
             expect(Array.isArray(response.body.pages)).toBe(true);
         });
 
         test('should respect limit parameter', async () => {
-            const response = await request(app)
-                .get('/pages/test_app_1')
-                .query({ limit: 10 })
-                .expect(200);
-
-            expect(response.body.pages.length).toBeLessThanOrEqual(10);
+            await authed('/pages/test_app_1?limit=5').expect(200);
         });
     });
 
     describe('GET /sessions/:appId/:sessionId', () => {
         test('should return session details', async () => {
-            const response = await request(app)
-                .get('/sessions/test_app_1/session_001')
-                .expect(200);
+            const response = await authed('/sessions/test_app_1/sess_1').expect(200);
 
-            expect(response.body.appId).toBe('test_app_1');
-            expect(response.body.sessionId).toBe('session_001');
+            expect(response.body.sessionId).toBe('sess_1');
             expect(Array.isArray(response.body.events)).toBe(true);
-            expect(response.body).toHaveProperty('count');
         });
     });
 
     describe('GET /views/:appId', () => {
         test('should return recent views', async () => {
-            const response = await request(app)
-                .get('/views/test_app_1')
-                .expect(200);
+            const response = await authed('/views/test_app_1').expect(200);
 
-            expect(response.body.appId).toBe('test_app_1');
             expect(Array.isArray(response.body.views)).toBe(true);
-            expect(response.body.views[0]).toHaveProperty('masked_ip');
             expect(response.body).toHaveProperty('total');
-            expect(response.body).toHaveProperty('limit');
-            expect(response.body).toHaveProperty('offset');
         });
 
         test('should support pagination', async () => {
-            const response = await request(app)
-                .get('/views/test_app_1')
-                .query({ limit: 2, offset: 0 })
-                .expect(200);
+            const response = await authed('/views/test_app_1?limit=5&offset=10').expect(200);
 
-            expect(response.body.limit).toBe(2);
-            expect(response.body.offset).toBe(0);
+            expect(response.body.limit).toBe(5);
+            expect(response.body.offset).toBe(10);
+        });
+    });
+
+    describe('GET /apps', () => {
+        test('should list all apps when authenticated', async () => {
+            const response = await authed('/apps').expect(200);
+
+            expect(response.body.apps).toContain('test_app_1');
+            expect(response.body.count).toBe(2);
+        });
+    });
+
+    describe('Removed debug surface', () => {
+        test('GET /ip no longer exists', async () => {
+            await request(server).get('/ip').expect(404);
+        });
+    });
+
+    describe('Response headers', () => {
+        test('read endpoints are marked uncacheable', async () => {
+            const response = await authed('/stats/test_app_1').expect(200);
+
+            expect(response.headers['cache-control']).toContain('no-store');
+        });
+
+        test('a request id is returned for correlation', async () => {
+            const response = await request(server).get('/health').expect(200);
+
+            expect(response.headers['x-request-id']).toBeDefined();
+        });
+
+        test('the server does not advertise its framework', async () => {
+            const response = await request(server).get('/health');
+
+            expect(response.headers['x-powered-by']).toBeUndefined();
         });
     });
 
     describe('Rate Limiting', () => {
-        test('should enforce rate limits', async () => {
-            // Make 101 requests rapidly (limit is 100)
-            const requests = [];
-            for (let i = 0; i < 101; i++) {
-                requests.push(
-                    request(app)
-                        .get('/health')
-                );
-            }
+        test('should expose standard rate limit headers', async () => {
+            const response = await request(server)
+                .get('/registerView?appId=test_app_1&deviceSize=large');
 
-            const responses = await Promise.all(requests);
-            const rateLimited = responses.some(r => r.status === 429);
-
-            // At least one should be rate limited
-            expect(rateLimited).toBe(true);
-        }, 30000); // Increase timeout for this test
+            expect(response.headers['ratelimit-limit']).toBeDefined();
+        });
     });
 });

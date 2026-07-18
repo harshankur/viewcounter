@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS `{{APP_ID}}` (
     -- Referrer tracking
     `referrer` VARCHAR(500) DEFAULT NULL,
     `referrer_domain` VARCHAR(200) DEFAULT NULL,
-    
+    `source_type` VARCHAR(20) DEFAULT NULL,  -- direct, search, social, email, campaign, referral
+
     -- User agent parsing
     `browser` VARCHAR(50) DEFAULT NULL,
     `browser_version` VARCHAR(20) DEFAULT NULL,
@@ -60,6 +61,7 @@ CREATE TABLE IF NOT EXISTS `{{APP_ID}}` (
     INDEX `idx_devicesize` (`devicesize`),
     INDEX `idx_page_path` (`page_path`(255)),
     INDEX `idx_referrer_domain` (`referrer_domain`),
+    INDEX `idx_source_type` (`source_type`),
     INDEX `idx_browser` (`browser`),
     INDEX `idx_os` (`os`),
     INDEX `idx_device_type` (`device_type`),

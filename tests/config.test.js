@@ -1,6 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
 // Portions of this test might need careful handling since config is a singleton
 // We use jest.resetModules() to test fresh instances
 describe('Config Loader', () => {

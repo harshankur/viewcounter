@@ -1,9 +1,17 @@
 const crypto = require('crypto');
 
+const { SERVER } = require('../constants');
+const { getError, ErrorType } = require('./errorUtils');
+
+/** Rotation never runs slower than this, even if dedup is disabled. */
+const MIN_ROTATION_HOURS = 1;
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+
 class PrivacyUtils {
     /**
      * Masks the IP address to be non-identifiable.
-     * IPv4: Masks the last octet (e.g., 1.2.3.4 -> 1.2.3.0)
+     * IPv4: Masks the last octet (e.g. 1.2.3.4 -> 1.2.3.0)
      * IPv6: Masks the last 64 bits (interface identifier)
      * @param {string} ip The raw IP address
      * @returns {string} The masked IP
@@ -42,18 +50,57 @@ class PrivacyUtils {
     }
 
     /**
-     * Generates a transient hash for a visitor.
-     * Uses Raw IP + User Agent + Daily Salt.
+     * Identifier for the current rotation window.
+     *
+     * Including this in the hash input means a visitor's hash changes on every
+     * window boundary, so two records from different windows cannot be linked
+     * back to the same person even by whoever holds the secret.
+     *
+     * @param {number} rotationHours
+     * @param {number} [now] epoch millis, injectable for tests
+     * @returns {number}
+     */
+    static currentWindowId(rotationHours, now = Date.now()) {
+        const hours = Math.max(Number(rotationHours) || 0, MIN_ROTATION_HOURS);
+        return Math.floor(now / (hours * MS_PER_HOUR));
+    }
+
+    /**
+     * Generate the transient visitor identifier.
+     *
+     * This is a keyed HMAC, not a bare digest. Every non-secret input is
+     * public or guessable — the date is known, user agents come from a small
+     * population, and IPv4 is only 2^32 — so an unkeyed SHA-256 of them is
+     * reversible by exhaustive search in about an hour on one CPU core. The
+     * server secret is what makes that search infeasible; the window id is
+     * what stops hashes being linkable over time.
+     *
      * @param {string} ip Raw IP address
      * @param {string} userAgent Raw User-Agent string
-     * @returns {string} SHA-256 hash
+     * @param {string} secret Server secret from utils/secretStore.js
+     * @param {number} [rotationHours] Window length, defaults to the unique-visitor window
+     * @param {number} [now] epoch millis, injectable for tests
+     * @returns {string} HMAC-SHA-256 hex digest
+     * @throws {Error} ErrorType.SECRET_UNAVAILABLE when no secret is supplied
      */
-    static generateVisitorHash(ip, userAgent) {
-        const date = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-        // Note: In a real prod environment, we'd add an extra server-side secret/salt here
-        // For now, the combination of Raw IP, UA, and Date provides a transient ID.
-        const input = `${ip}|${userAgent}|${date}`;
-        return crypto.createHash('sha256').update(input).digest('hex');
+    static generateVisitorHash(
+        ip,
+        userAgent,
+        secret,
+        rotationHours = SERVER.DEFAULT_UNIQUE_VISITOR_WINDOW_HOURS,
+        now = Date.now(),
+    ) {
+        if (!secret) {
+            // Failing closed is deliberate: silently hashing without the key
+            // would produce reversible identifiers that look indistinguishable
+            // from safe ones.
+            throw getError(ErrorType.SECRET_UNAVAILABLE);
+        }
+
+        const windowId = this.currentWindowId(rotationHours, now);
+        const input = `${ip}|${userAgent}|${windowId}`;
+
+        return crypto.createHmac('sha256', secret).update(input).digest('hex');
     }
 }
 

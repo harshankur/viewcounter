@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 const readline = require('readline');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+
+const { CONFIG_FILE_MODE, PRIVACY } = require('../constants');
 
 const rl = readline.createInterface({
     input: process.stdin,
@@ -69,7 +72,8 @@ async function setup() {
         password
     };
 
-    fs.writeFileSync(dbInfoPath, JSON.stringify(dbConfig, null, 4));
+    fs.writeFileSync(dbInfoPath, JSON.stringify(dbConfig, null, 4), { mode: CONFIG_FILE_MODE });
+    fs.chmodSync(dbInfoPath, CONFIG_FILE_MODE);
     console.log('✓ Created dbInfo.json\n');
 
     // Allowed Values Configuration
@@ -83,7 +87,8 @@ async function setup() {
         deviceSize: deviceSizes.split(',').map(s => s.trim()).filter(Boolean)
     };
 
-    fs.writeFileSync(allowedPath, JSON.stringify(allowedConfig, null, 4));
+    fs.writeFileSync(allowedPath, JSON.stringify(allowedConfig, null, 4), { mode: CONFIG_FILE_MODE });
+    fs.chmodSync(allowedPath, CONFIG_FILE_MODE);
     console.log('✓ Created allowed.json\n');
 
     // Optional .env file
@@ -92,6 +97,10 @@ async function setup() {
         const serverPort = await question('Server port (default: 3030): ') || '3030';
         const rateLimitMax = await question('Rate limit max requests per minute (default: 100): ') || '100';
         const uniqueWindow = await question('Unique visitor window in hours (default: 24, 0 to disable): ') || '24';
+        const corsOrigins = await question('Allowed browser origins (comma-separated, e.g. https://example.com): ');
+        const generatedApiKey = crypto.randomBytes(PRIVACY.MIN_API_KEY_LENGTH).toString('hex');
+        console.log(`\n  Generated read API key: ${generatedApiKey}`);
+        console.log('  Save it now; send it as the x-api-key header on read endpoints.\n');
 
         const envContent = `# Database Mode
 DB_MODE=${dbMode}
@@ -105,7 +114,7 @@ DB_PASSWORD=${password}
 
 # Server Configuration
 PORT=${serverPort}
-NODE_ENV=development
+NODE_ENV=production
 
 # Rate Limiting
 RATE_LIMIT_WINDOW_MS=60000
@@ -113,9 +122,18 @@ RATE_LIMIT_MAX=${rateLimitMax}
 
 # Unique Visitor Tracking (hours)
 UNIQUE_VISITOR_WINDOW_HOURS=${uniqueWindow}
+
+# Origins permitted to call the write endpoints from a browser.
+CORS_ORIGINS=${corsOrigins}
+
+# Credential for the analytics read endpoints. Generated here; rotate by
+# replacing it. Several may be listed comma-separated so one consumer's key
+# can be revoked without disturbing the others.
+READ_API_KEYS=${generatedApiKey}
 `;
 
-        fs.writeFileSync(envPath, envContent);
+        fs.writeFileSync(envPath, envContent, { mode: CONFIG_FILE_MODE });
+        fs.chmodSync(envPath, CONFIG_FILE_MODE);
         console.log('✓ Created .env\n');
     }
 
@@ -128,7 +146,7 @@ UNIQUE_VISITOR_WINDOW_HOURS=${uniqueWindow}
     rl.close();
 }
 
-async function editSpecificFiles(hasDbInfo, hasAllowed, hasEnv) {
+async function editSpecificFiles(hasDbInfo, hasAllowed, _hasEnv) {
     console.log('\nWhich files would you like to reconfigure?');
 
     if (hasDbInfo) {
@@ -142,7 +160,8 @@ async function editSpecificFiles(hasDbInfo, hasAllowed, hasEnv) {
             const user = await question('Database user: ') || 'root';
             const password = await question('Database password: ');
 
-            fs.writeFileSync(dbInfoPath, JSON.stringify({ mode, host, port: parseInt(port), database, user, password }, null, 4));
+            fs.writeFileSync(dbInfoPath, JSON.stringify({ mode, host, port: parseInt(port), database, user, password }, null, 4), { mode: CONFIG_FILE_MODE });
+            fs.chmodSync(dbInfoPath, CONFIG_FILE_MODE);
             console.log('✓ Updated dbInfo.json');
         }
     }
@@ -156,7 +175,8 @@ async function editSpecificFiles(hasDbInfo, hasAllowed, hasEnv) {
             fs.writeFileSync(allowedPath, JSON.stringify({
                 appId: appIds.split(',').map(s => s.trim()).filter(Boolean),
                 deviceSize: deviceSizes.split(',').map(s => s.trim()).filter(Boolean)
-            }, null, 4));
+            }, null, 4), { mode: CONFIG_FILE_MODE });
+            fs.chmodSync(allowedPath, CONFIG_FILE_MODE);
             console.log('✓ Updated allowed.json');
         }
     }

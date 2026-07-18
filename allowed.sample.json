@@ -7,5 +7,18 @@
         "small",
         "medium",
         "large"
-    ]
+    ],
+    "origins": {
+        "example_app_1": [
+            "https://example.com",
+            "https://www.example.com"
+        ]
+    },
+    "_comment_apiKeys": "Scoped read keys. Each key maps to the apps it may read, or \"*\" for all. Keys set via READ_API_KEYS are always unscoped. Minimum 32 characters.",
+    "apiKeys": {
+        "replace-with-32+-char-key-for-tenant-one": [
+            "example_app_1"
+        ],
+        "replace-with-32+-char-key-for-the-owner": "*"
+    }
 }

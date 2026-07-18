@@ -1,5 +1,8 @@
 const URL = require('url-parse');
 
+const { FIELD_MAX_LENGTH, QUERY_LIMITS, SOURCE_TYPE } = require('../constants');
+const { truncate } = require('./stringUtils');
+
 /**
  * Parse referrer URLs to extract domain and source type
  */
@@ -14,7 +17,7 @@ class ReferrerParser {
             return {
                 referrer: null,
                 referrerDomain: null,
-                sourceType: 'direct'
+                sourceType: SOURCE_TYPE.DIRECT
             };
         }
 
@@ -24,15 +27,15 @@ class ReferrerParser {
             const sourceType = this.getSourceType(domain, referrer);
 
             return {
-                referrer: referrer.substring(0, 500), // Truncate to fit DB
-                referrerDomain: domain ? domain.substring(0, 200) : null,
+                referrer: truncate(referrer, FIELD_MAX_LENGTH.REFERRER),
+                referrerDomain: truncate(domain, FIELD_MAX_LENGTH.REFERRER_DOMAIN),
                 sourceType
             };
         } catch (error) {
             return {
-                referrer: referrer.substring(0, 500),
+                referrer: truncate(referrer, FIELD_MAX_LENGTH.REFERRER),
                 referrerDomain: null,
-                sourceType: 'unknown'
+                sourceType: SOURCE_TYPE.UNKNOWN
             };
         }
     }
@@ -44,26 +47,26 @@ class ReferrerParser {
      * @returns {string} Source type
      */
     static getSourceType(domain, fullUrl) {
-        if (!domain) return 'direct';
+        if (!domain) return SOURCE_TYPE.DIRECT;
 
         const lowerDomain = domain.toLowerCase();
 
         // Search engines
-        if (this.isSearchEngine(lowerDomain)) return 'search';
+        if (this.isSearchEngine(lowerDomain)) return SOURCE_TYPE.SEARCH;
 
         // Social media
-        if (this.isSocialMedia(lowerDomain)) return 'social';
+        if (this.isSocialMedia(lowerDomain)) return SOURCE_TYPE.SOCIAL;
 
         // Email clients
-        if (this.isEmail(lowerDomain)) return 'email';
+        if (this.isEmail(lowerDomain)) return SOURCE_TYPE.EMAIL;
 
         // Ads/campaigns (check for utm parameters)
         if (fullUrl.includes('utm_source') || fullUrl.includes('utm_medium')) {
-            return 'campaign';
+            return SOURCE_TYPE.CAMPAIGN;
         }
 
         // Everything else is referral
-        return 'referral';
+        return SOURCE_TYPE.REFERRAL;
     }
 
     /**
@@ -111,7 +114,7 @@ class ReferrerParser {
         const byDomain = {};
 
         referrers.forEach(ref => {
-            const sourceType = ref.sourceType || 'unknown';
+            const sourceType = ref.sourceType || SOURCE_TYPE.UNKNOWN;
             bySource[sourceType] = (bySource[sourceType] || 0) + 1;
 
             if (ref.referrerDomain) {
@@ -126,7 +129,7 @@ class ReferrerParser {
             byDomain: Object.entries(byDomain)
                 .map(([domain, count]) => ({ domain, count }))
                 .sort((a, b) => b.count - a.count)
-                .slice(0, 20) // Top 20 domains
+                .slice(0, QUERY_LIMITS.LIST_LIMIT_DEFAULT)
         };
     }
 }

@@ -6,10 +6,38 @@ class MockPool {
     constructor(config) {
         this.config = config;
         this.duplicates = {};
+        /** Every statement issued, so tests can assert on the SQL itself. */
+        this.queries = [];
+        /** Rows of the `_apps` registry: appId -> { id, origins }. */
+        this.registry = new Map();
+    }
+
+    /**
+     * Pool lifecycle hook.
+     *
+     * Invokes the handler with a connection shaped like the one mysql2's
+     * promise pool really emits: the RAW callback-style connection, which
+     * exposes .promise() and whose query() takes a callback rather than
+     * returning a thenable. The previous no-op let a crash-on-first-connect
+     * bug through the entire unit suite.
+     */
+    on(event, handler) {
+        if (event === 'connection' && typeof handler === 'function') {
+            handler({
+                promise: () => ({ query: async () => [[]] }),
+                query: (sql, params, cb) => {
+                    this.queries.push({ sql, params });
+                    if (typeof cb === 'function') cb(null, []);
+                    // Deliberately returns a non-thenable, like a real Query.
+                    return { sql };
+                },
+            });
+        }
+        return this;
     }
 
     async query(sql, params = []) {
-        console.log(`[MockDB] Query: ${sql.substring(0, 100)}... Params:`, params);
+        this.queries.push({ sql, params });
 
         // Match specific queries and return hardcoded data
         const sqlLower = sql.toLowerCase();
@@ -17,6 +45,36 @@ class MockPool {
         // Health check / Connection test
         if (sqlLower.includes('select 1')) {
             return [[{ 1: 1 }]];
+        }
+
+        // ---- `_apps` tenant registry ---------------------------------------
+        // Modelled with real state rather than canned rows, so idempotent
+        // re-registration and the allowlist merge behave as they do in MySQL.
+        if (sqlLower.includes('`_apps`')) {
+            if (sqlLower.includes('create table')) return [[]];
+
+            if (sqlLower.includes('insert into')) {
+                const [id, appId, origins] = params;
+                this.registry.set(appId, { id, origins });
+                return [{ insertId: this.registry.size }];
+            }
+
+            if (sqlLower.includes('where app_id = ?')) {
+                const appId = params[0];
+                return [this.registry.has(appId) ? [{ app_id: appId }] : []];
+            }
+
+            if (sqlLower.includes('where origins is not null')) {
+                return [[...this.registry.entries()]
+                    .filter(([, row]) => row && row.origins)
+                    .map(([app_id, row]) => ({ app_id, origins: row.origins }))];
+            }
+
+            if (sqlLower.includes('select app_id')) {
+                return [[...this.registry.keys()].sort().map(app_id => ({ app_id }))];
+            }
+
+            return [[]];
         }
 
         // Stats: Unified Total/Unique/Visitors query
@@ -109,11 +167,35 @@ class MockPool {
             ]];
         }
 
-        // Session/Recent Views
-        if (sqlLower.includes('from `') && (sqlLower.includes('order by timestamp') || sqlLower.includes('where session_id'))) {
+        // Session detail. Mirrors DatabaseManager.SESSION_COLUMNS exactly:
+        // neither visitor_hash nor masked_ip is selected by the real query, so
+        // the mock must not invent them either. Returning columns production
+        // does not return is how a test double starts certifying behaviour the
+        // server never had.
+        if (sqlLower.includes('where session_id')) {
+            const event = {
+                id: 1,
+                country: 'US',
+                timestamp: new Date(),
+                devicesize: 'large',
+                page_path: '/test',
+                page_title: 'Test',
+                referrer_domain: 'google.com',
+                source_type: 'search',
+                browser: 'Chrome',
+                os: 'Mac OS',
+                device_type: 'desktop',
+                event_type: 'pageview',
+                event_data: null
+            };
+            return [[event, { ...event, id: 2, event_type: 'click', event_data: { button: 'test' } }]];
+        }
+
+        // Recent views listing
+        if (sqlLower.includes('from `') && sqlLower.includes('order by timestamp')) {
             return [[
-                { masked_ip: '192.168.1.0', country: 'US', timestamp: new Date(), devicesize: 'large', page_path: '/test', event_type: 'pageview' },
-                { masked_ip: '192.168.1.0', country: 'US', timestamp: new Date(), devicesize: 'large', page_path: '/test', event_type: 'click', event_data: { button: 'test' } }
+                { masked_ip: '192.168.1.0', country: 'US', timestamp: new Date(), devicesize: 'large' },
+                { masked_ip: '192.168.2.0', country: 'GB', timestamp: new Date(), devicesize: 'small' }
             ]];
         }
 
@@ -148,13 +230,11 @@ class MockPool {
     }
 }
 
-const mockPool = new MockPool();
-
 module.exports = {
     createPool: (config) => new MockPool(config),
-    createConnection: async (config) => ({
-        query: async (sql) => [[{ 1: 1 }]],
-        execute: async (sql) => [[{ 1: 1 }]],
+    createConnection: async () => ({
+        query: async () => [[{ 1: 1 }]],
+        execute: async () => [[{ 1: 1 }]],
         end: async () => { },
         use: async () => { }
     })
