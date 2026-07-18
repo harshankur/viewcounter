@@ -9,8 +9,9 @@
         content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design. Open source Node.js + MySQL middleware.">
 
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
-    <link rel="alternate icon" href="favicon.png">
-    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="alternate icon" sizes="16x16 32x32 48x48" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://viewcounter.harshankur.com/">
@@ -747,8 +748,12 @@
             <svg class="logo-mark" viewBox="0 0 96 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
                 <polyline points="3,6 15,16 3,26" fill="none" stroke="currentColor" stroke-width="5"
                     stroke-linecap="round" stroke-linejoin="round" />
-                <text x="24" y="24" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="22"
-                    font-weight="800" fill="currentColor">VC</text>
+                <!-- "VC" as outlined vector paths (JetBrains Mono ExtraBold, 22u, baseline y=24).
+                     Drawn rather than typeset so the mark is byte-identical in every browser and
+                     survives the webfont failing to load. Mirrors logo.svg / favicon.svg. -->
+                <path
+                    d="M24.55 7.94L27.94 7.94L27.96 7.98L30.18 18.13L30.69 20.74L30.73 20.72L31.22 17.8L33.31 7.98L33.33 7.94L36.63 7.94L32.69 23.98L28.53 23.98ZM43.51 7.72L44.59 7.74L45.8 7.96L46.42 8.18L46.95 8.45L47.56 8.86L48.2 9.48L48.68 10.18L49.06 11.11L49.23 12.21L49.23 12.54L45.96 12.54L45.93 12.12L45.85 11.75L45.54 11.2L45.25 10.93L44.9 10.73L44.15 10.56L43.43 10.58L42.85 10.73L42.37 11.04L42.15 11.28L41.95 11.64L41.8 12.3L41.8 19.62L41.97 20.33L42.28 20.79L42.63 21.07L43.27 21.32L44.15 21.36L44.57 21.29L44.9 21.18L45.27 20.96L45.65 20.57L45.89 20.02L45.96 19.38L49.23 19.38L49.15 20.41L48.84 21.4L48.4 22.17L47.72 22.92L47.06 23.41L46.13 23.85L45.23 24.09L44.26 24.2L42.99 24.15L41.97 23.96L40.94 23.54L40.17 23.03L39.64 22.53L39.36 22.17L38.89 21.36L38.63 20.52L38.52 19.71L38.52 12.19L38.61 11.48L38.87 10.6L39.18 10.01L39.58 9.46L40.17 8.89L40.74 8.49L41.4 8.16L41.97 7.96L42.66 7.81Z"
+                    fill="currentColor" />
                 <rect class="logo-cursor" x="70" y="7" width="10" height="19" fill="currentColor" />
             </svg>
             <span class="logo-text">viewcounter</span>
@@ -760,9 +765,9 @@
             <a href="https://github.com/harshankur/viewcounter"><span class="prompt-char">❯</span>github</a>
         </div>
         <div class="theme-switcher">
-            <button class="theme-btn" id="theme-light" title="Light Mode" aria-label="Light mode">☀️</button>
-            <button class="theme-btn" id="theme-dark" title="Dark Mode" aria-label="Dark mode">🌙</button>
-            <button class="theme-btn" id="theme-auto" title="System Preference" aria-label="System preference">🌓</button>
+            <button class="theme-btn" id="theme-light" aria-pressed="false" title="Light Mode" aria-label="Light mode">☀️</button>
+            <button class="theme-btn" id="theme-dark" aria-pressed="false" title="Dark Mode" aria-label="Dark mode">🌙</button>
+            <button class="theme-btn" id="theme-auto" aria-pressed="false" title="System Preference" aria-label="System preference">🌓</button>
         </div>
     </nav>
 
@@ -1098,7 +1103,17 @@
 
     <!-- Redoc for interactive API documentation -->
     <script>window.process = { env: { NODE_ENV: 'production' } };</script>
-    <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+    <!-- Redoc 2.3.9, vendored and served same-origin.
+         Previously loaded from cdn.redoc.ly at a floating "latest" tag with no
+         integrity hash, so a CDN compromise or a bad upstream release would
+         execute arbitrary JavaScript on this origin. Serving our own copy
+         removes the third-party trust entirely and keeps the page working
+         without network access to the CDN.
+         Licenses: redoc.standalone.js.LICENSE.txt
+         Refresh with:
+           curl -o docs/redoc.standalone.js \
+             https://cdn.redoc.ly/redoc/2.3.9/bundles/redoc.standalone.js -->
+    <script src="redoc.standalone.js"></script>
     <script>
         const themeBtns = {
             light: document.getElementById('theme-light'),
@@ -1118,8 +1133,20 @@
         }
 
         function updateThemeUI(theme) {
-            Object.values(themeBtns).forEach(btn => btn.classList.remove('active'));
-            themeBtns[theme].classList.add('active');
+            // `theme` can come from localStorage, so an unexpected stored value
+            // (or one from an older build) must not throw and leave the page
+            // unstyled. Fall back to the default rather than indexing blindly.
+            if (!Object.prototype.hasOwnProperty.call(themeBtns, theme)) {
+                theme = 'auto';
+            }
+
+            Object.entries(themeBtns).forEach(([name, btn]) => {
+                const isActive = name === theme;
+                btn.classList.toggle('active', isActive);
+                // Toggled state must be exposed to assistive tech, not
+                // communicated by colour alone.
+                btn.setAttribute('aria-pressed', String(isActive));
+            });
 
             let actualTheme = theme;
             if (theme === 'auto') {

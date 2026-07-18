@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ViewCounter">
+  <title>ViewCounter</title>
   <rect width="64" height="64" rx="14" fill="#0a0f0c"/>
-  <rect width="64" height="64" rx="14" fill="none" stroke="#3ddc84" stroke-opacity="0.35" stroke-width="1.5"/>
-  <polyline points="15,20 29,32 15,44" fill="none" stroke="#3ddc84" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="34" y="38" width="16" height="6" rx="1" fill="#3ddc84"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="13.25" fill="none" stroke="#3ddc84" stroke-opacity="0.35" stroke-width="1.5"/>
+  <g transform="translate(2.92 13.29) scale(1.17)">
+    <polyline points="3,6 15,16 3,26" fill="none" stroke="#3ddc84" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M24.55 7.94L27.94 7.94L27.96 7.98L30.18 18.13L30.69 20.74L30.73 20.72L31.22 17.8L33.31 7.98L33.33 7.94L36.63 7.94L32.69 23.98L28.53 23.98ZM43.51 7.72L44.59 7.74L45.8 7.96L46.42 8.18L46.95 8.45L47.56 8.86L48.2 9.48L48.68 10.18L49.06 11.11L49.23 12.21L49.23 12.54L45.96 12.54L45.93 12.12L45.85 11.75L45.54 11.2L45.25 10.93L44.9 10.73L44.15 10.56L43.43 10.58L42.85 10.73L42.37 11.04L42.15 11.28L41.95 11.64L41.8 12.3L41.8 19.62L41.97 20.33L42.28 20.79L42.63 21.07L43.27 21.32L44.15 21.36L44.57 21.29L44.9 21.18L45.27 20.96L45.65 20.57L45.89 20.02L45.96 19.38L49.23 19.38L49.15 20.41L48.84 21.4L48.4 22.17L47.72 22.92L47.06 23.41L46.13 23.85L45.23 24.09L44.26 24.2L42.99 24.15L41.97 23.96L40.94 23.54L40.17 23.03L39.64 22.53L39.36 22.17L38.89 21.36L38.63 20.52L38.52 19.71L38.52 12.19L38.61 11.48L38.87 10.6L39.18 10.01L39.58 9.46L40.17 8.89L40.74 8.49L41.4 8.16L41.97 7.96L42.66 7.81Z" fill="#3ddc84"/>
+  </g>
 </svg>
