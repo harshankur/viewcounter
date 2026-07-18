@@ -1,0 +1,34 @@
+# Databases for the end-to-end suite (`npm run test:e2e`).
+#
+# Both run in STRICT mode deliberately: that is what turns an over-length value
+# into an error rather than a silent truncation, which is the behaviour the
+# field-length caps exist to prevent.
+services:
+  mysql:
+    image: mysql:8
+    command: --sql-mode=STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpw
+      MYSQL_USER: vcuser
+      MYSQL_PASSWORD: vcpass
+    ports: ['33061:3306']
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-uroot', '-prootpw']
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # MariaDB has no MAX_EXECUTION_TIME. Kept in the matrix so the statement
+  # timeout's fallback path is exercised rather than assumed.
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpw
+      MARIADB_USER: vcuser
+      MARIADB_PASSWORD: vcpass
+    ports: ['33062:3306']
+    healthcheck:
+      test: ['CMD', 'mariadb-admin', 'ping', '-uroot', '-prootpw']
+      interval: 3s
+      timeout: 5s
+      retries: 20

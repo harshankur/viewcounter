@@ -1,0 +1,160 @@
+name: Release
+
+# Releases are driven by the version field in package.json, not by tagging
+# manually. Every push to master is checked: if package.json carries a version
+# that has no matching git tag yet, that version is tested, tagged, published
+# to npm with provenance, and given a GitHub Release.
+#
+# To cut a release:
+#   npm version patch|minor|major   # bumps package.json, commits, tags locally
+#   git push                        # the tag itself is optional; this workflow
+#                                   # creates it if it is missing
+#
+# A push whose version already has a tag is a no-op, so ordinary commits and
+# re-runs never republish.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never let two releases race; a half-published version cannot be taken back.
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check for a new version
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.version.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed to tell an already-released version from a new one.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare package.json version against existing tags
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists - nothing to release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "$TAG is new - releasing $VERSION."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require a changelog entry for the new version
+        if: steps.version.outputs.should_release == 'true'
+        run: |
+          # A release with no release notes is a release nobody can review.
+          if ! grep -q "^## \[${{ steps.version.outputs.version }}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${{ steps.version.outputs.version }}]' section"
+            exit 1
+          fi
+
+  verify:
+    name: Verify release
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npx jest --ci --coverage
+        env:
+          NODE_ENV: test
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Assert no secrets in the tarball
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          FILES=$(node -e "console.log(require('/tmp/pack.json')[0].files.map(f=>f.path).join('\n'))")
+          echo "$FILES"
+          if echo "$FILES" | grep -qE '^(dbInfo|allowed)\.json$|^\.env$|^\.visitor-secret$'; then
+            echo "::error::Refusing to publish - real config or secret present in tarball"
+            exit 1
+          fi
+
+  publish:
+    name: Tag and publish
+    needs: [check, verify]
+    runs-on: ubuntu-latest
+    environment: release        # lets you require a manual approval on npm pushes
+    permissions:
+      contents: write           # push the tag, create the GitHub Release
+      id-token: write           # REQUIRED: mints the OIDC token that signs provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      - name: Create and push the tag
+        env:
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      # --provenance attaches a signed, publicly verifiable attestation linking
+      # the tarball to this exact commit, workflow, and runner. It needs
+      # id-token: write above, a public repo, and npm >= 9.5.
+      #
+      # Auth: prefer npm Trusted Publishing (npmjs.com > package > Settings >
+      # Trusted Publisher -> this repo + release.yml), which needs no token at
+      # all. NODE_AUTH_TOKEN below is the fallback for a classic automation
+      # token and is simply unused once trusted publishing is configured.
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+          TAG: ${{ needs.check.outputs.tag }}
+        run: |
+          # Pull just this version's section out of the changelog for the notes.
+          NOTES=$(awk -v v="## [$VERSION]" '
+            index($0, v) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md)
+          printf '%s\n' "$NOTES" > /tmp/notes.md
+          gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md

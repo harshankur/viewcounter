@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Least privilege: CI only ever needs to read the tree.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      # The suite runs entirely against tests/dbMock.js, so no MySQL service
+      # container is needed here. The coverage floor in jest.config.js is
+      # build-breaking, so a drop in coverage fails this job.
+      - name: Run tests
+        run: npx jest --ci --coverage
+        env:
+          NODE_ENV: test
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Fails the job on a high/critical advisory in runtime dependencies.
+      # Dev-only advisories are reported by the non-blocking step below.
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Audit all dependencies (advisory only)
+        run: npm audit --audit-level=moderate || true
+
+  package:
+    name: Verify publishable tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Guards against a config file with real credentials ever being packed.
+      # `files` in package.json is the allowlist; this asserts it held.
+      - name: Assert no secrets in the tarball
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          FILES=$(node -e "console.log(require('/tmp/pack.json')[0].files.map(f=>f.path).join('\n'))")
+          echo "$FILES"
+          if echo "$FILES" | grep -qE '^(dbInfo|allowed)\.json$|^\.env$'; then
+            echo "::error::Refusing to publish - real config file present in tarball"
+            exit 1
+          fi
+
+  e2e:
+    name: End-to-end (real MySQL)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: rootpw
+          MYSQL_USER: vcuser
+          MYSQL_PASSWORD: vcpass
+        ports: ['33061:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -uroot -prootpw"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Grant database-creation rights
+        run: |
+          mysql -h127.0.0.1 -P33061 -uroot -prootpw \
+            -e "GRANT ALL PRIVILEGES ON *.* TO 'vcuser'@'%'; FLUSH PRIVILEGES;"
+
+      # The unit suite runs against a mock. This exercises real DDL, real
+      # parameter binding, and real STRICT-mode behaviour — the class of bug a
+      # test double cannot surface, and which a mock previously hid twice.
+      - name: Run E2E against MySQL
+        run: |
+          node tests/e2e/run.js 33061 mysql8-create --mode create
+          node tests/e2e/run.js 33061 mysql8-connect --mode connect
