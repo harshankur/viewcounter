@@ -8,7 +8,7 @@ All notable changes to this project are documented here. This project follows
 Security release. The analytics read endpoints now require authentication, so
 **upgrading from 2.x is a breaking change**: set `READ_API_KEYS` and send an
 `x-api-key` header, set `CORS_ORIGINS`, replace any use of `GET /ip`, and run on
-Node 22 or newer.
+Node 24 or newer.
 
 ### Added
 
@@ -52,8 +52,9 @@ Node 22 or newer.
   new module. Test count 61 → 340; coverage floor raised from 50% to 85%/75%
   and is build-breaking.
 - ESLint with the error-handling rules, wired into `npm test`.
-- CI (Node 22/24, lint, audit, tarball check) and a release workflow that
-  tags and publishes each new `package.json` version to npm with provenance.
+- CI (Node 24, lint, audit, tarball check, real-MySQL E2E) and a release
+  workflow that publishes each new `package.json` version to npm with
+  provenance.
 - `ALLOWED_APP_IDS` and `ALLOWED_DEVICE_SIZES` environment variables.
 - Full icon set and `scripts/generate-brand-assets.js`.
 
@@ -148,9 +149,12 @@ Node 22 or newer.
 ### Removed
 
 - `GET /ip`.
-- Support for Node 20; the minimum is now Node 22. Node 20 reached end of life
-  in April 2026 and no longer receives security patches. Dropping a runtime is a
-  breaking change and belongs in a major release, and this is that release.
+- Support for Node 20 and Node 22; the minimum is now Node 24. Node 20 reached
+  end of life in April 2026 and no longer receives security patches. Node 22 is
+  still supported upstream, but this project tracks only the current LTS rather
+  than maintaining a matrix of older runtimes — a decision, not an EOL forced
+  by anything about 22 itself. Dropping a runtime is a breaking change and
+  belongs in a major release, and this is that release.
 - `docs/favicon.png`, superseded by `favicon.ico` and the `icon-*.png` set.
 
 ## [2.0.0]
