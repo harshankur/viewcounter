@@ -1,17 +1,21 @@
-name: CI
+name: Test Suite
 
+# Everything that has to pass before code is trustworthy: lint, the unit suite
+# (mocked DB), a dependency audit, a real install-and-require of the packed
+# tarball, and an end-to-end run against a real MySQL service container. No
+# build or deploy step lives here -- that split is what release.yml is for.
 on:
   push:
     branches: [master]
   pull_request:
     branches: [master]
 
-# Least privilege: CI only ever needs to read the tree.
+# Least privilege: this workflow only ever needs to read the tree.
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
