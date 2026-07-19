@@ -1,20 +1,26 @@
 name: Release
 
 # Releases are driven by the version field in package.json, not by tagging
-# manually. Every push to master is checked: if package.json carries a version
-# that has no matching git tag yet, that version is tested, tagged, published
-# to npm with provenance, and given a GitHub Release.
+# manually. When this workflow is run, if package.json carries a version that
+# has no matching git tag yet, that version is tested, tagged, published to npm
+# with provenance, and given a GitHub Release.
+#
+# It is currently triggered manually only (see the `on:` block below).
 #
 # To cut a release:
 #   npm version patch|minor|major   # bumps package.json, commits, tags locally
-#   git push                        # the tag itself is optional; this workflow
-#                                   # creates it if it is missing
+#   git push                        # lands the bump
+#   gh workflow run release.yml     # publishes it
 #
 # A push whose version already has a tag is a no-op, so ordinary commits and
 # re-runs never republish.
+# Publishing is deliberately manual. The automatic push trigger is commented out
+# rather than deleted: an npm version number can never be reused, so a release
+# should be an act of intent, not a side effect of merging. Re-enable the push
+# trigger once NPM_TOKEN is set and you want every version bump to ship.
 on:
-  push:
-    branches: [master]
+  # push:
+  #   branches: [master]
   workflow_dispatch:
 
 permissions:

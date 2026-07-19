@@ -762,6 +762,21 @@ All endpoints are tested with:
 - ✓ Edge cases
 - ✓ Security validation
 
+## Releasing
+
+Publishing to npm is a manual, deliberate step — an npm version number can never
+be reused, so it is not wired to run on merge.
+
+```bash
+npm version patch|minor|major   # bump package.json + CHANGELOG in one commit
+git push                        # land the bump
+gh workflow run release.yml     # test, tag, publish with provenance, release
+```
+
+Requires `NPM_TOKEN` as a repository secret. To publish automatically on every
+version bump instead, uncomment the `push:` trigger in
+`.github/workflows/release.yml`.
+
 ## License
 
 [MIT](LICENSE) - Do whatever you want with this, just don't sue us.
