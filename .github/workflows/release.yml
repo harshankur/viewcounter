@@ -116,7 +116,7 @@ jobs:
     environment: release        # lets you require a manual approval on npm pushes
     permissions:
       contents: write           # push the tag, create the GitHub Release
-      id-token: write           # REQUIRED: mints the OIDC token that signs provenance
+      id-token: write           # OIDC: authenticates to npm AND signs provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -137,14 +137,23 @@ jobs:
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 
-      # --provenance attaches a signed, publicly verifiable attestation linking
-      # the tarball to this exact commit, workflow, and runner. It needs
-      # id-token: write above, a public repo, and npm >= 9.5.
+      # Auth is OIDC (npm Trusted Publishing): the npm CLI detects an OIDC
+      # environment and uses it before falling back to a token, so no long-lived
+      # credential is needed. Requires id-token: write above, npm >= 11.5.1 and
+      # Node >= 22.14.0 (the Node 24 pinned above satisfies both).
       #
-      # Auth: prefer npm Trusted Publishing (npmjs.com > package > Settings >
-      # Trusted Publisher -> this repo + release.yml), which needs no token at
-      # all. NODE_AUTH_TOKEN below is the fallback for a classic automation
-      # token and is simply unused once trusted publishing is configured.
+      # --provenance attaches a signed, publicly verifiable attestation linking
+      # the tarball to this exact commit, workflow, and runner.
+      #
+      # ONE-TIME BOOTSTRAP. npm cannot publish a package's *first* version over
+      # OIDC: trusted publishing is configured on a package's settings page, and
+      # that page does not exist until the package does. PyPI allows
+      # pre-registration; npm does not. So for the very first release of a new
+      # name, either publish once locally (`npm publish --access public`) or set
+      # NPM_TOKEN, then configure the trusted publisher at
+      #   npmjs.com > package > Settings > Trusted Publisher -> this repo + release.yml
+      # and delete the secret. NODE_AUTH_TOKEN below exists only for that first
+      # publish and is ignored once trusted publishing is live.
       - name: Publish to npm
         run: npm publish --provenance --access public
         env:

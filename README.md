@@ -773,9 +773,16 @@ git push                        # land the bump
 gh workflow run release.yml     # test, tag, publish with provenance, release
 ```
 
-Requires `NPM_TOKEN` as a repository secret. To publish automatically on every
-version bump instead, uncomment the `push:` trigger in
-`.github/workflows/release.yml`.
+Authentication is OIDC via npm Trusted Publishing, so no long-lived token is
+stored. **Except once:** npm cannot publish a package's first version over OIDC,
+because a trusted publisher is configured on the package's settings page and
+that page does not exist until the package does. For the first release only,
+publish once locally or set an `NPM_TOKEN` secret, then configure the trusted
+publisher (npmjs.com → package → Settings → Trusted Publisher → this repo and
+`release.yml`) and delete the secret.
+
+To publish automatically on every version bump instead, uncomment the `push:`
+trigger in `.github/workflows/release.yml`.
 
 ## License
 
