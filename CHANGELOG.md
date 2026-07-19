@@ -3,6 +3,28 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1]
+
+Metadata and release-tooling only. No runtime code changed, so upgrading from
+3.0.0 is optional.
+
+### Changed
+
+- `homepage` now points at https://viewcounter.harshankur.com, the custom domain
+  the documentation site is actually served from, rather than the project-pages
+  URL it redirects away from. This is the link npm shows on the package page.
+
+### Fixed
+
+- Releases publish over OIDC (npm Trusted Publishing) with no stored token. Two
+  things blocked the token-free path: a leftover `npm whoami` check that
+  authenticated with the deleted secret, and `actions/setup-node` writing an
+  empty `_authToken` line into `.npmrc`, which makes npm treat auth as already
+  configured and skip the OIDC exchange entirely (actions/setup-node#1551).
+- The 3.0.0 notes claimed the `files` allowlist cut the tarball to 19 kB. The
+  published package is 160 kB unpacked across 25 files; the figure was wrong and
+  is corrected in that entry.
+
 ## [3.0.0]
 
 Security release. The analytics read endpoints now require authentication, so
@@ -77,7 +99,9 @@ Node 24 or newer.
 - `index.js` reduced to a bootstrap; routes moved to `routes/analytics.js`.
 - App-ID validation reads the allowlist per request rather than capturing it at
   startup, so apps provisioned at runtime are accepted immediately.
-- `files` allowlist added to `package.json`; published tarball 188 kB → 19 kB.
+- `files` allowlist added to `package.json`, so the published tarball carries
+  only what the package needs at runtime: 25 files, 160 kB unpacked. Tests,
+  coverage output, the docs site, and local config are all excluded.
 
 ### Fixed
 

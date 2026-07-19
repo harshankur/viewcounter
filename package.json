@@ -1,7 +1,7 @@
 {
   "name": "@harshankur/viewcounter",
   "description": "A middleware backend server that registers views to my db server when requested to register a view from my other projects.",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "main": "index.js",
   "engines": {
     "node": ">=24"
@@ -60,7 +60,7 @@
   "bugs": {
     "url": "https://github.com/harshankur/viewcounter/issues"
   },
-  "homepage": "https://harshankur.github.io/viewcounter/",
+  "homepage": "https://viewcounter.harshankur.com",
   "dependencies": {
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

@@ -1,6 +1,6 @@
 # ViewCounter
 
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blueviolet)](https://harshankur.github.io/viewcounter/)
+[![Documentation](https://img.shields.io/badge/docs-viewcounter.harshankur.com-blueviolet)](https://viewcounter.harshankur.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml/badge.svg)](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-343%20passing-success)](TEST_REPORT.md)
@@ -10,7 +10,7 @@
 A comprehensive Node.js/Express analytics server for tracking website views with MySQL storage, featuring auto-database creation, advanced tracking, and rich analytics.
 
 ## 📖 Documentation
-Visit our [Interactive Documentation](https://harshankur.github.io/viewcounter/) for detailed API specifications, debugging tips, and integration guides.
+Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for detailed API specifications, debugging tips, and integration guides.
 
 ## 🛡️ GDPR Compliant & Privacy-First
 **100% GDPR Compliant By Design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
