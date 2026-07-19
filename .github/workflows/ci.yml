@@ -100,8 +100,10 @@ jobs:
       # throws on require. Only installing it proves otherwise, so install it.
       - name: Smoke-test the packed tarball
         run: |
+          # --pack-destination does not create the directory; it fails ENOENT.
+          mkdir -p /tmp/pkg /tmp/smoke
           npm pack --pack-destination /tmp/pkg
-          mkdir -p /tmp/smoke && cd /tmp/smoke
+          cd /tmp/smoke
           npm init -y >/dev/null
           npm install /tmp/pkg/*.tgz express >/dev/null
           NODE_ENV=production node -e "
