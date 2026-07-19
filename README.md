@@ -57,6 +57,9 @@ We believe in total transparency regarding your visitors' data:
 
 ## Quick Start
 
+**Requires Node 22 or newer** and a reachable MySQL 8 (or MariaDB 11) instance.
+Node 20 is not supported: it reached end of life in April 2026.
+
 ### 1. Install Dependencies
 ```bash
 npm install
