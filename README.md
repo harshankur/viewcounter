@@ -3,7 +3,9 @@
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blueviolet)](https://harshankur.github.io/viewcounter/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml/badge.svg)](https://github.com/harshankur/viewcounter/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-264%20passing-success)](TEST_REPORT.md)
+[![Tests](https://img.shields.io/badge/tests-343%20passing-success)](TEST_REPORT.md)
+[![npm](https://img.shields.io/npm/v/@harshankur/viewcounter?logo=npm)](https://www.npmjs.com/package/@harshankur/viewcounter)
+[![provenance](https://img.shields.io/badge/provenance-signed-brightgreen?logo=github)](https://www.npmjs.com/package/@harshankur/viewcounter#provenance)
 
 A comprehensive Node.js/Express analytics server for tracking website views with MySQL storage, featuring auto-database creation, advanced tracking, and rich analytics.
 
@@ -781,13 +783,16 @@ The package is published as **`@harshankur/viewcounter`** (scoped). npm rejects
 the unscoped `viewcounter` as too similar to the existing `view-counter`; a
 scope is its own namespace, so the collision does not apply.
 
-Authentication is OIDC via npm Trusted Publishing, so no long-lived token is
-stored. **Except once:** npm cannot publish a package's first version over OIDC,
-because a trusted publisher is configured on the package's settings page and
-that page does not exist until the package does. For the first release only,
-publish once locally or set an `NPM_TOKEN` secret, then configure the trusted
-publisher (npmjs.com → package → Settings → Trusted Publisher → this repo and
-`release.yml`) and delete the secret.
+**No secret is involved.** Authentication is OIDC via npm Trusted Publishing:
+the package is bound to this repository and to `release.yml` specifically, and
+the runner exchanges a short-lived id-token for a registry credential at publish
+time. There is no `NPM_TOKEN` to rotate or leak, and nothing to be caught by
+npm's deprecation of 2FA-bypassing tokens. Every release carries a signed SLSA
+provenance attestation, verifiable with:
+
+```bash
+npm audit signatures
+```
 
 To publish automatically on every version bump instead, uncomment the `push:`
 trigger in `.github/workflows/release.yml`.
