@@ -1,5 +1,5 @@
 {
-  "name": "viewcounter",
+  "name": "@harshankur/viewcounter",
   "description": "A middleware backend server that registers views to my db server when requested to register a view from my other projects.",
   "version": "3.0.0",
   "main": "index.js",

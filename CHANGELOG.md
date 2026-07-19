@@ -146,6 +146,13 @@ Node 24 or newer.
 - The theme switcher threw on an unexpected `localStorage` value, leaving the
   docs page unstyled, and signalled its toggled state through colour alone.
 
+### Changed
+
+- Published as the scoped package `@harshankur/viewcounter`. npm refuses the
+  unscoped name `viewcounter` as too similar to the existing `view-counter`
+  package, and a scope is its own namespace so the collision does not apply.
+  Import as `require('@harshankur/viewcounter')`.
+
 ### Removed
 
 - `GET /ip`.

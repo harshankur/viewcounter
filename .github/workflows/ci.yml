@@ -107,12 +107,12 @@ jobs:
           npm init -y >/dev/null
           npm install /tmp/pkg/*.tgz express >/dev/null
           NODE_ENV=production node -e "
-            const vc = require('viewcounter');
+            const vc = require('@harshankur/viewcounter');
             const needed = ['createAnalyticsRouter','createApp','DatabaseManager'];
             const missing = needed.filter(k => typeof vc[k] !== 'function');
             if (missing.length) { console.error('missing exports: ' + missing); process.exit(1); }
             const fs = require('fs');
-            if (fs.existsSync('node_modules/viewcounter/.visitor-secret')) {
+            if (fs.existsSync('node_modules/@harshankur/viewcounter/.visitor-secret')) {
               console.error('importing the package wrote a secret into node_modules');
               process.exit(1);
             }

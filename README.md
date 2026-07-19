@@ -581,7 +581,7 @@ Useful when you would rather not run and reverse-proxy a second service.
 
 ```js
 const express = require('express');
-const { createAnalyticsRouter, DatabaseManager } = require('viewcounter');
+const { createAnalyticsRouter, DatabaseManager } = require('@harshankur/viewcounter');
 
 const app = express();
 app.use(express.json({ limit: '16kb' }));
@@ -776,6 +776,10 @@ npm version patch|minor|major   # bump package.json + CHANGELOG in one commit
 git push                        # land the bump
 gh workflow run release.yml     # test, tag, publish with provenance, release
 ```
+
+The package is published as **`@harshankur/viewcounter`** (scoped). npm rejects
+the unscoped `viewcounter` as too similar to the existing `view-counter`; a
+scope is its own namespace, so the collision does not apply.
 
 Authentication is OIDC via npm Trusted Publishing, so no long-lived token is
 stored. **Except once:** npm cannot publish a package's first version over OIDC,

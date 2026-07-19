@@ -275,7 +275,7 @@ class Config {
         // This module is imported by index.js, and index.js is the package
         // entry point — so an application that only wants to mount
         // createAnalyticsRouter would otherwise generate and persist a secret
-        // purely as a side effect of `require('viewcounter')`, writing it into
+        // purely as a side effect of `require('@harshankur/viewcounter')`, writing it into
         // node_modules where the next `npm ci` wipes it. Embedders supply their
         // own secret to the router, so for them this never resolves at all.
         // The standalone server forces it during validate(), keeping its
