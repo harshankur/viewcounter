@@ -123,7 +123,10 @@ const initializeServer = async () => {
     }
 };
 
-if (!config.server.isTest) {
+// Only when run directly. Requiring this module as a library — to mount
+// createAnalyticsRouter into an existing app — must not validate config,
+// connect to a database, or bind a port as a side effect of the import.
+if (require.main === module) {
     initializeServer();
 }
 

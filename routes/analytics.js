@@ -78,7 +78,8 @@ function intQuery(req, name, fallback) {
  * @param {{ perAppMax: number, windowMs: number }} rateLimitConfig
  * @returns {import('express').RequestHandler}
  */
-function buildPerAppLimiter({ perAppMax, windowMs }) {
+function buildPerAppLimiter(rateLimitConfig) {
+    const { perAppMax, windowMs } = rateLimitConfig || {};
     // Zero disables it, for single-tenant deployments where the per-IP limit
     // is the only bound that means anything.
     if (!perAppMax || perAppMax <= 0) return (req, res, next) => next();
@@ -150,7 +151,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
     const requireScope = requireAppScope();
     const requireAdmin = requireAdminApiKey(config.auth);
     const requireOrigin = requireRegisteredOrigin(config.allowed);
-    const limitPerApp = buildPerAppLimiter(config.server.rateLimit);
+    const limitPerApp = buildPerAppLimiter(config.server?.rateLimit);
 
     router.use(withRequestId);
 

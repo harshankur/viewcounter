@@ -270,9 +270,27 @@ class Config {
             };
         }
 
-        // Required lazily so the test suite never loads the file-writing path.
-        const secretStore = require('../utils/secretStore');
-        return { secretPath, visitorSecret: secretStore.loadOrCreate(secretPath) };
+        // Resolved lazily, on first read rather than at construction.
+        //
+        // This module is imported by index.js, and index.js is the package
+        // entry point — so an application that only wants to mount
+        // createAnalyticsRouter would otherwise generate and persist a secret
+        // purely as a side effect of `require('viewcounter')`, writing it into
+        // node_modules where the next `npm ci` wipes it. Embedders supply their
+        // own secret to the router, so for them this never resolves at all.
+        // The standalone server forces it during validate(), keeping its
+        // fail-fast behaviour.
+        let cached = null;
+        return {
+            secretPath,
+            get visitorSecret() {
+                if (cached === null) {
+                    const secretStore = require('../utils/secretStore');
+                    cached = secretStore.loadOrCreate(secretPath);
+                }
+                return cached;
+            },
+        };
     }
 
     /**
@@ -286,6 +304,10 @@ class Config {
      * @throws {Error} on the first disqualifying condition
      */
     validate() {
+        // Force the lazy visitor secret to resolve now, so a server that cannot
+        // persist it fails at startup rather than on its first request.
+        void this.privacy.visitorSecret;
+
         if (!this.server.isProduction) {
             this.warnAboutDevelopmentDefaults();
             return this;

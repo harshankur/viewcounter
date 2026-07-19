@@ -79,6 +79,17 @@ Security release. The analytics read endpoints now require authentication, so
 
 ### Fixed
 
+- **The published package was unusable.** `constants.js` was missing from the
+  `files` list, so the tarball shipped without it and `require('viewcounter')`
+  threw `Cannot find module './constants'` immediately. CI now installs the
+  packed tarball and imports it, because a `files` list can only be verified by
+  actually installing what it produces.
+- **Importing the package started a server and wrote to node_modules.** The
+  entry point ran `initializeServer()` and eagerly resolved the visitor-hash
+  secret at import time, so merely requiring the library to mount its router
+  validated config, attempted a database connection, and persisted a secret
+  inside `node_modules` — where the next install wipes it. Startup is now gated
+  on being the main module, and the secret resolves lazily on first read.
 - **The server crashed on its first database connection.** `mysql2/promise`'s
   pool emits the raw callback-style connection on its `connection` event, and
   mysql2 deliberately makes `.then()`/`.catch()` on the resulting `Query`

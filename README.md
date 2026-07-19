@@ -596,9 +596,17 @@ app.use('/analytics', createAnalyticsRouter({
   dbManager,
   config: {
     allowed: { appId: ['blog'], deviceSize: ['small', 'medium', 'large'], origins: {} },
-    auth:    { readApiKeys: [process.env.VIEWCOUNTER_KEY] },
+    auth: {
+      // key -> the apps it may read, or '*' for all
+      readKeyScopes: { [process.env.VIEWCOUNTER_KEY]: '*' },
+      adminApiKeys: [],
+    },
     privacy: { visitorSecret: process.env.VISITOR_SECRET },
-    server:  { uniqueVisitorWindowHours: 24 },
+    server: {
+      uniqueVisitorWindowHours: 24,
+      // omit to disable the per-app write budget
+      rateLimit: { windowMs: 60000, perAppMax: 1000 },
+    },
   },
 }));
 ```

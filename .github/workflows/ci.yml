@@ -96,6 +96,27 @@ jobs:
             exit 1
           fi
 
+      # A `files` list that omits a required module produces a tarball that
+      # throws on require. Only installing it proves otherwise, so install it.
+      - name: Smoke-test the packed tarball
+        run: |
+          npm pack --pack-destination /tmp/pkg
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          npm init -y >/dev/null
+          npm install /tmp/pkg/*.tgz express >/dev/null
+          NODE_ENV=production node -e "
+            const vc = require('viewcounter');
+            const needed = ['createAnalyticsRouter','createApp','DatabaseManager'];
+            const missing = needed.filter(k => typeof vc[k] !== 'function');
+            if (missing.length) { console.error('missing exports: ' + missing); process.exit(1); }
+            const fs = require('fs');
+            if (fs.existsSync('node_modules/viewcounter/.visitor-secret')) {
+              console.error('importing the package wrote a secret into node_modules');
+              process.exit(1);
+            }
+            console.log('tarball imports cleanly with no side effects');
+          "
+
   e2e:
     name: End-to-end (real MySQL)
     runs-on: ubuntu-latest
