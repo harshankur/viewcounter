@@ -34,6 +34,7 @@ const DB_NAME = `vc_e2e_${DB_MODE}`;
 
 const READ_KEY_GLOBAL = 'g'.repeat(40);  // unscoped
 const ADMIN_KEY = 'A'.repeat(40);
+const ADMIN_PASSWORD = 'e2e-admin-password-0123';
 const VISITOR_SECRET = 'f'.repeat(64);
 
 const RAW_IP = '203.0.113.77';           // the address we will send
@@ -99,11 +100,17 @@ async function main() {
     const admin = await mysql.createConnection({
         host: '127.0.0.1', port: Number(DB_PORT), user: 'root', password: 'rootpw',
     });
+    // The service user needs to create databases in create mode. CI grants this
+    // in a workflow step; doing it here too makes a local `npm run test:e2e`
+    // work against freshly started containers without a manual step.
+    await admin.query("GRANT ALL PRIVILEGES ON *.* TO 'vcuser'@'%'");
+    await admin.query('FLUSH PRIVILEGES');
     await admin.query(`DROP DATABASE IF EXISTS \`${DB_NAME}\``);
-    if (DB_MODE === 'connect') {
-        // connect mode does not create the database, so pre-make it.
-        await admin.query(`CREATE DATABASE \`${DB_NAME}\``);
-    }
+    // Pre-made in both modes: connect mode does not create the database, and
+    // both need a table in the pre-admin shape so the startup migration runs
+    // against a real, populated legacy table.
+    await admin.query(`CREATE DATABASE \`${DB_NAME}\``);
+    await createLegacyTable(admin);
     await admin.end();
 
     const env = {
@@ -117,7 +124,7 @@ async function main() {
         DB_NAME,
         DB_USER: 'vcuser',
         DB_PASSWORD: 'vcpass',
-        ALLOWED_APP_IDS: 'tenant_a,tenant_b',
+        ALLOWED_APP_IDS: 'tenant_a,tenant_b,legacy_app',
         CORS_ORIGINS: 'https://a.example,https://b.example',
         READ_API_KEYS: READ_KEY_GLOBAL,
         ADMIN_API_KEYS: ADMIN_KEY,
@@ -125,6 +132,8 @@ async function main() {
         RATE_LIMIT_MAX: '100000',
         APP_RATE_LIMIT_MAX: '0',
         UNIQUE_VISITOR_WINDOW_HOURS: '24',
+        ADMIN_PASSWORD,
+        TRASH_RETENTION_DAYS: '30',
     };
 
     const proc = spawn('node', ['index.js'], { cwd: RUN_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -157,6 +166,8 @@ async function main() {
         await verifyBoundaries();
         await verifyProvisioning(db);
         await verifyStatementTimeout(db);
+        await verifyMigration(db);
+        await verifyAdmin(db);
     } catch (err) {
         fail++;
         failures.push(`harness: ${err.message}`);
@@ -178,6 +189,47 @@ async function main() {
 }
 
 // ---------------------------------------------------------------------------
+
+/** Rows seeded into the legacy table, so the backfill has real work to do. */
+const LEGACY_ROWS = 3;
+
+/**
+ * An app table exactly as schema v3 created it, before the admin columns, with
+ * a few rows in it. The server's startup migration must bring it up to date.
+ */
+async function createLegacyTable(connection) {
+    await connection.query(`
+        CREATE TABLE \`${DB_NAME}\`.\`legacy_app\` (
+            \`id\` BIGINT AUTO_INCREMENT PRIMARY KEY,
+            \`masked_ip\` VARCHAR(45) NOT NULL,
+            \`visitor_hash\` VARCHAR(64) NOT NULL,
+            \`country\` VARCHAR(2) DEFAULT NULL,
+            \`timestamp\` DATETIME NOT NULL,
+            \`devicesize\` VARCHAR(20) NOT NULL,
+            \`page_path\` VARCHAR(500) DEFAULT NULL,
+            \`page_title\` VARCHAR(200) DEFAULT NULL,
+            \`referrer\` VARCHAR(500) DEFAULT NULL,
+            \`referrer_domain\` VARCHAR(200) DEFAULT NULL,
+            \`source_type\` VARCHAR(20) DEFAULT NULL,
+            \`browser\` VARCHAR(50) DEFAULT NULL,
+            \`browser_version\` VARCHAR(20) DEFAULT NULL,
+            \`os\` VARCHAR(50) DEFAULT NULL,
+            \`os_version\` VARCHAR(20) DEFAULT NULL,
+            \`device_type\` VARCHAR(20) DEFAULT NULL,
+            \`session_id\` VARCHAR(64) DEFAULT NULL,
+            \`event_type\` VARCHAR(50) DEFAULT 'pageview',
+            \`event_data\` JSON DEFAULT NULL,
+            \`is_unique\` TINYINT(1) DEFAULT 1,
+            INDEX \`idx_timestamp\` (\`timestamp\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    for (let i = 0; i < LEGACY_ROWS; i++) {
+        await connection.query(
+            `INSERT INTO \`${DB_NAME}\`.\`legacy_app\` (masked_ip, visitor_hash, timestamp, devicesize, page_path)
+             VALUES ('198.51.100.0', ?, NOW(), 'large', ?)`,
+            ['e'.repeat(64), `/legacy/${i}`]
+        );
+    }
+}
 
 async function verifySchema(db) {
     section('Schema, as actually created by the server');
@@ -458,6 +510,196 @@ async function verifyProvisioning(db) {
     const [stillThere] = await db.query(
         `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'tenant_a'`, [DB_NAME]);
     check('tenant_a survived the injection attempts', stillThere.length === 1);
+}
+
+async function verifyMigration(db) {
+    section('Admin schema migration on a real legacy table');
+
+    const [cols] = await db.query(
+        `SELECT COLUMN_NAME, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH, COLUMN_KEY FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'legacy_app'`, [DB_NAME]);
+    const by = Object.fromEntries(cols.map(c => [c.COLUMN_NAME, c]));
+    check('legacy table gained public_id', !!by.public_id);
+    check('public_id is CHAR(36) NOT NULL', by.public_id?.CHARACTER_MAXIMUM_LENGTH === 36 && by.public_id?.IS_NULLABLE === 'NO');
+    check('public_id is unique', by.public_id?.COLUMN_KEY === 'UNI');
+    check('legacy table gained note VARCHAR(1000)', by.note?.CHARACTER_MAXIMUM_LENGTH === 1000);
+    check('legacy table gained admin_modified_at and deleted_at', !!by.admin_modified_at && !!by.deleted_at);
+
+    const [rows] = await db.query('SELECT public_id FROM `legacy_app`');
+    const v4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    check('every existing row was backfilled with a v4 UUID', rows.length === LEGACY_ROWS && rows.every(r => v4.test(r.public_id)),
+        rows.map(r => r.public_id).join(','));
+    check('backfilled IDs are distinct', new Set(rows.map(r => r.public_id)).size === rows.length);
+
+    const [idx] = await db.query(
+        `SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'legacy_app'`, [DB_NAME]);
+    const names = idx.map(i => i.INDEX_NAME);
+    check('admin indexes created', ['uq_public_id', 'idx_deleted_at', 'idx_admin_modified_at'].every(n => names.includes(n)), names.join(','));
+
+    for (const table of ['_admin_log', '_view_log']) {
+        const [logCols] = await db.query(
+            `SELECT COLUMN_NAME, COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [DB_NAME, table]);
+        const logBy = Object.fromEntries(logCols.map(c => [c.COLUMN_NAME, c]));
+        check(`${table} exists with a UUID primary key`, logBy.id?.COLUMN_KEY === 'PRI');
+        check(`${table} has no column for raw personal data`,
+            !['ip', 'visitor_hash', 'user_agent', 'page_title', 'referrer', 'note'].some(n => logBy[n]));
+    }
+
+    const fresh = await req('GET', '/registerView?appId=legacy_app&deviceSize=small', { headers: { 'x-forwarded-for': '198.51.100.9' } });
+    check('the migrated table accepts new views', fresh.status === 200, `got ${fresh.status}`);
+}
+
+/** A cookie-carrying client for the admin API. */
+function adminClient() {
+    let cookie = '';
+    let csrf = '';
+    return {
+        get csrf() { return csrf; },
+        async call(method, apiPath, body, { withCsrf = true } = {}) {
+            const headers = { accept: 'application/json' };
+            if (cookie) headers.cookie = cookie;
+            if (withCsrf && csrf && method !== 'GET') headers['x-csrf-token'] = csrf;
+            if (body !== undefined) headers['content-type'] = 'application/json';
+            const res = await fetch(`${BASE}/admin/api${apiPath}`, {
+                method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+            });
+            const setCookie = res.headers.get('set-cookie');
+            if (setCookie) cookie = setCookie.split(';')[0];
+            let json = null;
+            try { json = await res.json(); } catch { /* 204 */ }
+            if (json?.csrfToken) csrf = json.csrfToken;
+            return { status: res.status, body: json, setCookie };
+        },
+    };
+}
+
+async function verifyAdmin(db) {
+    section('Admin API against the real database');
+
+    const anon = adminClient();
+    check('admin API is mounted when ADMIN_PASSWORD is set', (await anon.call('GET', '/session')).status === 200);
+    check('wrong password refused', (await anon.call('POST', '/login', { password: 'nope' })).status === 401);
+
+    const admin = adminClient();
+    const login = await admin.call('POST', '/login', { password: ADMIN_PASSWORD });
+    check('login succeeds', login.status === 200, `got ${login.status}`);
+    check('session cookie is HttpOnly and SameSite=Strict', /HttpOnly/i.test(login.setCookie) && /SameSite=Strict/i.test(login.setCookie));
+
+    const apps = await admin.call('GET', '/apps');
+    check('apps lists every configured app with counts',
+        apps.status === 200 && ['tenant_a', 'tenant_b', 'legacy_app'].every(id => apps.body.apps.some(a => a.appId === id && a.available)));
+
+    const list = await admin.call('GET', '/apps/tenant_a/views?pageSize=100');
+    check('listing views works against real SQL', list.status === 200 && list.body.views.length > 0, `got ${list.status}`);
+    const [first, second, third] = list.body.views;
+    check('rows are addressed by UUID', /^[0-9a-f-]{36}$/.test(first.id));
+    check('the visitor hash is not returned', !('visitorHash' in first) && !JSON.stringify(list.body).includes('visitor_hash'));
+
+    for (const sort of ['timestamp', 'page', 'country', 'deviceSize', 'eventType', 'source', 'browser', 'modifiedAt', 'deletedAt']) {
+        for (const order of ['asc', 'desc']) {
+            const r = await admin.call('GET', `/apps/tenant_a/views?sort=${sort}&order=${order}`);
+            check(`sort by ${sort} ${order} is valid SQL`, r.status === 200, `got ${r.status}`);
+        }
+    }
+    for (const status of ['active', 'deleted', 'all']) {
+        for (const modified of ['any', 'modified', 'unmodified']) {
+            const r = await admin.call('GET', `/apps/tenant_a/views?status=${status}&modified=${modified}`);
+            check(`filter status=${status} modified=${modified} runs`, r.status === 200, `got ${r.status}`);
+        }
+    }
+    const wild = await admin.call('GET', `/apps/tenant_a/views?search=${encodeURIComponent("%_\\'")}`);
+    check('LIKE wildcards and quotes in a search are inert', wild.status === 200 && wild.body.total === 0, JSON.stringify(wild.body?.total));
+    const byPath = await admin.call('GET', '/apps/tenant_a/views?search=hello');
+    check('search finds by page path', byPath.status === 200 && byPath.body.total > 0);
+
+    // Edits
+    const before = (await db.query('SELECT * FROM `tenant_a` WHERE public_id = ?', [first.id]))[0][0];
+    const noCsrf = await admin.call('PATCH', '/apps/tenant_a/views', { ids: [first.id], changes: { pageTitle: 'x' } }, { withCsrf: false });
+    check('an edit without the CSRF token is refused', noCsrf.status === 403, `got ${noCsrf.status}`);
+
+    const edit = await admin.call('PATCH', '/apps/tenant_a/views', {
+        ids: [first.id], changes: { pageTitle: 'Edited title', referrer: 'https://www.bing.com/search?q=x' },
+    });
+    check('edit returns the changed ID', edit.status === 200 && edit.body.affected === 1, JSON.stringify(edit.body));
+    const edited = (await db.query('SELECT * FROM `tenant_a` WHERE public_id = ?', [first.id]))[0][0];
+    check('page_title updated in the database', edited.page_title === 'Edited title');
+    check('referrer_domain and source_type re-derived', edited.referrer_domain === 'www.bing.com' && edited.source_type === 'search',
+        `${edited.referrer_domain}/${edited.source_type}`);
+    check('admin_modified_at stamped', edited.admin_modified_at !== null);
+    check('masked IP, hash, time, and country untouched',
+        edited.masked_ip === before.masked_ip && edited.visitor_hash === before.visitor_hash
+        && +edited.timestamp === +before.timestamp && edited.country === before.country);
+
+    const locked = await admin.call('PATCH', '/apps/tenant_a/views', { ids: [first.id], changes: { maskedIp: '1.1.1.1' } });
+    check('observed fields cannot be edited', locked.status === 422, `got ${locked.status}`);
+
+    const eventData = await admin.call('PATCH', '/apps/tenant_a/views', { ids: [second.id], changes: { eventData: { k: [1, 2] } } });
+    const withData = (await db.query('SELECT event_data FROM `tenant_a` WHERE public_id = ?', [second.id]))[0][0];
+    const parsedData = typeof withData.event_data === 'string' ? JSON.parse(withData.event_data) : withData.event_data;
+    check('event data round-trips through the JSON column', eventData.status === 200 && parsedData?.k?.[1] === 2, JSON.stringify(withData.event_data));
+
+    // Notes
+    const note = await admin.call('PUT', '/apps/tenant_a/views/note', { ids: [third.id], note: 'bot traffic' });
+    const noted = (await db.query('SELECT note, admin_modified_at FROM `tenant_a` WHERE public_id = ?', [third.id]))[0][0];
+    check('note stored', note.status === 200 && noted.note === 'bot traffic');
+    check('a note does not mark the row modified', noted.admin_modified_at === null);
+
+    // Soft delete, stats, restore, purge
+    const statsBefore = (await req('GET', '/stats/tenant_a', { key: READ_KEY_GLOBAL })).body.stats.totalViews;
+    const del = await admin.call('POST', '/apps/tenant_a/views/delete', { ids: [third.id] });
+    const deleted = (await db.query('SELECT deleted_at FROM `tenant_a` WHERE public_id = ?', [third.id]))[0][0];
+    check('delete is soft: the row stays with deleted_at set', del.status === 200 && deleted?.deleted_at !== null);
+    const statsAfter = (await req('GET', '/stats/tenant_a', { key: READ_KEY_GLOBAL })).body.stats.totalViews;
+    check('a trashed view drops out of /stats', statsAfter === statsBefore - 1, `${statsBefore} -> ${statsAfter}`);
+    const trash = await admin.call('GET', '/apps/tenant_a/views?status=deleted');
+    check('the trash lists it', trash.body.views.some(v => v.id === third.id));
+
+    const restore = await admin.call('POST', '/apps/tenant_a/views/restore', { ids: [third.id] });
+    const statsRestored = (await req('GET', '/stats/tenant_a', { key: READ_KEY_GLOBAL })).body.stats.totalViews;
+    check('restore brings it back into /stats', restore.status === 200 && statsRestored === statsBefore);
+
+    const purgeLive = await admin.call('POST', '/apps/tenant_a/views/purge', { ids: [third.id] });
+    check('a live row cannot be purged', purgeLive.status === 200 && purgeLive.body.affected === 0);
+    await admin.call('POST', '/apps/tenant_a/views/delete', { ids: [third.id] });
+    const purge = await admin.call('POST', '/apps/tenant_a/views/purge', { ids: [third.id] });
+    const gone = (await db.query('SELECT COUNT(*) c FROM `tenant_a` WHERE public_id = ?', [third.id]))[0][0].c;
+    check('purge erases a trashed row for good', purge.body.affected === 1 && gone === 0);
+
+    const crypto = require('crypto');
+    const bigBatch = Array.from({ length: 500 }, () => crypto.randomUUID());
+    const big = await admin.call('POST', '/apps/tenant_a/views/restore', { ids: bigBatch });
+    check('a full 500-ID batch is accepted and runs', big.status === 200 && big.body.affected === 0, `got ${big.status}`);
+    const tooBig = await admin.call('POST', '/apps/tenant_a/views/restore', { ids: [...bigBatch, crypto.randomUUID()] });
+    check('a 501-ID batch is refused', tooBig.status === 422, `got ${tooBig.status}`);
+
+    // Logs
+    const [adminLog] = await db.query('SELECT * FROM `_admin_log` ORDER BY created_at');
+    const actions = adminLog.map(e => e.action);
+    check('every operation is in the admin log',
+        ['login_failed', 'login_succeeded', 'views_edited', 'note_set', 'views_deleted', 'views_restored', 'views_purged']
+            .every(a => actions.includes(a)), actions.join(','));
+    const logDump = JSON.stringify(adminLog);
+    check('the admin log holds no field values', !logDump.includes('Edited title') && !logDump.includes('bot traffic'));
+    check('the admin log holds only masked IPs', adminLog.every(e => !e.masked_ip || /\.0$|:0$/.test(e.masked_ip)),
+        adminLog.map(e => e.masked_ip).join(','));
+    const editEntry = adminLog.find(e => e.action === 'views_edited');
+    const fields = typeof editEntry?.fields === 'string' ? JSON.parse(editEntry.fields) : editEntry?.fields;
+    check('the edit entry names the fields changed', Array.isArray(fields) && fields.includes('pageTitle') && fields.includes('referrer'));
+
+    const [viewLog] = await db.query('SELECT * FROM `_view_log`');
+    check('the view register log has an entry per accepted view', viewLog.length > 0);
+    const viewLogDump = JSON.stringify(viewLog);
+    check('the view log holds no IP, hash, or user agent',
+        !viewLogDump.includes(RAW_IP) && !viewLogDump.includes('DistinctiveFingerprint') && !/[0-9a-f]{64}/.test(viewLogDump));
+    check('the view log outlives an erased view', viewLog.some(e => e.view_id === third.id));
+
+    const apiAdminLog = await admin.call('GET', '/logs/admin?pageSize=25&page=1&action=views_edited');
+    check('admin log listing works against real SQL', apiAdminLog.status === 200 && apiAdminLog.body.total >= 2);
+    const apiViewLog = await admin.call('GET', '/logs/views?appId=tenant_a&source=registerView');
+    check('view log listing works against real SQL', apiViewLog.status === 200 && apiViewLog.body.entries.length > 0);
+
+    const logout = await admin.call('POST', '/logout');
+    check('logout ends the session', logout.status === 204 && (await admin.call('GET', '/apps')).status === 401);
 }
 
 async function verifyStatementTimeout(db) {
