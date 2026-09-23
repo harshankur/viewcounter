@@ -50,6 +50,14 @@ jobs:
         env:
           NODE_ENV: test
 
+      # The admin UI in a real browser (TESTING.md, UI end-to-end tier). Runs
+      # against tests/ui/server.js, so it needs no database.
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UI tests
+        run: npx playwright test
+
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
@@ -112,7 +120,7 @@ jobs:
           npm install /tmp/pkg/*.tgz express >/dev/null
           NODE_ENV=production node -e "
             const vc = require('@harshankur/viewcounter');
-            const needed = ['createAnalyticsRouter','createApp','DatabaseManager'];
+            const needed = ['createAnalyticsRouter','createAdminRouter','createApp','DatabaseManager'];
             const missing = needed.filter(k => typeof vc[k] !== 'function');
             if (missing.length) { console.error('missing exports: ' + missing); process.exit(1); }
             const fs = require('fs');

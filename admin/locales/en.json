@@ -1,0 +1,320 @@
+{
+    "app": {
+        "name": "viewcounter",
+        "badge": "admin",
+        "documentTitle": "ViewCounter Admin"
+    },
+    "nav": {
+        "skip": "Skip to content",
+        "logout": "Sign out"
+    },
+    "theme": {
+        "label": "Colour theme",
+        "light": "Light mode",
+        "dark": "Dark mode",
+        "auto": "System preference"
+    },
+    "login": {
+        "windowTitle": "admin@viewcounter:~",
+        "heading": "sign in",
+        "intro": "Enter the admin password configured as ADMIN_PASSWORD on this server.",
+        "password": "Password",
+        "submit": "Sign in",
+        "signedOut": "You have been signed out."
+    },
+    "tabs": {
+        "label": "Sections",
+        "views": "views",
+        "trash": "trash",
+        "adminLog": "admin-log",
+        "viewLog": "view-log"
+    },
+    "common": {
+        "none": "-",
+        "close": "Close",
+        "cancel": "Cancel",
+        "dismiss": "Dismiss",
+        "yes": "Yes",
+        "no": "No"
+    },
+    "errors": {
+        "UNAUTHENTICATED": "Your session has ended. Please sign in again.",
+        "INVALID_PASSWORD": "That password is not correct.",
+        "TOO_MANY_ATTEMPTS": "Too many failed attempts. Wait a few minutes and try again.",
+        "RATE_LIMITED": "Too many requests. Slow down for a moment and try again.",
+        "CSRF_REJECTED": "The request was refused for security reasons. Reload the page and try again.",
+        "VALIDATION_FAILED": "The server did not accept that input.",
+        "NOT_FOUND": "That was not found.",
+        "SERVER_ERROR": "Something went wrong on the server. Please try again.",
+        "NETWORK": "The server could not be reached. Check your connection."
+    },
+    "pager": {
+        "previous": "Previous",
+        "next": "Next",
+        "summary": {
+            "one": "Page {page} of {pages} · {total} entry",
+            "other": "Page {page} of {pages} · {total} entries"
+        }
+    },
+    "toolbar": {
+        "app": "App",
+        "appUnavailable": "{app} (table missing)",
+        "search": "Search views",
+        "searchPlaceholder": "Search page, title, source, note, event…",
+        "modifiedFilter": "Filter by admin changes",
+        "showDeleted": "Show deleted",
+        "pageSize": "Rows per page",
+        "perPage": {
+            "one": "{count} per page",
+            "other": "{count} per page"
+        }
+    },
+    "modifiedFilter": {
+        "any": "All",
+        "modified": "Modified",
+        "unmodified": "Original"
+    },
+    "batch": {
+        "region": "Actions for selected views",
+        "selected": {
+            "one": "{count} view selected",
+            "other": "{count} views selected"
+        },
+        "edit": "Edit fields",
+        "note": "Set note",
+        "delete": "Move to trash",
+        "restore": "Restore",
+        "purge": "Erase permanently",
+        "clear": "Clear selection",
+        "limit": {
+            "one": "At most {count} view can be selected at once.",
+            "other": "At most {count} views can be selected at once."
+        }
+    },
+    "table": {
+        "selectPage": "Select every view on this page",
+        "selectRow": "Select the view from {time}",
+        "empty": "No views match.",
+        "emptyTrash": "The trash is empty."
+    },
+    "columns": {
+        "timestamp": "Time",
+        "page": "Page",
+        "source": "Source",
+        "device": "Device",
+        "country": "Country",
+        "client": "Client",
+        "event": "Event",
+        "status": "Status",
+        "actions": "Actions"
+    },
+    "status": {
+        "deleted": "In trash",
+        "modified": "Modified",
+        "note": "Note",
+        "repeat": "Repeat"
+    },
+    "rowActions": {
+        "details": "Show details",
+        "edit": "Edit fields",
+        "note": "Edit note",
+        "restore": "Restore",
+        "delete": "Move to trash",
+        "purge": "Erase permanently"
+    },
+    "sources": {
+        "direct": "Direct",
+        "search": "Search",
+        "social": "Social",
+        "email": "Email",
+        "campaign": "Campaign",
+        "referral": "Referral",
+        "unknown": "Unknown"
+    },
+    "deviceSizes": {
+        "small": "Small",
+        "medium": "Medium",
+        "large": "Large"
+    },
+    "views": {
+        "summary": {
+            "one": "{active} view · {modified} modified · {deleted} in trash",
+            "other": "{active} views · {modified} modified · {deleted} in trash"
+        }
+    },
+    "trash": {
+        "retention": {
+            "one": "Views in the trash no longer count in any statistic. They are erased permanently {count} day after being deleted, or sooner if you erase them here.",
+            "other": "Views in the trash no longer count in any statistic. They are erased permanently {count} days after being deleted, or sooner if you erase them here."
+        },
+        "retentionOff": "Views in the trash no longer count in any statistic. Automatic erasure is off (TRASH_RETENTION_DAYS=0), so they stay until erased here."
+    },
+    "toasts": {
+        "edited": {
+            "one": "Edited {count} view.",
+            "other": "Edited {count} views."
+        },
+        "editedPartial": {
+            "one": "Edited {count} view; {skipped} skipped because they are in the trash or gone.",
+            "other": "Edited {count} views; {skipped} skipped because they are in the trash or gone."
+        },
+        "noteSaved": {
+            "one": "Saved the note on {count} view.",
+            "other": "Saved the note on {count} views."
+        },
+        "noteSavedPartial": {
+            "one": "Saved the note on {count} view; {skipped} no longer exist.",
+            "other": "Saved the note on {count} views; {skipped} no longer exist."
+        },
+        "noteCleared": {
+            "one": "Cleared the note on {count} view.",
+            "other": "Cleared the note on {count} views."
+        },
+        "noteClearedPartial": {
+            "one": "Cleared the note on {count} view; {skipped} no longer exist.",
+            "other": "Cleared the note on {count} views; {skipped} no longer exist."
+        },
+        "deleted": {
+            "one": "Moved {count} view to the trash.",
+            "other": "Moved {count} views to the trash."
+        },
+        "deletedPartial": {
+            "one": "Moved {count} view to the trash; {skipped} were already there.",
+            "other": "Moved {count} views to the trash; {skipped} were already there."
+        },
+        "restored": {
+            "one": "Restored {count} view.",
+            "other": "Restored {count} views."
+        },
+        "restoredPartial": {
+            "one": "Restored {count} view; {skipped} were not in the trash.",
+            "other": "Restored {count} views; {skipped} were not in the trash."
+        },
+        "purged": {
+            "one": "Erased {count} view permanently.",
+            "other": "Erased {count} views permanently."
+        },
+        "purgedPartial": {
+            "one": "Erased {count} view permanently; {skipped} were not in the trash.",
+            "other": "Erased {count} views permanently; {skipped} were not in the trash."
+        }
+    },
+    "confirm": {
+        "deleteTitle": {
+            "one": "Move {count} view to the trash?",
+            "other": "Move {count} views to the trash?"
+        },
+        "deleteMessage": {
+            "one": "It stops counting in every statistic at once. You can restore it from the trash within {days} days, after which it is erased for good.",
+            "other": "They stop counting in every statistic at once. You can restore them from the trash within {days} days, after which they are erased for good."
+        },
+        "deleteMessageNoRetention": {
+            "one": "It stops counting in every statistic at once. You can restore it from the trash at any time.",
+            "other": "They stop counting in every statistic at once. You can restore them from the trash at any time."
+        },
+        "deleteAction": "Move to trash",
+        "purgeTitle": {
+            "one": "Erase {count} view permanently?",
+            "other": "Erase {count} views permanently?"
+        },
+        "purgeMessage": {
+            "one": "This removes the view from the database for good. It cannot be restored. The admin log keeps a record that it was erased, but none of its content.",
+            "other": "This removes the views from the database for good. They cannot be restored. The admin log keeps a record that they were erased, but none of their content."
+        },
+        "purgeAction": "Erase permanently"
+    },
+    "details": {
+        "title": "View details"
+    },
+    "fields": {
+        "id": "View ID",
+        "timestamp": "Recorded at",
+        "pagePath": "Page path",
+        "pageTitle": "Page title",
+        "referrer": "Referrer",
+        "referrerDomain": "Referrer domain",
+        "sourceType": "Source",
+        "deviceSize": "Device size",
+        "deviceType": "Device type",
+        "country": "Country",
+        "maskedIp": "Masked IP",
+        "browser": "Browser",
+        "browserVersion": "Browser version",
+        "os": "Operating system",
+        "osVersion": "OS version",
+        "sessionId": "Session ID",
+        "eventType": "Event type",
+        "eventData": "Event data",
+        "isUnique": "Unique view",
+        "note": "Note",
+        "adminModifiedAt": "Modified by admin",
+        "deletedAt": "Moved to trash"
+    },
+    "edit": {
+        "titleSingle": "Edit view",
+        "titleBatch": {
+            "one": "Edit {count} view",
+            "other": "Edit {count} views"
+        },
+        "introSingle": "Change a field and it is saved. The view is then marked as modified by an admin.",
+        "introBatch": {
+            "one": "Tick each field to overwrite on the selected view. Unticked fields are left alone.",
+            "other": "Tick each field to overwrite on all {count} selected views. Unticked fields are left alone."
+        },
+        "lockedNotice": "What was observed about the visitor (time, masked IP, country, browser, device type) can never be edited. The source is recalculated from the referrer.",
+        "include": "Change {field}",
+        "invalidJson": "This is not valid JSON.",
+        "nothingSelected": "Choose at least one field to change.",
+        "save": "Save changes"
+    },
+    "note": {
+        "titleSingle": "Note",
+        "titleBatch": {
+            "one": "Note for {count} view",
+            "other": "Note for {count} views"
+        },
+        "intro": "A private annotation for admins. Adding a note does not mark a view as modified.",
+        "clear": "Clear note",
+        "save": "Save note"
+    },
+    "logs": {
+        "filterAction": "Filter by action",
+        "allActions": "All actions",
+        "filterApp": "Filter by app",
+        "allApps": "All apps",
+        "filterSource": "Filter by source",
+        "allSources": "All sources",
+        "system": "system",
+        "emptyAdmin": "No admin operations recorded yet.",
+        "emptyViews": "No views recorded yet."
+    },
+    "logColumns": {
+        "time": "Time",
+        "action": "Action",
+        "app": "App",
+        "rows": "Rows",
+        "fields": "Fields",
+        "session": "Session",
+        "ip": "IP (masked)",
+        "source": "Source",
+        "event": "Event",
+        "unique": "Unique",
+        "view": "View ID"
+    },
+    "actions": {
+        "login_succeeded": "Signed in",
+        "login_failed": "Failed sign-in",
+        "logout": "Signed out",
+        "views_edited": "Edited",
+        "note_set": "Note set",
+        "note_cleared": "Note cleared",
+        "views_deleted": "Moved to trash",
+        "views_restored": "Restored",
+        "views_purged": "Erased",
+        "trash_auto_purged": "Trash auto-erased"
+    },
+    "logSources": {
+        "registerView": "Page view",
+        "event": "Custom event"
+    }
+}

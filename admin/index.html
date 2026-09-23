@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" class="theme-dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>ViewCounter</title>
+    <link rel="icon" href="favicon.ico" sizes="any">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
+    <link rel="stylesheet" href="css/admin.css">
+    <script type="module" src="js/main.js"></script>
+</head>
+
+<body class="booting">
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-glow" aria-hidden="true"></div>
+    <div class="crt-overlay" aria-hidden="true"></div>
+
+    <a class="skip-link" href="#main" data-i18n="nav.skip"></a>
+
+    <nav class="topbar">
+        <div class="logo">
+            <svg class="logo-mark" viewBox="0 0 96 32" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <polyline points="3,6 15,16 3,26" fill="none" stroke="currentColor" stroke-width="5"
+                    stroke-linecap="round" stroke-linejoin="round" />
+                <path
+                    d="M24.55 7.94L27.94 7.94L27.96 7.98L30.18 18.13L30.69 20.74L30.73 20.72L31.22 17.8L33.31 7.98L33.33 7.94L36.63 7.94L32.69 23.98L28.53 23.98ZM43.51 7.72L44.59 7.74L45.8 7.96L46.42 8.18L46.95 8.45L47.56 8.86L48.2 9.48L48.68 10.18L49.06 11.11L49.23 12.21L49.23 12.54L45.96 12.54L45.93 12.12L45.85 11.75L45.54 11.2L45.25 10.93L44.9 10.73L44.15 10.56L43.43 10.58L42.85 10.73L42.37 11.04L42.15 11.28L41.95 11.64L41.8 12.3L41.8 19.62L41.97 20.33L42.28 20.79L42.63 21.07L43.27 21.32L44.15 21.36L44.57 21.29L44.9 21.18L45.27 20.96L45.65 20.57L45.89 20.02L45.96 19.38L49.23 19.38L49.15 20.41L48.84 21.4L48.4 22.17L47.72 22.92L47.06 23.41L46.13 23.85L45.23 24.09L44.26 24.2L42.99 24.15L41.97 23.96L40.94 23.54L40.17 23.03L39.64 22.53L39.36 22.17L38.89 21.36L38.63 20.52L38.52 19.71L38.52 12.19L38.61 11.48L38.87 10.6L39.18 10.01L39.58 9.46L40.17 8.89L40.74 8.49L41.4 8.16L41.97 7.96L42.66 7.81Z"
+                    fill="currentColor" />
+                <rect class="logo-cursor" x="70" y="7" width="10" height="19" fill="currentColor" />
+            </svg>
+            <span class="logo-text" data-i18n="app.name"></span>
+            <span class="logo-badge" data-i18n="app.badge"></span>
+        </div>
+
+        <div class="topbar-actions">
+            <div class="theme-switcher" role="group" data-i18n-attr="aria-label:theme.label">
+                <button class="theme-btn" id="theme-light" type="button" aria-pressed="false"
+                    data-i18n-attr="aria-label:theme.light;title:theme.light">☀️</button>
+                <button class="theme-btn" id="theme-dark" type="button" aria-pressed="false"
+                    data-i18n-attr="aria-label:theme.dark;title:theme.dark">🌙</button>
+                <button class="theme-btn" id="theme-auto" type="button" aria-pressed="false"
+                    data-i18n-attr="aria-label:theme.auto;title:theme.auto">🌓</button>
+            </div>
+            <button class="btn btn-secondary btn-small" id="logout-btn" type="button" hidden
+                data-i18n="nav.logout"></button>
+        </div>
+    </nav>
+
+    <main id="main">
+        <section id="login-screen" class="login" hidden>
+            <div class="term-window login-window">
+                <div class="term-titlebar">
+                    <div class="term-dots" aria-hidden="true">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title" data-i18n="login.windowTitle"></span>
+                </div>
+                <form id="login-form" class="term-body login-form" novalidate>
+                    <h1 class="login-heading">
+                        <span class="prompt-char" aria-hidden="true">❯</span>
+                        <span data-i18n="login.heading"></span>
+                    </h1>
+                    <p class="login-intro" data-i18n="login.intro"></p>
+                    <label class="field-label" for="login-password" data-i18n="login.password"></label>
+                    <input class="input" id="login-password" name="password" type="password"
+                        autocomplete="current-password" required>
+                    <p id="login-error" class="field-error" role="alert" hidden></p>
+                    <button class="btn btn-primary" id="login-submit" type="submit" data-i18n="login.submit"></button>
+                </form>
+            </div>
+        </section>
+
+        <section id="app-screen" class="app-screen" hidden>
+            <div id="tabs" class="tabs" role="tablist" data-i18n-attr="aria-label:tabs.label"></div>
+            <div id="panels"></div>
+        </section>
+    </main>
+
+    <div id="modal-root" hidden></div>
+    <div id="toast-root" class="toast-root"></div>
+</body>
+
+</html>

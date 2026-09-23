@@ -72,6 +72,60 @@ module.exports = [
     },
 
     {
+        // The admin UI: browser ES modules, no build step.
+        //
+        // FRONTEND.md §0/§3: nothing the browser or OS draws. alert/confirm/
+        // prompt and window.open are build failures, as is any API that parses
+        // a string as HTML: every page title, path, and referrer the UI shows
+        // was sent by an anonymous visitor, so HTML parsing here would be a
+        // stored-XSS hole into the admin session.
+        files: ['admin/**/*.js'],
+        languageOptions: {
+            sourceType: 'module',
+            globals: {
+                window: 'readonly',
+                document: 'readonly',
+                history: 'readonly',
+                localStorage: 'readonly',
+                fetch: 'readonly',
+                URLSearchParams: 'readonly',
+                Intl: 'readonly',
+                ResizeObserver: 'readonly',
+                setTimeout: 'readonly',
+                clearTimeout: 'readonly',
+            },
+        },
+        rules: {
+            'no-restricted-globals': ['error',
+                { name: 'alert', message: 'Use showToast() or openModal() from admin/js (FRONTEND.md §0).' },
+                { name: 'confirm', message: 'Use confirmModal() from admin/js/modal.js (FRONTEND.md §0).' },
+                { name: 'prompt', message: 'Use openModal() with an input (FRONTEND.md §0).' },
+            ],
+            'no-restricted-properties': ['error',
+                { object: 'window', property: 'alert', message: 'Use showToast() or openModal() (FRONTEND.md §0).' },
+                { object: 'window', property: 'confirm', message: 'Use confirmModal() (FRONTEND.md §0).' },
+                { object: 'window', property: 'prompt', message: 'Use openModal() (FRONTEND.md §0).' },
+                { object: 'window', property: 'open', message: 'Use an in-page dialog (FRONTEND.md §0).' },
+                { object: 'document', property: 'write', message: 'Build nodes with admin/js/dom.js.' },
+            ],
+            'no-restricted-syntax': ['error',
+                {
+                    selector: "AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]",
+                    message: 'Never parse strings as HTML in the admin UI; build nodes with admin/js/dom.js.',
+                },
+                {
+                    selector: "CallExpression[callee.property.name=/^(insertAdjacentHTML|createContextualFragment)$/]",
+                    message: 'Never parse strings as HTML in the admin UI; build nodes with admin/js/dom.js.',
+                },
+                {
+                    selector: "NewExpression[callee.name='DOMParser']",
+                    message: 'Never parse strings as HTML in the admin UI; build nodes with admin/js/dom.js.',
+                },
+            ],
+        },
+    },
+
+    {
         // The E2E runner is a standalone Node script, not a Jest test.
         files: ['tests/e2e/**'],
         languageOptions: {
@@ -102,6 +156,15 @@ module.exports = [
     },
 
     {
-        ignores: ['node_modules/**', 'coverage/**', 'docs/**', '.ignore/**'],
+        // Playwright specs: Node, but the callbacks passed to page.evaluate
+        // run in the browser and legitimately reference its globals.
+        files: ['tests/ui/**', 'playwright.config.js'],
+        languageOptions: {
+            globals: { window: 'readonly', document: 'readonly', getComputedStyle: 'readonly', setImmediate: 'readonly' },
+        },
+    },
+
+    {
+        ignores: ['node_modules/**', 'coverage/**', 'docs/**', '.ignore/**', 'test-results/**', 'playwright-report/**'],
     },
 ];

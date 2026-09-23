@@ -9,6 +9,7 @@
   "files": [
     "index.js",
     "constants.js",
+    "admin/",
     "config/",
     "db/",
     "middleware/",
@@ -28,7 +29,8 @@
     "setup": "node scripts/setup.js",
     "assets": "node scripts/generate-brand-assets.js",
     "lint": "eslint .",
-    "test": "npm run lint && jest --coverage --verbose && node scripts/generate-test-report.js",
+    "test": "npm run lint && jest --coverage --verbose && playwright test && node scripts/generate-test-report.js",
+    "test:ui": "playwright test",
     "test:watch": "jest --watch",
     "test:ci": "npm run lint && jest --coverage --ci",
     "test:persist": "PERSIST_TEST_DB=true jest --coverage --verbose && node scripts/generate-test-report.js",
@@ -38,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
     "eslint": "^9.39.5",
     "jest": "^30.4.2",
     "jest-html-reporter": "^4.4.0",
