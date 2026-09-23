@@ -16,8 +16,16 @@ async function signIn(page, tab = 'views') {
     await page.goto(`/admin/#${tab}`);
     await page.getByLabel('Password').fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
-    await expect(page.getByRole('tab', { name: /views/ })).toBeVisible();
+    await expect(sectionTab(page, 'views')).toBeVisible();
     await expect(activePanel(page).locator('tbody tr').first()).toBeVisible();
+}
+
+/**
+ * A top-level section tab (views, trash, admin-log, view-log), scoped to the
+ * sections tab list so it never matches an app tab such as "blog, 61 views".
+ */
+function sectionTab(page, name) {
+    return page.getByRole('tablist', { name: 'Sections' }).getByRole('tab', { name, exact: true });
 }
 
 /** The visible tab panel. */
@@ -35,4 +43,4 @@ function row(page, id) {
     return activePanel(page).locator(`tbody tr[data-view-id="${id}"]`);
 }
 
-module.exports = { resetServer, signIn, activePanel, rows, row, PASSWORD };
+module.exports = { resetServer, signIn, sectionTab, activePanel, rows, row, PASSWORD };

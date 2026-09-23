@@ -7,7 +7,7 @@
  */
 
 const { test, expect } = require('@playwright/test');
-const { resetServer, signIn, activePanel, rows, row, PASSWORD } = require('./helpers');
+const { resetServer, signIn, sectionTab, activePanel, rows, row, PASSWORD } = require('./helpers');
 
 const FIRST = '00000000-0000-4000-8000-000000000000';
 const SECOND = '00000000-0000-4000-8000-000000000001';
@@ -49,7 +49,7 @@ test.describe('signing in', () => {
 
     test('the right password opens the views of the first app', async ({ page }) => {
         await signIn(page);
-        await expect(page.getByRole('tab', { name: /views/ })).toHaveAttribute('aria-selected', 'true');
+        await expect(sectionTab(page, 'views')).toHaveAttribute('aria-selected', 'true');
         await expect(rows(page)).toHaveCount(50);
         await expect(activePanel(page).locator('.panel-summary')).toHaveText('61 views · 0 modified · 1 in trash');
     });
@@ -154,7 +154,7 @@ test.describe('delete, restore, erase', () => {
         await expect(row(page, FIRST)).toHaveCount(0);
         await expect(activePanel(page).locator('.panel-summary')).toHaveText('60 views · 0 modified · 2 in trash');
 
-        await page.getByRole('tab', { name: /trash/ }).click();
+        await sectionTab(page, 'trash').click();
         await expect(row(page, FIRST)).toBeVisible();
         await expect(row(page, FIRST).locator('.badge')).toContainText(['In trash']);
     });
@@ -347,39 +347,102 @@ test.describe('searching and filtering', () => {
     });
 });
 
-test.describe('custom listbox (never a native select)', () => {
-    test('the app picker works by keyboard alone', async ({ page }) => {
-        await signIn(page);
-        const button = activePanel(page).getByRole('button', { name: 'App' });
-        await button.focus();
-        await page.keyboard.press('ArrowDown');
-        await expect(button).toHaveAttribute('aria-expanded', 'true');
-        const listbox = activePanel(page).getByRole('listbox', { name: 'App' });
-        await expect(listbox.getByRole('option', { name: 'blog' })).toHaveAttribute('aria-selected', 'true');
+test.describe('app tabs', () => {
+    const appTab = (page, name) => activePanel(page).getByRole('tab', { name: new RegExp(`^${name},`) });
 
-        await page.keyboard.press('ArrowDown');
-        await expect(listbox).toHaveAttribute('aria-activedescendant', /-1$/);
-        await page.keyboard.press('Enter');
-        await expect(button).toHaveAttribute('aria-expanded', 'false');
-        await expect(button).toBeFocused();
-        await expect(button).toContainText('shop');
+    test('each app is a tab with its live view count', async ({ page }) => {
+        await signIn(page);
+        const tablist = activePanel(page).getByRole('tablist', { name: 'Apps' });
+        await expect(tablist.getByRole('tab')).toHaveCount(2);
+        await expect(appTab(page, 'blog')).toHaveAccessibleName('blog, 61 views');
+        await expect(appTab(page, 'blog')).toHaveAttribute('aria-selected', 'true');
+        await expect(appTab(page, 'shop')).toHaveAccessibleName('shop, 1 view');
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'false');
+    });
+
+    test('one click opens another app', async ({ page }) => {
+        await signIn(page);
+        await appTab(page, 'shop').click();
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
         await expect(rows(page)).toHaveCount(1);
         await expect(rows(page).first()).toContainText('/cart');
     });
 
+    test('arrow keys, Home, and End switch apps and keep focus', async ({ page }) => {
+        await signIn(page);
+        await appTab(page, 'blog').focus();
+        await page.keyboard.press('ArrowRight');
+        await expect(appTab(page, 'shop')).toBeFocused();
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
+        await expect(rows(page).first()).toContainText('/cart');
+
+        await page.keyboard.press('ArrowRight');
+        await expect(appTab(page, 'blog')).toBeFocused();
+        await page.keyboard.press('End');
+        await expect(appTab(page, 'shop')).toBeFocused();
+        await page.keyboard.press('Home');
+        await expect(appTab(page, 'blog')).toBeFocused();
+        await expect(rows(page)).toHaveCount(50);
+    });
+
+    test('only the selected app tab is in the tab order', async ({ page }) => {
+        await signIn(page);
+        await expect(appTab(page, 'blog')).toHaveAttribute('tabindex', '0');
+        await expect(appTab(page, 'shop')).toHaveAttribute('tabindex', '-1');
+    });
+
+    test('the trash shows trashed counts and follows the same app', async ({ page }) => {
+        await signIn(page);
+        await appTab(page, 'shop').click();
+        await sectionTab(page, 'trash').click();
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
+        await expect(appTab(page, 'blog')).toHaveAccessibleName('blog, 1 in trash');
+        await expect(activePanel(page).getByText('The trash is empty.')).toBeVisible();
+    });
+
+    test('the chosen app is remembered across reloads', async ({ page }) => {
+        await signIn(page);
+        await appTab(page, 'shop').click();
+        await expect(rows(page).first()).toContainText('/cart');
+        await page.reload();
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
+    });
+});
+
+test.describe('custom listbox (never a native select)', () => {
+    const pageSize = (page) => activePanel(page).getByRole('button', { name: 'Rows per page' });
+
+    test('works by keyboard alone', async ({ page }) => {
+        await signIn(page);
+        const button = pageSize(page);
+        await button.focus();
+        await page.keyboard.press('ArrowDown');
+        await expect(button).toHaveAttribute('aria-expanded', 'true');
+        const listbox = activePanel(page).getByRole('listbox', { name: 'Rows per page' });
+        await expect(listbox.getByRole('option', { name: '50 per page' })).toHaveAttribute('aria-selected', 'true');
+
+        await page.keyboard.press('ArrowDown');
+        await expect(listbox).toHaveAttribute('aria-activedescendant', /-2$/);
+        await page.keyboard.press('Enter');
+        await expect(button).toHaveAttribute('aria-expanded', 'false');
+        await expect(button).toBeFocused();
+        await expect(button).toContainText('100 per page');
+        await expect(rows(page)).toHaveCount(61);
+    });
+
     test('Escape closes the listbox without changing the value', async ({ page }) => {
         await signIn(page);
-        const button = activePanel(page).getByRole('button', { name: 'App' });
+        const button = pageSize(page);
         await button.click();
-        await page.keyboard.press('End');
+        await page.keyboard.press('Home');
         await page.keyboard.press('Escape');
         await expect(button).toHaveAttribute('aria-expanded', 'false');
-        await expect(button).toContainText('blog');
+        await expect(button).toContainText('50 per page');
     });
 
     test('a click outside closes it', async ({ page }) => {
         await signIn(page);
-        const button = activePanel(page).getByRole('button', { name: 'App' });
+        const button = pageSize(page);
         await button.click();
         await page.locator('.panel-summary').first().click();
         await expect(button).toHaveAttribute('aria-expanded', 'false');
@@ -406,7 +469,7 @@ test.describe('logs', () => {
         await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click();
         await expect(row(page, FIRST)).toContainText('Secret new title');
 
-        await page.getByRole('tab', { name: /admin-log/ }).click();
+        await sectionTab(page, 'admin-log').click();
         const log = activePanel(page);
         await expect(log.locator('tbody tr')).toHaveCount(2);
         await expect(log.locator('tbody tr').first()).toContainText('Edited');
@@ -429,7 +492,7 @@ test.describe('logs', () => {
         await expect(page.getByRole('alert')).toBeVisible();
         await page.getByLabel('Password').fill(PASSWORD);
         await page.getByRole('button', { name: 'Sign in' }).click();
-        await page.getByRole('tab', { name: /admin-log/ }).click();
+        await sectionTab(page, 'admin-log').click();
         await expect(activePanel(page).locator('tbody tr').nth(1)).toContainText('Failed sign-in');
     });
 
@@ -441,12 +504,12 @@ test.describe('logs', () => {
 
     test('tabs move with the arrow keys and are deep-linkable', async ({ page }) => {
         await signIn(page);
-        await page.getByRole('tab', { name: /views/ }).focus();
+        await sectionTab(page, 'views').focus();
         await page.keyboard.press('ArrowRight');
-        await expect(page.getByRole('tab', { name: /trash/ })).toBeFocused();
+        await expect(sectionTab(page, 'trash')).toBeFocused();
         await expect(page).toHaveURL(/#trash$/);
         await page.reload();
-        await expect(page.getByRole('tab', { name: /trash/ })).toHaveAttribute('aria-selected', 'true');
+        await expect(sectionTab(page, 'trash')).toHaveAttribute('aria-selected', 'true');
     });
 });
 

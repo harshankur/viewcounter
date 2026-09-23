@@ -9,7 +9,7 @@
 
 import { api } from './api.js';
 import { clampText } from './clamp.js';
-import { el, replaceChildren, debounce } from './dom.js';
+import { el, replaceChildren, debounce, uniqueId } from './dom.js';
 import { formatDateTime, formatDateTimeShort, formatNumber, orNone } from './format.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
@@ -19,6 +19,7 @@ import { showToast, TOAST_TYPE } from './toast.js';
 import { openDetails, openEditor, openNoteEditor } from './viewDialogs.js';
 import {
     CLAMP_LINES,
+    KEY,
     MODIFIED_FILTER,
     SEARCH_DEBOUNCE_MS,
     SORT_ORDER,
@@ -74,13 +75,70 @@ export function createViewsPanel({ mode, meta, context }) {
 
     // ---- Toolbar -----------------------------------------------------------
 
-    const appPicker = createListbox({
-        label: t('toolbar.app'),
-        options: [],
-        className: 'app-picker',
-        onChange: (appId) => {
-            context.setAppId(appId);
-        },
+    // One tab per app (each app is its own table). Shared by the Views and
+    // Trash panels: switching here switches both. ARIA tabs pattern with
+    // automatic activation: arrow keys, Home and End move and select.
+    const tableId = uniqueId('views-table');
+    const appTabs = el('div', {
+        className: 'app-tabs',
+        attrs: { role: 'tablist', 'aria-label': t('appTabs.label') },
+    });
+    let focusAppOnRender = false;
+
+    function selectApp(appId, { focus = false } = {}) {
+        focusAppOnRender = focus;
+        if (appId === context.appId()) {
+            renderAppTabs();
+            return;
+        }
+        context.setAppId(appId);
+    }
+
+    function renderAppTabs() {
+        const apps = context.apps();
+        const current = context.appId();
+        replaceChildren(appTabs, apps.map((app) => {
+            const selected = app.appId === current;
+            const count = isTrash ? app.deleted : app.active;
+            const countText = t(isTrash ? 'appTabs.deletedCount' : 'appTabs.activeCount', { count });
+            return el('button', {
+                className: `app-tab${selected ? ' active' : ''}${app.available ? '' : ' unavailable'}`,
+                attrs: {
+                    type: 'button',
+                    role: 'tab',
+                    'aria-selected': String(selected),
+                    'aria-controls': tableId,
+                    'aria-label': t('appTabs.tabName', { app: app.appId, count: countText }),
+                    tabindex: selected ? '0' : '-1',
+                    title: app.available ? null : t('appTabs.unavailable', { app: app.appId }),
+                },
+                dataset: { appId: app.appId },
+                on: { click: () => selectApp(app.appId) },
+            }, [
+                el('span', { className: 'prompt-char', text: '❯', attrs: { 'aria-hidden': 'true' } }),
+                el('span', { className: 'app-tab-name', text: app.appId }),
+                el('span', { className: 'app-tab-count', text: formatNumber(count), attrs: { 'aria-hidden': 'true' } }),
+            ]);
+        }));
+        if (focusAppOnRender) {
+            appTabs.querySelector('[aria-selected="true"]')?.focus();
+            focusAppOnRender = false;
+        }
+    }
+
+    appTabs.addEventListener('keydown', (event) => {
+        const ids = context.apps().map((app) => app.appId);
+        if (ids.length === 0) return;
+        const index = Math.max(0, ids.indexOf(context.appId()));
+        const moves = {
+            [KEY.ARROW_RIGHT]: (index + 1) % ids.length,
+            [KEY.ARROW_LEFT]: (index - 1 + ids.length) % ids.length,
+            [KEY.HOME]: 0,
+            [KEY.END]: ids.length - 1,
+        };
+        if (!(event.key in moves)) return;
+        event.preventDefault();
+        selectApp(ids[moves[event.key]], { focus: true });
     });
 
     const searchInput = el('input', {
@@ -128,7 +186,7 @@ export function createViewsPanel({ mode, meta, context }) {
     });
 
     const toolbar = el('div', { className: 'toolbar' }, [
-        el('div', { className: 'toolbar-group' }, [appPicker.element, searchInput]),
+        el('div', { className: 'toolbar-group' }, [searchInput]),
         el('div', { className: 'toolbar-group' }, [
             modifiedFilter.element,
             isTrash ? null : el('label', { className: 'switch' }, [
@@ -177,7 +235,7 @@ export function createViewsPanel({ mode, meta, context }) {
     });
     const thead = el('thead');
     const tbody = el('tbody');
-    const table = el('table', { className: 'data-table' }, [thead, tbody]);
+    const table = el('table', { className: 'data-table', attrs: { id: tableId } }, [thead, tbody]);
     const pager = createPager((page) => {
         state.page = page;
         load();
@@ -188,7 +246,7 @@ export function createViewsPanel({ mode, meta, context }) {
     const element = el('section', {
         className: 'panel',
         attrs: { 'aria-label': isTrash ? t('tabs.trash') : t('tabs.views') },
-    }, [toolbar, retention, summary, batchBar, el('div', { className: 'table-wrap' }, [table]), pager.element]);
+    }, [appTabs, toolbar, retention, summary, batchBar, el('div', { className: 'table-wrap' }, [table]), pager.element]);
 
     // ---- Selection ---------------------------------------------------------
 
@@ -496,14 +554,7 @@ export function createViewsPanel({ mode, meta, context }) {
         element,
         /** The app list or selected app changed. */
         syncApps() {
-            const apps = context.apps();
-            appPicker.setOptions(
-                apps.map((app) => ({
-                    value: app.appId,
-                    label: app.available ? app.appId : t('toolbar.appUnavailable', { app: app.appId }),
-                })),
-                context.appId(),
-            );
+            renderAppTabs();
         },
         /** Start over for the current app. */
         reload: resetAndLoad,

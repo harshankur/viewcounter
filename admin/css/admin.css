@@ -763,8 +763,63 @@ textarea.input {
     max-width: 100%;
 }
 
-.app-picker {
-    min-width: 12rem;
+.app-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.app-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.8rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-small);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-weight: 600;
+    transition: color 0.15s, border-color 0.15s, background-color 0.15s, box-shadow 0.2s;
+}
+
+.app-tab .prompt-char {
+    opacity: 0.4;
+}
+
+.app-tab:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+}
+
+.app-tab.active {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: var(--row-selected);
+    box-shadow: 0 0 12px var(--primary-glow);
+}
+
+.app-tab.active .prompt-char {
+    opacity: 1;
+}
+
+.app-tab.unavailable {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+
+.app-tab-count {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: var(--muted-bg);
+    color: var(--text-muted);
+}
+
+.app-tab.active .app-tab-count {
+    background: var(--primary);
+    color: var(--text-on-primary);
 }
 
 .panel-summary {

@@ -56,9 +56,20 @@
             "other": "Page {page} of {pages} · {total} entries"
         }
     },
+    "appTabs": {
+        "label": "Apps",
+        "tabName": "{app}, {count}",
+        "activeCount": {
+            "one": "{count} view",
+            "other": "{count} views"
+        },
+        "deletedCount": {
+            "one": "{count} in trash",
+            "other": "{count} in trash"
+        },
+        "unavailable": "The table for {app} is missing on the database server."
+    },
     "toolbar": {
-        "app": "App",
-        "appUnavailable": "{app} (table missing)",
         "search": "Search views",
         "searchPlaceholder": "Search page, title, source, note, event…",
         "modifiedFilter": "Filter by admin changes",
