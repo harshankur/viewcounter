@@ -156,12 +156,24 @@ TRASH_RETENTION_DAYS=30   # optional; 0 keeps trash until emptied by hand
 
 Then open `https://<your-server>/admin/` and sign in.
 
+To look around without a database, `npm run admin:demo` serves the admin UI
+at http://localhost:4173/admin/ over several thousand fake views (password
+`playwright-admin-password`). Nothing in it is real traffic.
+
 ### What you can do
 
-- **Browse** every app's views: search by page, title, source, note, event, or
-  session; filter by whether an admin changed them; sort by any column; page
-  through them.
-- **Select several views**, across pages, and act on all of them at once.
+- **Browse** one app's views, or every app's together under **All apps**:
+  filter by date range (7, 30, or 90 days, a year, or all time), event type,
+  and whether an admin changed them; search by page, title, source, note,
+  event, or session; sort by any column; page through them. Each row names its
+  app.
+- **See the insights** above the table, for exactly the rows its filters
+  select: views, visitors, unique share, countries, and admin edits; views over
+  time (with a table view); a **world map** of where views come from, with the
+  split by event type on hover and a ranked country list beside it; and
+  breakdowns by source, device, browser, OS, event type, and app.
+- **Select several views**, across pages and across apps, and act on all of
+  them at once.
 - **Edit content fields**: page path, page title, referrer (the source is
   recalculated from it), device size, event type, and event data. What was
   *observed* about the visitor (time, masked IP, country, browser, OS, device

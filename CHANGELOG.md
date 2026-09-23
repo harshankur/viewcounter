@@ -24,6 +24,15 @@ All notable changes to this project are documented here. This project follows
   views, which fields), and `_view_log`, recording every accepted view and
   event. Neither stores an IP, visitor hash, user agent, or field value, so
   erasing a view erases its data.
+- **All apps** in the admin UI: every app's views in one table, with an App
+  column, and batch actions that span apps.
+- **Insights** above the admin table, for exactly the rows its filters select:
+  headline numbers, views over time with a table view, a world map of views by
+  country (with the split by event type), and breakdowns by source, device,
+  browser, OS, event type, and app. The map is drawn from Natural Earth data
+  shipped with the UI, so it makes no third-party request.
+- Date-range and event-type filters in the admin UI, shared by the table and
+  the insights.
 - `TRASH_RETENTION_DAYS` (default 30): trashed views are erased for good after
   this many days. 0 keeps them until erased by hand.
 - `createAdminRouter` export, for mounting the admin surface into another
