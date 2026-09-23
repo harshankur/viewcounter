@@ -1273,6 +1273,42 @@
             }, speed);
         })();
     </script>
+    <!-- Page-view tracking, recorded by our own ViewCounter instance.
+         Fires only on the production host, so dev servers, local previews and
+         forks never inflate the counts. -->
+    <script>
+        (() => {
+            if (location.hostname !== 'viewcounter.harshankur.com') return;
+
+            let sessionId;
+            try {
+                sessionId = sessionStorage.getItem('vc-session') || crypto.randomUUID();
+                sessionStorage.setItem('vc-session', sessionId);
+            } catch {
+                // Storage can be blocked (private mode, strict settings); a
+                // per-load ID still records the view.
+                sessionId = crypto.randomUUID();
+            }
+
+            fetch('https://views.harshankur.com/registerView?' + new URLSearchParams({
+                appId: 'viewcounter',
+                deviceSize: innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large',
+                page: location.pathname,
+                title: document.title.slice(0, 200),
+                referrer: document.referrer,
+                sessionId,
+            }), {
+                keepalive: true,
+                // ViewCounter 3.0.1 and earlier fall back to the Referer header
+                // when `referrer` is empty, and for this request that header is
+                // this page itself, recording every direct visit as a referral
+                // from our own domain. Removable once the instance runs a
+                // release with that fallback gone. The Origin header, which
+                // origin binding relies on, is still sent.
+                referrerPolicy: 'no-referrer',
+            }).catch(() => {});
+        })();
+    </script>
 </body>
 
 </html>
