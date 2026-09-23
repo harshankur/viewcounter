@@ -10,12 +10,28 @@ const {
     SERVER,
     TOP_N_RESULTS,
     TREND_PERIOD,
+    VIEW_LOG_SOURCE,
 } = require('../constants');
+
+/**
+ * Every analytics read and the duplicate check see only live rows. A view an
+ * admin has moved to the trash no longer counts anywhere, and one that is
+ * restored counts again, without any stored aggregate needing to be rebuilt.
+ */
+const LIVE_ROW = 'deleted_at IS NULL';
 const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
 const { truncate } = require('../utils/stringUtils');
 const { isValidAppId } = require('../utils/appIdUtils');
+const {
+    NEW_TABLE_ADMIN_COLUMNS,
+    NEW_TABLE_ADMIN_INDEXES,
+    ensureLogTables,
+    migrateAppTable,
+} = require('./adminSchema');
+const LogRepository = require('./LogRepository');
+const AdminRepository = require('./AdminRepository');
 
 /**
  * Columns returned for a session lookup.
@@ -99,6 +115,7 @@ function appTableDDL(appId) {
             \`event_type\` VARCHAR(${FIELD_MAX_LENGTH.EVENT_TYPE}) DEFAULT '${EVENT_TYPE.PAGEVIEW}',
             \`event_data\` JSON DEFAULT NULL,
             \`is_unique\` TINYINT(1) DEFAULT 1,
+            ${NEW_TABLE_ADMIN_COLUMNS.join(',\n            ')},
             INDEX \`idx_timestamp\` (\`timestamp\`),
             INDEX \`idx_visitor_timestamp\` (\`visitor_hash\`, \`timestamp\`),
             INDEX \`idx_masked_ip\` (\`masked_ip\`),
@@ -112,7 +129,8 @@ function appTableDDL(appId) {
             INDEX \`idx_device_type\` (\`device_type\`),
             INDEX \`idx_session_id\` (\`session_id\`),
             INDEX \`idx_event_type\` (\`event_type\`),
-            INDEX \`idx_is_unique\` (\`is_unique\`)
+            INDEX \`idx_is_unique\` (\`is_unique\`),
+            ${NEW_TABLE_ADMIN_INDEXES.join(',\n            ')}
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `;
 }
@@ -161,6 +179,29 @@ class DatabaseManager {
         this.config = config;
         this.pool = null;
         this.mode = config.mode || 'connect';
+        this.logs = new LogRepository(this);
+        this.admin = new AdminRepository(this);
+    }
+
+    /**
+     * Bring the service's own tables and every app table up to the current
+     * schema. Idempotent, and run on every start, so an upgrade needs no manual
+     * migration step. Runs in `connect` mode too: the admin columns and log
+     * tables are the service's bookkeeping, like the app registry.
+     *
+     * @param {string[]} appIds
+     * @throws {Error} ErrorType.MIGRATION_FAILED
+     */
+    async migrate(appIds = []) {
+        this.assertReady();
+        await ensureLogTables(this.pool);
+
+        for (const appId of appIds) {
+            const result = await migrateAppTable(this.pool, appId);
+            if (result.backfilled > 0) {
+                logger.info(`Assigned public IDs to ${result.backfilled} existing row(s) in '${appId}'`);
+            }
+        }
     }
 
     /** @throws {Error} when a query is attempted before initialize() */
@@ -320,8 +361,10 @@ class DatabaseManager {
         );
 
         // The table is (re)created regardless, so an app registered before its
-        // table existed still converges to a working state.
+        // table existed still converges to a working state. A table that
+        // already existed in an older shape is migrated in place.
         await this.pool.query(appTableDDL(appId));
+        await migrateAppTable(this.pool, appId);
 
         if (existing.length > 0) {
             logWarning(WarningType.APP_ALREADY_REGISTERED, { appId });
@@ -389,6 +432,7 @@ class DatabaseManager {
             uniqueWindowHours = SERVER.DEFAULT_UNIQUE_VISITOR_WINDOW_HOURS,
             userAgent = '',
             visitorSecret,
+            source = VIEW_LOG_SOURCE.REGISTER_VIEW,
         } = data;
 
         // Privacy boundary. Neither the raw IP nor the raw User-Agent is bound
@@ -407,6 +451,7 @@ class DatabaseManager {
             const [existing] = await this.pool.query(
                 `SELECT id FROM \`${appId}\`
                  WHERE visitor_hash = ? AND event_type = ? AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+                   AND ${LIVE_ROW}
                  LIMIT 1`,
                 [hashedVisitor, EVENT_TYPE.PAGEVIEW, uniqueWindowHours]
             );
@@ -416,15 +461,19 @@ class DatabaseManager {
             }
         }
 
+        const publicId = crypto.randomUUID();
+        const storedEventType = truncate(eventType, FIELD_MAX_LENGTH.EVENT_TYPE);
+
         const [result] = await this.pool.query(
             `INSERT INTO \`${appId}\` (
-                masked_ip, visitor_hash, country, timestamp, devicesize,
+                public_id, masked_ip, visitor_hash, country, timestamp, devicesize,
                 page_path, page_title,
                 referrer, referrer_domain, source_type,
                 browser, browser_version, os, os_version, device_type,
                 session_id, event_type, event_data, is_unique
-            ) VALUES (?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
+                publicId,
                 truncate(maskedIp, FIELD_MAX_LENGTH.MASKED_IP),
                 hashedVisitor,
                 truncate(country, FIELD_MAX_LENGTH.COUNTRY),
@@ -440,15 +489,26 @@ class DatabaseManager {
                 truncate(osVersion, FIELD_MAX_LENGTH.OS_VERSION),
                 truncate(deviceType, FIELD_MAX_LENGTH.DEVICE_TYPE),
                 truncate(sessionId, FIELD_MAX_LENGTH.SESSION_ID),
-                truncate(eventType, FIELD_MAX_LENGTH.EVENT_TYPE),
+                storedEventType,
                 eventData ? JSON.stringify(eventData) : null,
                 isUnique,
             ]
         );
 
+        // The view register log. Written after the row, and never able to fail
+        // the request: the view is already stored.
+        await this.logs.writeViewLog({
+            appId,
+            source,
+            viewId: publicId,
+            eventType: storedEventType,
+            isUnique: isUnique === 1,
+        });
+
         return {
             duplicate: isUnique === 0,
             insertId: result.insertId,
+            publicId,
             isUnique: isUnique === 1,
         };
     }
@@ -477,14 +537,15 @@ class DatabaseManager {
                 COUNT(*) as total_views,
                 SUM(CASE WHEN is_unique = 1 THEN 1 ELSE 0 END) as unique_views,
                 COUNT(DISTINCT visitor_hash) as unique_visitors
-             FROM \`${appId}\``
+             FROM \`${appId}\`
+             WHERE ${LIVE_ROW}`
         );
 
         const stats = totalStats[0];
 
         const [byCountry] = await this.pool.query(
             `SELECT country, COUNT(*) as count FROM \`${appId}\`
-             WHERE country IS NOT NULL
+             WHERE country IS NOT NULL AND ${LIVE_ROW}
              GROUP BY country
              ORDER BY count DESC
              LIMIT ?`,
@@ -493,13 +554,14 @@ class DatabaseManager {
 
         const [byDevice] = await this.pool.query(
             `SELECT devicesize, COUNT(*) as count FROM \`${appId}\`
+             WHERE ${LIVE_ROW}
              GROUP BY devicesize
              ORDER BY count DESC`
         );
 
         const [recent] = await this.pool.query(
             `SELECT COUNT(*) as count FROM \`${appId}\`
-             WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+             WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR) AND ${LIVE_ROW}`,
             [SERVER.DEFAULT_UNIQUE_VISITOR_WINDOW_HOURS]
         );
 
@@ -522,13 +584,14 @@ class DatabaseManager {
         const [views] = await this.pool.query(
             `SELECT masked_ip, country, timestamp, devicesize
              FROM \`${appId}\`
+             WHERE ${LIVE_ROW}
              ORDER BY timestamp DESC
              LIMIT ? OFFSET ?`,
             [limit, offset]
         );
 
         const [total] = await this.pool.query(
-            `SELECT COUNT(*) as count FROM \`${appId}\``
+            `SELECT COUNT(*) as count FROM \`${appId}\` WHERE ${LIVE_ROW}`
         );
 
         return {
@@ -560,7 +623,7 @@ class DatabaseManager {
         const [trends] = await this.pool.query(
             `SELECT ${groupBy} as period, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? DAY)
+             WHERE timestamp > DATE_SUB(NOW(), INTERVAL ? DAY) AND ${LIVE_ROW}
              GROUP BY period
              ORDER BY period ASC`,
             [days]
@@ -578,7 +641,7 @@ class DatabaseManager {
         const [bySource] = await this.pool.query(
             `SELECT source_type, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE source_type IS NOT NULL
+             WHERE source_type IS NOT NULL AND ${LIVE_ROW}
              GROUP BY source_type
              ORDER BY count DESC`
         );
@@ -586,7 +649,7 @@ class DatabaseManager {
         const [byDomain] = await this.pool.query(
             `SELECT referrer_domain, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE referrer_domain IS NOT NULL
+             WHERE referrer_domain IS NOT NULL AND ${LIVE_ROW}
              GROUP BY referrer_domain
              ORDER BY count DESC
              LIMIT ?`,
@@ -605,7 +668,7 @@ class DatabaseManager {
         const [byBrowser] = await this.pool.query(
             `SELECT browser, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE browser IS NOT NULL
+             WHERE browser IS NOT NULL AND ${LIVE_ROW}
              GROUP BY browser
              ORDER BY count DESC
              LIMIT ?`,
@@ -615,7 +678,7 @@ class DatabaseManager {
         const [byOS] = await this.pool.query(
             `SELECT os, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE os IS NOT NULL
+             WHERE os IS NOT NULL AND ${LIVE_ROW}
              GROUP BY os
              ORDER BY count DESC
              LIMIT ?`,
@@ -625,7 +688,7 @@ class DatabaseManager {
         const [byDeviceType] = await this.pool.query(
             `SELECT device_type, COUNT(*) as count
              FROM \`${appId}\`
-             WHERE device_type IS NOT NULL
+             WHERE device_type IS NOT NULL AND ${LIVE_ROW}
              GROUP BY device_type
              ORDER BY count DESC`
         );
@@ -642,7 +705,7 @@ class DatabaseManager {
         const [pages] = await this.pool.query(
             `SELECT page_path, page_title, COUNT(*) as views
              FROM \`${appId}\`
-             WHERE page_path IS NOT NULL
+             WHERE page_path IS NOT NULL AND ${LIVE_ROW}
              GROUP BY page_path, page_title
              ORDER BY views DESC
              LIMIT ?`,
@@ -662,7 +725,7 @@ class DatabaseManager {
         const [events] = await this.pool.query(
             `SELECT ${SESSION_COLUMNS}
              FROM \`${appId}\`
-             WHERE session_id = ?
+             WHERE session_id = ? AND ${LIVE_ROW}
              ORDER BY timestamp ASC`,
             [sessionId]
         );
@@ -702,3 +765,4 @@ module.exports = DatabaseManager;
 module.exports.SESSION_COLUMNS = SESSION_COLUMNS;
 module.exports.appTableDDL = appTableDDL;
 module.exports.APP_REGISTRY_DDL = APP_REGISTRY_DDL;
+module.exports.LIVE_ROW = LIVE_ROW;

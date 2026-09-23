@@ -3,18 +3,21 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { APP_NAME, HTTP_STATUS, PAYLOAD_LIMITS, SERVER } = require('./constants');
+const { ADMIN, APP_NAME, HTTP_STATUS, PAYLOAD_LIMITS, SERVER } = require('./constants');
 const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions } = require('./middleware/security');
 const { createAnalyticsRouter } = require('./routes/analytics');
+const { createAdminRouter } = require('./routes/admin');
+const { startTrashRetention } = require('./db/trashRetention');
 
 logger.configure({ level: config.server.logLevel });
 
 const dbManager = new DatabaseManager(config.dbInfo);
 let isServerReady = false;
 let httpServer = null;
+let stopTrashRetention = () => {};
 
 /**
  * Build the Express application.
@@ -27,16 +30,29 @@ function createApp() {
 
     app.disable('x-powered-by');
     app.use(helmet());
+
+    // Trusting the proxy is needed before the admin router sees a request: it
+    // decides whether the session cookie is marked Secure from req.secure.
+    app.set('trust proxy', config.server.trustProxy);
+
+    // The admin surface exists only when a password is configured, and is
+    // mounted ahead of CORS and the public rate limit: it is same-origin only,
+    // must never carry the analytics sites' CORS headers, and has its own
+    // limits.
+    if (config.admin.enabled) {
+        app.use(ADMIN.PATH_PREFIX, createAdminRouter({
+            config,
+            adminRepo: dbManager.admin,
+            logRepo: dbManager.logs,
+            isReady: () => isServerReady,
+        }));
+    }
+
     app.use(cors(buildCorsOptions(config.server.corsOrigins)));
 
     // Bounded well below body-parser's 100kb default; /event is the only
     // endpoint taking a body and its payload is small.
     app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
-
-    // Never bare `true`. Trusting every hop lets any caller set
-    // X-Forwarded-For and be believed, which forges geolocation and rotates
-    // the rate-limiter key at will.
-    app.set('trust proxy', config.server.trustProxy);
 
     app.use(rateLimit({
         windowMs: config.server.rateLimit.windowMs,
@@ -108,6 +124,18 @@ const initializeServer = async () => {
         // anyone editing allowed.json.
         await mergeRegisteredApps();
 
+        // Additive, idempotent schema upgrade for every known app, including
+        // ones registered at runtime. Fails startup rather than serving over a
+        // half-migrated table.
+        await dbManager.migrate(config.allowed.appId);
+
+        stopTrashRetention = startTrashRetention({
+            adminRepo: dbManager.admin,
+            logRepo: dbManager.logs,
+            getAppIds: () => config.allowed.appId,
+            days: config.admin.trashRetentionDays,
+        });
+
         isServerReady = true;
 
         if (require.main === module) {
@@ -147,6 +175,7 @@ const shutdown = async (signal, exitCode = 0) => {
     forceExit.unref();
 
     try {
+        stopTrashRetention();
         if (httpServer) {
             await new Promise((resolve) => httpServer.close(resolve));
         }
@@ -179,6 +208,7 @@ process.on('uncaughtException', (error) => {
 module.exports = app;
 module.exports.createApp = createApp;
 module.exports.createAnalyticsRouter = createAnalyticsRouter;
+module.exports.createAdminRouter = createAdminRouter;
 module.exports.DatabaseManager = DatabaseManager;
 module.exports.dbManager = dbManager;
 module.exports.initializeServer = initializeServer;

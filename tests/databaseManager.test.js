@@ -100,7 +100,7 @@ describe('DatabaseManager', () => {
                 uniqueWindowHours: 0
             });
 
-            const insert = lastQueryMatching('insert into');
+            const insert = lastQueryMatching('insert into `test_app_1`');
             expect(insert.sql).toContain('source_type');
             expect(insert.params).toContain('search');
         });
@@ -115,7 +115,7 @@ describe('DatabaseManager', () => {
                 uniqueWindowHours: 0
             });
 
-            const insert = lastQueryMatching('insert into');
+            const insert = lastQueryMatching('insert into `test_app_1`');
             const overLong = insert.params.filter(
                 p => typeof p === 'string' && p.length > FIELD_MAX_LENGTH.PAGE_PATH
             );

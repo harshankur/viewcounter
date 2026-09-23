@@ -4,6 +4,7 @@ const path = require('path');
 require('dotenv').config({ quiet: true });
 
 const {
+    ADMIN,
     DATABASE,
     INSECURE_DEFAULTS,
     NODE_ENV,
@@ -96,6 +97,7 @@ class Config {
         this.allowed = this.loadAllowed();
         this.auth = this.loadAuthConfig();
         this.privacy = this.loadPrivacyConfig();
+        this.admin = this.loadAdminConfig();
     }
 
     /**
@@ -294,6 +296,39 @@ class Config {
     }
 
     /**
+     * Admin UI credential and data-retention settings.
+     *
+     * `ADMIN_PASSWORD` is its own credential tier (SECURITY.md §3): it can
+     * read, edit, and delete every app's data, which neither a read key nor an
+     * ADMIN_API_KEYS provisioning key may do. It is read from the environment
+     * only, never from a config file, because it is a secret. The UI is
+     * disabled, failing closed, whenever it is absent.
+     *
+     * A password that is set but shorter than the minimum is kept (so
+     * validate() can refuse to boot on it in production) but never enables
+     * the UI.
+     *
+     * `TRASH_RETENTION_DAYS` bounds how long a soft-deleted view is kept before
+     * it is erased for good (GDPR Art. 5(1)(e), storage limitation). Zero keeps
+     * trash until an admin empties it by hand.
+     */
+    loadAdminConfig() {
+        const password = this.env.ADMIN_PASSWORD || '';
+        const longEnough = password.length >= ADMIN.MIN_PASSWORD_LENGTH;
+
+        const days = parseIntOr(this.env.TRASH_RETENTION_DAYS, ADMIN.DEFAULT_TRASH_RETENTION_DAYS);
+        const trashRetentionDays = days >= 0 && days <= ADMIN.MAX_TRASH_RETENTION_DAYS
+            ? days
+            : ADMIN.DEFAULT_TRASH_RETENTION_DAYS;
+
+        return {
+            password,
+            enabled: longEnough,
+            trashRetentionDays,
+        };
+    }
+
+    /**
      * Fail-fast startup validation (CONFIG.md §3, SECURITY.md §1).
      *
      * Refuses to boot a production deployment that is still sitting on the
@@ -307,6 +342,8 @@ class Config {
         // Force the lazy visitor secret to resolve now, so a server that cannot
         // persist it fails at startup rather than on its first request.
         void this.privacy.visitorSecret;
+
+        this.validateAdmin();
 
         if (!this.server.isProduction) {
             this.warnAboutDevelopmentDefaults();
@@ -336,6 +373,40 @@ class Config {
         }
 
         return this;
+    }
+
+    /**
+     * Admin credential checks, shared by every environment.
+     *
+     * A password that is present but too short is a misconfiguration, not a
+     * choice, so production refuses to boot on it rather than silently leaving
+     * the UI off. Reusing an API key as the password collapses two tiers into
+     * one secret, which is worth a warning in any environment.
+     */
+    validateAdmin() {
+        const { password, enabled } = this.admin;
+
+        if (!password) {
+            logWarning(WarningType.ADMIN_UI_DISABLED);
+            return;
+        }
+
+        if (!enabled && this.server.isProduction) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, {
+                field: 'ADMIN_PASSWORD',
+                reason: `must be at least ${ADMIN.MIN_PASSWORD_LENGTH} characters`,
+            });
+        }
+
+        if (!enabled) {
+            logWarning(WarningType.ADMIN_UI_DISABLED);
+            return;
+        }
+
+        const apiKeys = [...Object.keys(this.auth.readKeyScopes), ...this.auth.adminApiKeys];
+        if (apiKeys.includes(password)) {
+            logWarning(WarningType.ADMIN_PASSWORD_REUSED);
+        }
     }
 
     /** Surface the same problems as warnings outside production. */

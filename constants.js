@@ -14,9 +14,11 @@ const APP_SLUG = 'viewcounter';
 
 const HTTP_STATUS = {
     OK: 200,
+    NO_CONTENT: 204,
     BAD_REQUEST: 400,
     UNAUTHORIZED: 401,
     FORBIDDEN: 403,
+    NOT_FOUND: 404,
     UNPROCESSABLE_ENTITY: 422,
     TOO_MANY_REQUESTS: 429,
     INTERNAL_SERVER_ERROR: 500,
@@ -46,6 +48,10 @@ const FIELD_MAX_LENGTH = {
     DEVICE_TYPE: 20,
     SESSION_ID: 64,
     EVENT_TYPE: 50,
+    /** Free-text admin annotation on a single view. */
+    NOTE: 1000,
+    /** CHAR(36): the canonical textual form of a UUID. */
+    UUID: 36,
 };
 
 /** Bounds for user-supplied pagination and range parameters. */
@@ -83,7 +89,9 @@ const DATABASE = {
     QUERY_TIMEOUT_MS: 5_000,
     CONNECT_TIMEOUT_MS: 10_000,
     DEFAULT_PORT: 3306,
-    SCHEMA_VERSION: 'enhanced_schema_v3',
+    SCHEMA_VERSION: 'admin_schema_v4',
+    /** Rows given a public_id per statement when backfilling an old table. */
+    BACKFILL_BATCH_SIZE: 500,
 };
 
 const SERVER = {
@@ -116,6 +124,150 @@ const PRIVACY = {
      */
     MIN_ADMIN_KEY_LENGTH: 32,
 };
+
+/**
+ * Admin UI and API.
+ *
+ * The admin tier is a separate credential from both read keys and
+ * ADMIN_API_KEYS (SECURITY.md §3): it can read, edit, and delete every app's
+ * data, which neither of the other tiers may do.
+ */
+const ADMIN = {
+    /** Where the UI and its API are mounted. */
+    PATH_PREFIX: '/admin',
+    /** Relative to PATH_PREFIX. */
+    API_PATH: '/api',
+    SESSION_COOKIE: 'vc_admin_session',
+    CSRF_HEADER: 'x-csrf-token',
+    /** Long enough that the login rate limit makes guessing hopeless. */
+    MIN_PASSWORD_LENGTH: 16,
+    /** Longest submitted password even looked at; bounds the comparison cost. */
+    MAX_PASSWORD_INPUT_LENGTH: 1024,
+    SESSION_TOKEN_BYTES: 32,
+    CSRF_TOKEN_BYTES: 32,
+    /** Signed out after this long without a request. */
+    SESSION_IDLE_TIMEOUT_MS: 30 * 60 * 1000,
+    /** Signed out after this long regardless of activity. */
+    SESSION_ABSOLUTE_TIMEOUT_MS: 12 * 60 * 60 * 1000,
+    /** Oldest sessions are evicted beyond this, bounding memory. */
+    MAX_SESSIONS: 50,
+    LOGIN_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
+    /** Failed attempts per IP per window. Successful logins do not count. */
+    LOGIN_RATE_LIMIT_MAX: 5,
+    RATE_LIMIT_WINDOW_MS: 60 * 1000,
+    /** Requests per IP per window across the whole admin surface. */
+    RATE_LIMIT_MAX: 600,
+    /** Upper bound on the rows one batch operation may touch. */
+    MAX_BATCH_IDS: 500,
+    /**
+     * JSON body ceiling for the admin API. A full batch of MAX_BATCH_IDS
+     * UUIDs is about 20 kB on its own, above the public endpoints' limit.
+     */
+    MAX_BODY_BYTES: 64 * 1024,
+    PAGE_SIZES: [25, 50, 100],
+    PAGE_SIZE_DEFAULT: 50,
+    PAGE_MAX: 100_000,
+    SEARCH_MAX_LENGTH: 200,
+    DEFAULT_TRASH_RETENTION_DAYS: 30,
+    MAX_TRASH_RETENTION_DAYS: 3650,
+    /** How often expired trash is checked for. */
+    TRASH_PURGE_INTERVAL_MS: 60 * 60 * 1000,
+};
+
+/** Which rows an admin listing returns. */
+const VIEW_STATUS = {
+    ACTIVE: 'active',
+    DELETED: 'deleted',
+    ALL: 'all',
+};
+
+/** Filter on whether an admin has edited a row's content. */
+const MODIFIED_FILTER = {
+    ANY: 'any',
+    MODIFIED: 'modified',
+    UNMODIFIED: 'unmodified',
+};
+
+const SORT_ORDER = {
+    ASC: 'asc',
+    DESC: 'desc',
+};
+
+/**
+ * Columns an admin listing may be sorted by, mapped from the API name to the
+ * column. Sorting interpolates the column, so only these values can reach SQL.
+ */
+const ADMIN_SORT_COLUMNS = {
+    timestamp: 'timestamp',
+    page: 'page_path',
+    country: 'country',
+    deviceSize: 'devicesize',
+    eventType: 'event_type',
+    source: 'source_type',
+    browser: 'browser',
+    modifiedAt: 'admin_modified_at',
+    deletedAt: 'deleted_at',
+};
+
+/**
+ * Content fields an admin may edit, mapped from the API name to the column.
+ *
+ * Deliberately excludes everything that records who or when: the masked IP,
+ * visitor hash, timestamp, country, and every User-Agent-derived field. An
+ * edit can correct what was viewed, never fabricate who viewed it or when.
+ * `referrerDomain` and `sourceType` are not editable directly; they are
+ * re-derived whenever `referrer` changes, so they can never disagree with it.
+ */
+const EDITABLE_FIELDS = {
+    pagePath: 'page_path',
+    pageTitle: 'page_title',
+    referrer: 'referrer',
+    deviceSize: 'devicesize',
+    eventType: 'event_type',
+    eventData: 'event_data',
+};
+
+/** Every entry in the admin operation log is one of these. */
+const ADMIN_ACTION = {
+    LOGIN_SUCCEEDED: 'login_succeeded',
+    LOGIN_FAILED: 'login_failed',
+    LOGOUT: 'logout',
+    VIEWS_EDITED: 'views_edited',
+    NOTE_SET: 'note_set',
+    NOTE_CLEARED: 'note_cleared',
+    VIEWS_DELETED: 'views_deleted',
+    VIEWS_RESTORED: 'views_restored',
+    VIEWS_PURGED: 'views_purged',
+    TRASH_AUTO_PURGED: 'trash_auto_purged',
+};
+
+/**
+ * Machine-readable error codes returned by the admin API. The UI maps each one
+ * to a translated message, so no server-side English reaches the screen.
+ */
+const ADMIN_ERROR_CODE = {
+    UNAUTHENTICATED: 'UNAUTHENTICATED',
+    INVALID_PASSWORD: 'INVALID_PASSWORD',
+    TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
+    RATE_LIMITED: 'RATE_LIMITED',
+    CSRF_REJECTED: 'CSRF_REJECTED',
+    VALIDATION_FAILED: 'VALIDATION_FAILED',
+    NOT_FOUND: 'NOT_FOUND',
+    SERVER_ERROR: 'SERVER_ERROR',
+};
+
+/** Which write endpoint a view-register-log entry came through. */
+const VIEW_LOG_SOURCE = {
+    REGISTER_VIEW: 'registerView',
+    EVENT: 'event',
+};
+
+/** Service-owned tables. All carry the reserved `_` prefix. */
+const ADMIN_LOG_TABLE = '_admin_log';
+const VIEW_LOG_TABLE = '_view_log';
+
+/** Canonical UUID text form, any version. Admin row IDs are validated with it. */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Recognised event types. `pageview` is the only one the server itself emits. */
 const EVENT_TYPE = {
@@ -180,7 +332,7 @@ const SCOPE_ALL = '*';
  */
 const APP_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Reserved prefix for the service's own tables (`_migrations`, `_apps`). */
+/** Reserved prefix for the service's own tables (`_migrations`, `_apps`, logs). */
 const RESERVED_TABLE_PREFIX = '_';
 
 /** Internal registry of dynamically provisioned apps. */
@@ -213,6 +365,18 @@ module.exports = {
     DATABASE,
     SERVER,
     PRIVACY,
+    ADMIN,
+    VIEW_STATUS,
+    MODIFIED_FILTER,
+    SORT_ORDER,
+    ADMIN_SORT_COLUMNS,
+    EDITABLE_FIELDS,
+    ADMIN_ACTION,
+    ADMIN_ERROR_CODE,
+    VIEW_LOG_SOURCE,
+    ADMIN_LOG_TABLE,
+    VIEW_LOG_TABLE,
+    UUID_PATTERN,
     EVENT_TYPE,
     TREND_PERIOD,
     TREND_PERIODS,

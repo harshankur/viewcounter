@@ -23,6 +23,8 @@ const ErrorType = {
     INVALID_APP_ID: 'INVALID_APP_ID',
     SECRET_PERSIST_FAILED: 'SECRET_PERSIST_FAILED',
     SECRET_UNAVAILABLE: 'SECRET_UNAVAILABLE',
+    MIGRATION_FAILED: 'MIGRATION_FAILED',
+    FIELD_NOT_WRITABLE: 'FIELD_NOT_WRITABLE',
 };
 
 /** Non-fatal conditions worth surfacing but not worth stopping for. */
@@ -36,6 +38,13 @@ const WarningType = {
     API_KEY_EMPTY_SCOPE: 'API_KEY_EMPTY_SCOPE',
     APP_ALREADY_REGISTERED: 'APP_ALREADY_REGISTERED',
     FIELD_TRUNCATED: 'FIELD_TRUNCATED',
+    ADMIN_UI_DISABLED: 'ADMIN_UI_DISABLED',
+    ADMIN_PASSWORD_REUSED: 'ADMIN_PASSWORD_REUSED',
+    ADMIN_INSECURE_TRANSPORT: 'ADMIN_INSECURE_TRANSPORT',
+    MIGRATION_TABLE_MISSING: 'MIGRATION_TABLE_MISSING',
+    VIEW_LOG_WRITE_FAILED: 'VIEW_LOG_WRITE_FAILED',
+    ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
+    TRASH_PURGE_FAILED: 'TRASH_PURGE_FAILED',
 };
 
 /**
@@ -62,6 +71,10 @@ const ERROR_MESSAGES = {
         `Could not persist the visitor-hash secret to ${info?.path}. ` +
         'Without a stable secret, visitor hashes are not reversible-resistant across restarts.',
     [ErrorType.SECRET_UNAVAILABLE]: 'Visitor-hash secret has not been initialized',
+    [ErrorType.MIGRATION_FAILED]: (info) =>
+        `Schema migration failed for table '${info?.table}': ${info?.cause}`,
+    [ErrorType.FIELD_NOT_WRITABLE]: (info) =>
+        `Refusing to write column '${info?.column}': it is not an admin-editable field.`,
 };
 
 /** @type {Record<string, string | ((info: any) => string)>} */
@@ -86,6 +99,21 @@ const WARNING_MESSAGES = {
         `App '${info?.appId}' is already registered; leaving it as-is.`,
     [WarningType.FIELD_TRUNCATED]: (info) =>
         `Field '${info?.field}' exceeded ${info?.max} characters and was truncated before storage.`,
+    [WarningType.ADMIN_UI_DISABLED]: 'ADMIN_PASSWORD is not set; the admin UI and its API are disabled.',
+    [WarningType.ADMIN_PASSWORD_REUSED]:
+        'ADMIN_PASSWORD is identical to a configured API key. Use an independent secret so ' +
+        'leaking one credential tier never unlocks another.',
+    [WarningType.ADMIN_INSECURE_TRANSPORT]:
+        'An admin login arrived over plain HTTP. The session cookie is not marked Secure on ' +
+        'such a request; serve the admin UI over HTTPS.',
+    [WarningType.MIGRATION_TABLE_MISSING]: (info) =>
+        `Table '${info?.table}' does not exist; skipping its schema migration.`,
+    [WarningType.VIEW_LOG_WRITE_FAILED]: (info) =>
+        `Could not write the view register log entry for '${info?.appId}': ${info?.cause}`,
+    [WarningType.ADMIN_LOG_WRITE_FAILED]: (info) =>
+        `Could not write the admin operation log entry '${info?.action}': ${info?.cause}`,
+    [WarningType.TRASH_PURGE_FAILED]: (info) =>
+        `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
 };
 
 /**

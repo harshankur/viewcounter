@@ -41,6 +41,8 @@ jest.mock('../config', () => {
             adminApiKeys: [],
         },
         privacy: { visitorSecret: 'a'.repeat(P.SECRET_BYTES * 2) },
+        // The admin UI is covered by its own suite; off here, as when unconfigured.
+        admin: { enabled: false, password: '', trashRetentionDays: 0 },
         validate() { return this; }
     };
 });
@@ -101,6 +103,20 @@ describe('H1 — read endpoints must be authenticated', () => {
         await request(server).get('/stats/test_app_1')
             .set(API_KEY_HEADER, `${TEST_API_KEY}x`)
             .expect(401);
+    });
+});
+
+describe('Admin surface is absent without ADMIN_PASSWORD', () => {
+    // Fails closed: with no password configured there is no admin route at
+    // all, rather than a route guarded by a check that could be got wrong.
+    test.each(['/admin', '/admin/', '/admin/api/session', '/admin/api/apps'])('%s does not exist', async (path) => {
+        const res = await request(server).get(path);
+        expect(res.status).toBe(404);
+    });
+
+    test('a login attempt reaches nothing', async () => {
+        const res = await request(server).post('/admin/api/login').send({ password: 'anything' });
+        expect(res.status).toBe(404);
     });
 });
 

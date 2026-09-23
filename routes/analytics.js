@@ -8,6 +8,7 @@ const {
     HTTP_STATUS,
     QUERY_LIMITS,
     TREND_PERIOD,
+    VIEW_LOG_SOURCE,
 } = require('../constants');
 const UserAgentParser = require('../utils/userAgentParser');
 const ReferrerParser = require('../utils/referrerParser');
@@ -218,6 +219,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     userAgent,
                     visitorSecret: config.privacy.visitorSecret,
                     uniqueWindowHours: config.server.uniqueVisitorWindowHours,
+                    source: VIEW_LOG_SOURCE.REGISTER_VIEW,
                 });
 
                 logger.audit('registerView', { ...logContext(req), appId, duplicate: result.duplicate });
@@ -275,6 +277,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     visitorSecret: config.privacy.visitorSecret,
                     // Custom events are never deduplicated.
                     uniqueWindowHours: 0,
+                    source: VIEW_LOG_SOURCE.EVENT,
                 });
 
                 logger.audit('trackEvent', { ...logContext(req), appId, eventType });

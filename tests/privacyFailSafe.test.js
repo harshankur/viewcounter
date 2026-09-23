@@ -120,6 +120,30 @@ describe('Privacy Fail-Safe Verification', () => {
         expectAbsentEverywhere('VeryDistinctiveFingerprintString', 'User-Agent fragment');
     });
 
+    test('Fail-Safe: the view register log carries no IP, hash, or User-Agent', async () => {
+        // The log outlives a view's erasure by design, so it must hold nothing
+        // that identifies a visitor, not even in masked or hashed form.
+        const rawIP = '77.77.77.77';
+        const rawUA = 'Mozilla/5.0 (LogProbe/1.0)';
+
+        await dbManager.registerEvent('test_app', {
+            ip: rawIP,
+            deviceSize: 'medium',
+            userAgent: rawUA,
+            visitorSecret: TEST_VISITOR_SECRET,
+        });
+
+        const logIndex = interceptedSql.findIndex((sql) => sql.includes('`_view_log`'));
+        expect(logIndex).toBeGreaterThan(-1);
+        const logSql = interceptedSql[logIndex];
+        const hash = PrivacyUtils.generateVisitorHash(rawIP, rawUA, TEST_VISITOR_SECRET, 24);
+
+        for (const forbidden of [rawIP, '77.77.77.0', rawUA, hash]) {
+            expect(logSql).not.toContain(forbidden);
+        }
+        expect(logSql).not.toMatch(/masked_ip|visitor_hash|user_agent/);
+    });
+
     describe('Visitor hash irreversibility', () => {
         const ip = '198.51.100.42';
         const ua = 'Mozilla/5.0';

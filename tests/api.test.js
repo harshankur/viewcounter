@@ -43,6 +43,8 @@ jest.mock('../config', () => {
             adminApiKeys: [],
         },
         privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
+        // The admin UI is covered by its own suite; off here, as when unconfigured.
+        admin: { enabled: false, password: '', trashRetentionDays: 0 },
         validate() { return this; }
     };
 });
