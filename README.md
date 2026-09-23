@@ -48,6 +48,7 @@ We believe in total transparency regarding your visitors' data:
 - 🗄️ **Flexible Database**: Connect to existing DB or auto-create schema
 - 🛠️ **Easy Setup**: Interactive CLI wizard with config detection
 - 🏥 **Production-Ready**: Health checks, graceful shutdown, structured logging
+- 🧑‍💼 **Admin UI**: Browse, search, edit, annotate, and soft-delete recorded views, with batch actions, a trash, and audit logs ([details](#admin-ui))
 
 ### Advanced Tracking
 - 📍 **Page Tracking**: Track specific pages/paths, not just app-level
@@ -135,9 +136,90 @@ than running on a guessable default:
 - `READ_API_KEYS`: comma-separated keys for the analytics read endpoints. Unset means the read API is disabled.
 - `TRUST_PROXY`: hop count or CIDR list. **Never set this to `true`** — trusting every hop lets any caller forge their own IP via `X-Forwarded-For`, which fakes geolocation, inflates unique-visitor counts, and bypasses rate limiting. `true` and `*` are downgraded to one hop with a warning. Your proxy must set `X-Forwarded-For`; `X-Real-IP` alone is not read.
 - `VISITOR_SECRET_PATH` / `VISITOR_SECRET`: where the visitor-hash secret lives, or the value itself.
+- `ADMIN_PASSWORD`: turns on the [admin UI](#admin-ui) at `/admin`. At least 16 characters. Unset means the admin UI does not exist.
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
-`RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`.
+`RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
+`TRASH_RETENTION_DAYS`.
+
+## Admin UI
+
+A web interface for the data ViewCounter has recorded, served by the same
+server at `/admin`. It is built into the package: set a password and it is
+there, with no separate deployment and no build step.
+
+```bash
+# .env (or the environment of your container)
+ADMIN_PASSWORD=<at least 16 characters, e.g. from: openssl rand -base64 24>
+TRASH_RETENTION_DAYS=30   # optional; 0 keeps trash until emptied by hand
+```
+
+Then open `https://<your-server>/admin/` and sign in.
+
+### What you can do
+
+- **Browse** every app's views: search by page, title, source, note, event, or
+  session; filter by whether an admin changed them; sort by any column; page
+  through them.
+- **Select several views**, across pages, and act on all of them at once.
+- **Edit content fields**: page path, page title, referrer (the source is
+  recalculated from it), device size, event type, and event data. What was
+  *observed* about the visitor (time, masked IP, country, browser, OS, device
+  type) is never editable, so an edit can correct what was viewed but never
+  fabricate who viewed it or when.
+- **Add a note** to any view, as a private annotation.
+- **Move views to the trash**. Trashed views stop counting in every statistic
+  at once and come back if restored.
+- **Erase views permanently** from the trash.
+- **Read two logs**: the *admin log* of every sign-in and every change, and the
+  *view log* of every view the server accepted.
+
+### How the data is kept
+
+| Column | Meaning |
+|---|---|
+| `public_id` | Random UUID that identifies a view in the UI and API. The auto-increment row number never leaves the server. |
+| `admin_modified_at` | Empty when the row is exactly as recorded; otherwise when an admin last changed its content. Notes do not set it. |
+| `note` | The admin's annotation, if any. |
+| `deleted_at` | Empty for live rows; set when the row went to the trash. |
+
+These columns, and the `_admin_log` and `_view_log` tables, are added
+automatically when the server starts, in both database modes. The upgrade is
+additive: nothing is dropped, and existing rows get their `public_id` on the
+first start.
+
+### Deleting, and GDPR
+
+Deleting is always a soft delete first. Views in the trash are erased for good
+after `TRASH_RETENTION_DAYS` (default 30), or straight away with **Erase
+permanently**, which exists so a data subject's erasure request (GDPR
+Art. 17) can be honoured completely. Each erasure is recorded in the admin
+log.
+
+Neither log copies personal data, so erasing a row really erases it:
+
+- the admin log records who acted (a session ID and a masked IP), what they did,
+  when, to which view IDs, and *which* fields changed, but never the values;
+- the view log records that a view was accepted, when, for which app, and
+  through which endpoint, with no IP, visitor hash, or user agent.
+
+### Security
+
+- `ADMIN_PASSWORD` is its own credential tier. It is independent of
+  `READ_API_KEYS` and `ADMIN_API_KEYS`, so leaking one never unlocks another,
+  and the server warns if you reuse an API key as the password.
+- Signing in issues an `HttpOnly`, `SameSite=Strict` session cookie scoped to
+  `/admin`, marked `Secure` whenever the request arrived over HTTPS (through
+  `TRUST_PROXY` behind a proxy). Sessions end after 30 idle minutes or 12
+  hours, and on restart.
+- Every change also needs a per-session CSRF token and a matching `Origin`.
+- Failed sign-ins are rate limited per IP and recorded in the admin log.
+- The UI runs under a strict Content Security Policy (no inline script or
+  style, no third-party origins, not frameable) and renders everything as
+  text: page titles and referrers come from anonymous visitors and can never
+  execute.
+- Serve it over HTTPS only. The server logs a warning when a sign-in arrives
+  over plain HTTP in production.
 
 ## API Endpoints
 
@@ -704,7 +786,14 @@ npm run test:persist
 
 # Run tests for CI/CD (no report generation)
 npm run test:ci
+
+# Run only the admin UI tests in a real browser (Playwright)
+npx playwright install chromium   # once
+npm run test:ui
 ```
+
+`npm test` includes the Playwright suite, so run `npx playwright install
+chromium` once before the first run.
 
 ### Test Database
 

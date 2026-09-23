@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 9/23/2026, 10:39:19 PM  
+**Generated**: 9/23/2026, 11:28:35 PM  
 **Status**: ✅ EXCELLENT  
-**Overall Coverage**: 89.14%
+**Overall Coverage**: 92.99%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 90.52% (764/844) | ✅ |
-| **Branches** | 82.8% (342/413) | ✅ |
-| **Functions** | 92% (161/175) | ✅ |
-| **Lines** | 91.23% (708/776) | ✅ |
+| **Statements** | 94.16% (1356/1440) | ✅ |
+| **Branches** | 88.96% (613/689) | ✅ |
+| **Functions** | 94.35% (284/301) | ✅ |
+| **Lines** | 94.49% (1235/1307) | ✅ |
 
 ---
 
@@ -22,17 +22,25 @@
 | File | Statements | Branches | Functions | Lines |
 |------|------------|----------|-----------|-------|
 | constants.js | 100% | 100% | 100% | 100% |
-| index.js | 63.95% | 22.72% | 38.46% | 67.9% |
-| index.js | 96.33% | 93.61% | 94.73% | 96.03% |
-| DatabaseManager.js | 85.61% | 65.45% | 92% | 86.02% |
+| index.js | 65.97% | 29.16% | 37.5% | 69.56% |
+| index.js | 96.87% | 95.45% | 95.23% | 96.66% |
+| AdminRepository.js | 100% | 95% | 100% | 100% |
+| DatabaseManager.js | 87.17% | 67.79% | 92.3% | 87.58% |
+| LogRepository.js | 100% | 95% | 100% | 100% |
+| adminSchema.js | 100% | 100% | 100% | 100% |
+| trashRetention.js | 100% | 88.88% | 100% | 100% |
+| adminAuth.js | 100% | 100% | 100% | 100% |
+| adminValidation.js | 100% | 100% | 100% | 100% |
 | auth.js | 94.33% | 86.11% | 100% | 95.65% |
 | security.js | 100% | 95% | 100% | 100% |
 | validation.js | 100% | 100% | 100% | 100% |
+| admin.js | 98.6% | 95.91% | 96.15% | 98.51% |
 | analytics.js | 87.96% | 73.33% | 90.47% | 87.69% |
 | appIdUtils.js | 80% | 66.66% | 100% | 100% |
+| cookieUtils.js | 100% | 100% | 100% | 100% |
 | errorUtils.js | 100% | 100% | 100% | 100% |
 | ipUtils.js | 100% | 100% | 100% | 100% |
-| logger.js | 97.56% | 86.95% | 91.66% | 100% |
+| logger.js | 97.56% | 91.3% | 91.66% | 100% |
 | privacyUtils.js | 100% | 94.11% | 100% | 100% |
 | referrerParser.js | 93.33% | 84.61% | 100% | 97.36% |
 | secretStore.js | 100% | 100% | 100% | 100% |

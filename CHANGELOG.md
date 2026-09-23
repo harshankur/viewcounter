@@ -5,6 +5,36 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- **Admin UI** at `/admin`, enabled by setting `ADMIN_PASSWORD` (at least 16
+  characters; its own credential tier, independent of the read and
+  provisioning keys). Browse, search, filter, and sort every app's views;
+  select across pages and act on many at once; edit content fields (page path,
+  title, referrer, device size, event type and data); add notes; move views to
+  the trash, restore them, or erase them permanently. Build-free, same design
+  language as the documentation site, no third-party requests, and a strict
+  Content Security Policy.
+- Every app table gains `public_id` (a random UUID used by the admin UI and
+  API in place of the enumerable row number), `note`, `admin_modified_at`
+  (whether and when an admin changed the row's content), and `deleted_at`.
+  The migration runs at startup in both database modes, is additive, and gives
+  existing rows their `public_id`.
+- `_admin_log`, recording every admin sign-in and change (who, when, which
+  views, which fields), and `_view_log`, recording every accepted view and
+  event. Neither stores an IP, visitor hash, user agent, or field value, so
+  erasing a view erases its data.
+- `TRASH_RETENTION_DAYS` (default 30): trashed views are erased for good after
+  this many days. 0 keeps them until erased by hand.
+- `createAdminRouter` export, for mounting the admin surface into another
+  Express app.
+
+### Changed
+
+- Every analytics read (`/stats`, `/views`, `/trends`, `/referrers`,
+  `/browsers`, `/pages`, `/sessions`) and the duplicate-visit check now ignore
+  views an admin has moved to the trash.
+
 ### Fixed
 
 - `GET /registerView` recorded direct visits as referrals from the tracked
