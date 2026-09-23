@@ -45,7 +45,7 @@ paths:
   /registerView:
     get:
       summary: Register a page view
-      description: Track a visitor landing on a page. Automatically parses User-Agent and Referrer headers.
+      description: Track a visitor landing on a page. Automatically parses the User-Agent header.
       parameters:
         - name: appId
           in: query
@@ -74,7 +74,10 @@ paths:
           in: query
           schema:
             type: string
-          description: Overrides the Referer header if provided.
+          description: >-
+            Where the visitor came from, normally `document.referrer`. Absent or
+            empty records a direct visit. The request's own Referer header is
+            never used, since from a browser it names the tracked page itself.
         - name: sessionId
           in: query
           schema:

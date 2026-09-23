@@ -113,6 +113,81 @@ describe('API Endpoints - Integration Tests', () => {
             expect(response.body).toHaveProperty('duplicate');
         });
 
+        describe('referrer source', () => {
+            // What the route hands to the database layer, captured without
+            // replacing it, so the request still runs end to end.
+            let registerSpy;
+            const recorded = () => registerSpy.mock.calls.at(-1)[1];
+
+            beforeEach(() => {
+                registerSpy = jest.spyOn(app.dbManager, 'registerEvent');
+            });
+
+            afterEach(() => {
+                registerSpy.mockRestore();
+            });
+
+            // A browser's fetch or <img> beacon always sends the tracked page
+            // as Referer. Reading it recorded every direct visit as a referral
+            // from the site's own domain.
+            const OWN_PAGE = 'https://tracked.example/blog/post';
+
+            test('an empty referrer param is a direct visit, whatever the Referer header says', async () => {
+                await request(server)
+                    .get('/registerView?appId=test_app_1&deviceSize=large&referrer=')
+                    .set('referer', OWN_PAGE)
+                    .expect(200);
+
+                expect(recorded()).toMatchObject({
+                    referrer: null,
+                    referrerDomain: null,
+                    sourceType: 'direct',
+                });
+            });
+
+            test('an absent referrer param is a direct visit, whatever the Referer header says', async () => {
+                await request(server)
+                    .get('/registerView?appId=test_app_1&deviceSize=large')
+                    .set('referer', OWN_PAGE)
+                    .expect(200);
+
+                expect(recorded()).toMatchObject({ referrer: null, sourceType: 'direct' });
+            });
+
+            test('the Referer header value never reaches the database layer', async () => {
+                await request(server)
+                    .get('/registerView?appId=test_app_1&deviceSize=large')
+                    .set('referer', OWN_PAGE)
+                    .expect(200);
+
+                expect(JSON.stringify(registerSpy.mock.calls.at(-1))).not.toContain('tracked.example');
+            });
+
+            test('an explicit search-engine referrer is still classified as search', async () => {
+                await request(server)
+                    .get('/registerView?appId=test_app_1&deviceSize=large&referrer='
+                        + encodeURIComponent('https://www.google.com/search?q=viewcounter'))
+                    .set('referer', OWN_PAGE)
+                    .expect(200);
+
+                expect(recorded()).toMatchObject({ referrerDomain: 'www.google.com', sourceType: 'search' });
+            });
+
+            test('an explicit external referrer is still classified as referral', async () => {
+                await request(server)
+                    .get('/registerView?appId=test_app_1&deviceSize=large&referrer='
+                        + encodeURIComponent('https://news.example.org/links'))
+                    .set('referer', OWN_PAGE)
+                    .expect(200);
+
+                expect(recorded()).toMatchObject({
+                    referrer: 'https://news.example.org/links',
+                    referrerDomain: 'news.example.org',
+                    sourceType: 'referral',
+                });
+            });
+        });
+
         test('should reject an unknown appId', async () => {
             await request(server)
                 .get('/registerView?appId=not_a_real_app&deviceSize=large')

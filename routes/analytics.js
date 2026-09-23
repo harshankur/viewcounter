@@ -190,8 +190,14 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                 const userAgent = req.get('user-agent') || '';
                 const uaData = UserAgentParser.parse(userAgent);
 
-                const referrerHeader = referrer || req.get('referer') || req.get('referrer');
-                const referrerData = ReferrerParser.parse(referrerHeader);
+                // The `referrer` parameter is the only source of the visitor's
+                // referrer; absent or empty means a direct visit. The Referer
+                // header is deliberately not a fallback: on every browser
+                // integration (a fetch or an <img> beacon) it names the tracked
+                // page itself, not where the visitor came from, so reading it
+                // recorded every direct visit as a referral from the site's own
+                // domain. A server relaying views passes the real referrer here.
+                const referrerData = ReferrerParser.parse(referrer);
 
                 const result = await dbManager.registerEvent(appId, {
                     ip,

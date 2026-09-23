@@ -376,7 +376,7 @@ For each view/event, the system automatically captures:
 | **Device Size** | Query param | small, medium, large |
 | **Page Path** | Query param (optional) | e.g., `/blog/my-post` |
 | **Page Title** | Query param (optional) | e.g., "My Blog Post" |
-| **Referrer** | Header/query (optional) | Full referrer URL |
+| **Referrer** | Query param (optional) | Full referrer URL, normally `document.referrer`; absent or empty means direct |
 | **Referrer Domain** | Parsed | e.g., `google.com` |
 | **Source Type** | Parsed | search, social, email, campaign, referral, direct |
 | **Browser** | User-Agent | e.g., Chrome, Safari, Firefox |
@@ -461,6 +461,11 @@ and tell ViewCounter to believe you:
 X-Forwarded-For: <real visitor IP>     # set by your code
 TRUST_PROXY=1                          # otherwise the header is ignored
 ```
+
+The same goes for the referrer: pass the visitor's own `Referer` (from the
+request your server received) as the `referrer` query parameter. ViewCounter
+never reads the `Referer` header on the request it receives, because from a
+browser that header names the tracked page, not where the visitor came from.
 
 **A process with no visitor at all** (cron, CLI, worker, webhook) should use
 `POST /event`. Custom events are never deduplicated, so "unique visitors" is

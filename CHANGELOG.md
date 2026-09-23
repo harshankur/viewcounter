@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. This project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `GET /registerView` recorded direct visits as referrals from the tracked
+  site's own domain. When the `referrer` query parameter was empty or absent,
+  the handler fell back to the request's `Referer` header, but on every browser
+  integration (a `fetch` or an `<img>` beacon) that header names the embedding
+  page, not where the visitor came from. The `referrer` parameter is now the
+  only source: absent or empty means `direct`. A server relaying views on a
+  visitor's behalf should pass the visitor's referrer in that parameter;
+  forwarding it as a `Referer` header no longer has any effect. Rows already
+  stored keep their old classification.
+
 ## [3.0.1]
 
 Metadata and release-tooling only. No runtime code changed, so upgrading from
