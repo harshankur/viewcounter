@@ -23,6 +23,7 @@ const {
     ADMIN,
     ADMIN_ACTION,
     ADMIN_ERROR_CODE,
+    ADMIN_RANGE,
     ADMIN_SORT_COLUMNS,
     EDITABLE_FIELDS,
     FIELD_MAX_LENGTH,
@@ -47,6 +48,7 @@ const {
 const {
     validateLogin,
     validateViewListing,
+    validateAnalysis,
     validateEdit,
     validateNote,
     validateBatch,
@@ -82,6 +84,17 @@ const ADMIN_CSP = {
 function intParam(req, name, fallback) {
     const parsed = Number.parseInt(req.query[name], 10);
     return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** The filters a listing and its analysis share, with defaults applied. */
+function filterQuery(req) {
+    return {
+        status: req.query.status || VIEW_STATUS.ACTIVE,
+        modified: req.query.modified || MODIFIED_FILTER.ANY,
+        range: req.query.range || ADMIN_RANGE.ALL,
+        search: req.query.search || '',
+        eventType: req.query.eventType || '',
+    };
 }
 
 /** Stable failure response; the detail stays in the server log. */
@@ -231,6 +244,7 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             editableFields: Object.keys(EDITABLE_FIELDS),
             sortFields: Object.keys(ADMIN_SORT_COLUMNS),
             statuses: Object.values(VIEW_STATUS),
+            ranges: Object.values(ADMIN_RANGE),
             modifiedFilters: Object.values(MODIFIED_FILTER),
             actions: Object.values(ADMIN_ACTION),
             sources: Object.values(VIEW_LOG_SOURCE),
@@ -260,24 +274,58 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
 
     // ---- Views ------------------------------------------------------------
 
+    const listingQuery = (req) => ({
+        ...filterQuery(req),
+        sort: req.query.sort || 'timestamp',
+        order: req.query.order || SORT_ORDER.DESC,
+        page: intParam(req, 'page', 1),
+        pageSize: intParam(req, 'pageSize', ADMIN.PAGE_SIZE_DEFAULT),
+    });
+
     api.get('/apps/:appId/views', requireSession, validateViewListing(allowed), handleAdminValidation,
         async (req, res) => {
             try {
-                const query = {
-                    status: req.query.status || VIEW_STATUS.ACTIVE,
-                    modified: req.query.modified || MODIFIED_FILTER.ANY,
-                    search: req.query.search || '',
-                    sort: req.query.sort || 'timestamp',
-                    order: req.query.order || SORT_ORDER.DESC,
-                    page: intParam(req, 'page', 1),
-                    pageSize: intParam(req, 'pageSize', ADMIN.PAGE_SIZE_DEFAULT),
-                };
-                const result = await adminRepo.listViews(req.params.appId, query);
+                const query = listingQuery(req);
+                const result = await adminRepo.listViews([req.params.appId], query);
                 return res.json({ appId: req.params.appId, ...query, ...result });
             } catch (error) {
                 return adminError(req, res, error, 'list views');
             }
         });
+
+    /** Every app at once. An app whose table is missing is left out, not fatal. */
+    api.get('/views', requireSession, validateViewListing(), handleAdminValidation, async (req, res) => {
+        try {
+            const query = listingQuery(req);
+            const apps = await adminRepo.existingTables(allowed.appId);
+            const result = await adminRepo.listViews(apps, query);
+            return res.json({ apps, ...query, ...result });
+        } catch (error) {
+            return adminError(req, res, error, 'list all views');
+        }
+    });
+
+    api.get('/apps/:appId/analytics', requireSession, validateAnalysis(allowed), handleAdminValidation,
+        async (req, res) => {
+            try {
+                const query = filterQuery(req);
+                const result = await adminRepo.analyze([req.params.appId], query);
+                return res.json({ apps: [req.params.appId], ...query, ...result });
+            } catch (error) {
+                return adminError(req, res, error, 'analyse views');
+            }
+        });
+
+    api.get('/analytics', requireSession, validateAnalysis(), handleAdminValidation, async (req, res) => {
+        try {
+            const query = filterQuery(req);
+            const apps = await adminRepo.existingTables(allowed.appId);
+            const result = await adminRepo.analyze(apps, query);
+            return res.json({ apps, ...query, ...result });
+        } catch (error) {
+            return adminError(req, res, error, 'analyse all views');
+        }
+    });
 
     api.patch('/apps/:appId/views', authed, validateEdit(allowed), handleAdminValidation, async (req, res) => {
         try {

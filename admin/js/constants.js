@@ -70,6 +70,7 @@ export const THEME = Object.freeze({
 export const STORAGE_KEY = Object.freeze({
     THEME: `${APP_SLUG}-admin-theme`,
     LAST_APP: `${APP_SLUG}-admin-last-app`,
+    INSIGHTS_OPEN: `${APP_SLUG}-admin-insights-open`,
 });
 
 export const TOAST_DURATION_MS = 4000;
@@ -111,6 +112,38 @@ export const KEY = Object.freeze({
     ARROW_RIGHT: 'ArrowRight',
     HOME: 'Home',
     END: 'End',
+});
+
+/** Sentinel app selection meaning every app. Not a valid app ID ('*' is refused). */
+export const ALL_APPS = '*';
+
+/** Mirrors ADMIN_RANGE on the server. */
+export const RANGE = Object.freeze({
+    WEEK: '7d',
+    MONTH: '30d',
+    QUARTER: '90d',
+    YEAR: '1y',
+    ALL: 'all',
+});
+
+/** Geometry and limits for the insights charts. */
+export const CHART = Object.freeze({
+    TREND: Object.freeze({
+        WIDTH: 720,
+        HEIGHT: 220,
+        MARGIN: Object.freeze({ top: 12, right: 12, bottom: 28, left: 44 }),
+    }),
+    Y_TICKS: 4,
+    TICK_GAP: 8,
+    X_LABEL_GAP: 18,
+    /** r >= 4, so a marker is at least 8px across. */
+    DOT_RADIUS: 4,
+    TOOLTIP_OFFSET: 12,
+    /** Event types listed in a country's tooltip. */
+    TOOLTIP_TYPES: 4,
+    /** Sequential classes on the map; must match --map-1..5 in admin.css. */
+    MAP_CLASSES: 5,
+    COUNTRY_LIST_LIMIT: 10,
 });
 
 /** JSON indentation in the details and edit dialogs. */

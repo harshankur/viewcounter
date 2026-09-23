@@ -698,6 +698,56 @@ async function verifyAdmin(db) {
     const apiViewLog = await admin.call('GET', '/logs/views?appId=tenant_a&source=registerView');
     check('view log listing works against real SQL', apiViewLog.status === 200 && apiViewLog.body.entries.length > 0);
 
+    // Every app together, and the insights analysis, on the real engine:
+    // UNION ALL with per-branch LIMIT, a CTE, ROW_NUMBER() OVER, and the
+    // DATE_FORMAT trend buckets are all things a mock cannot vouch for.
+    const allViews = await admin.call('GET', '/views?pageSize=25');
+    // Includes apps provisioned at runtime earlier in this run, not just the configured three.
+    const listedApps = allViews.body?.apps || [];
+    check('GET /views covers every app with a table',
+        ['tenant_a', 'tenant_b', 'legacy_app', 'runtime_tenant'].every((id) => listedApps.includes(id)), listedApps.join(','));
+    const perApp = await Promise.all(listedApps.map((id) => admin.call('GET', `/apps/${id}/views?pageSize=25`)));
+    const sumOfApps = perApp.reduce((sum, r) => sum + r.body.total, 0);
+    check('GET /views unions every app', allViews.status === 200 && allViews.body.total === sumOfApps,
+        `${allViews.status} ${allViews.body?.total} vs ${sumOfApps}`);
+    check('every row names its app', allViews.body.views.every((v) => listedApps.includes(v.appId)));
+    const newest = allViews.body.views.map((v) => new Date(v.timestamp).getTime());
+    check('the union is ordered across apps', newest.every((t, i) => i === 0 || newest[i - 1] >= t));
+    for (const sort of ['timestamp', 'page', 'country', 'deviceSize', 'eventType', 'source', 'browser', 'modifiedAt', 'deletedAt']) {
+        const r = await admin.call('GET', `/views?sort=${sort}&order=asc&page=2&pageSize=25`);
+        check(`every-app sort by ${sort}, page 2, is valid SQL`, r.status === 200, `got ${r.status}`);
+    }
+    const ranged = await admin.call('GET', '/views?range=7d&eventType=pageview&search=hello');
+    check('range, event type, and search combine in the union', ranged.status === 200, `got ${ranged.status}`);
+
+    const analysis = await admin.call('GET', '/analytics');
+    check('GET /analytics runs (CTE + window function)', analysis.status === 200, `got ${analysis.status} ${JSON.stringify(analysis.body)}`);
+    check('analysis totals match the listing', analysis.body?.totals?.views === sumOfApps,
+        `${analysis.body?.totals?.views} vs ${sumOfApps}`);
+    check('analysis breaks down by app', analysis.body?.breakdowns?.app?.some((e) => e.value === 'tenant_a'));
+    check('analysis has a trend and per-country counts',
+        Array.isArray(analysis.body?.trend) && analysis.body.trend.length > 0 && Array.isArray(analysis.body?.countries));
+    check('analysis never returns a visitor hash', !/[0-9a-f]{64}/.test(JSON.stringify(analysis.body)));
+    const filtered = await admin.call('GET', '/apps/tenant_a/analytics?range=7d&eventType=pageview&modified=unmodified');
+    check('one app\'s analysis with every filter runs', filtered.status === 200
+        && filtered.body.totals.views <= analysis.body.totals.views, `got ${filtered.status}`);
+
+    // Longer spans switch the trend to weeks, then months.
+    const backdate = async (days) => db.query(
+        `INSERT INTO \`legacy_app\` (public_id, masked_ip, visitor_hash, timestamp, devicesize, country)
+         VALUES (?, '198.51.100.0', ?, DATE_SUB(NOW(), INTERVAL ? DAY), 'large', 'FR')`,
+        [crypto.randomUUID(), 'd'.repeat(64), days]);
+    await backdate(200);
+    const weekly = await admin.call('GET', '/apps/legacy_app/analytics');
+    check('a 200-day span is charted per week', weekly.body?.bucket === 'week', JSON.stringify(weekly.body?.bucket));
+    check('week buckets are labelled by their Monday',
+        weekly.body.trend.every((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.period) && new Date(`${p.period}T00:00:00Z`).getUTCDay() === 1),
+        weekly.body.trend.map((p) => p.period).join(','));
+    await backdate(800);
+    const monthly = await admin.call('GET', '/apps/legacy_app/analytics');
+    check('an 800-day span is charted per month', monthly.body?.bucket === 'month'
+        && monthly.body.trend.every((p) => p.period.endsWith('-01')), JSON.stringify(monthly.body?.trend?.slice(0, 3)));
+
     const logout = await admin.call('POST', '/logout');
     check('logout ends the session', logout.status === 204 && (await admin.call('GET', '/apps')).status === 401);
 }

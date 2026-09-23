@@ -17,11 +17,14 @@ const { ADMIN } = require('../../constants');
 const logger = require('../../utils/logger');
 const { createAdminRouter } = require('../../routes/admin');
 const { createMemoryRepos, makeView } = require('../support/memoryRepos');
+const { demoData, APPS: DEMO_APPS } = require('./demoData');
 
 const PORT = Number(process.argv[2] || process.env.UI_TEST_PORT || 4173);
 const PASSWORD = 'playwright-admin-password';
+/** `--demo` serves several thousand realistic fake views instead of the test fixture. */
+const DEMO = process.argv.includes('--demo');
 
-/** A fixed clock, so timestamps in the UI are stable between runs. */
+/** The test fixture's fixed clock, so timestamps and date ranges are stable between runs. */
 const BASE = Date.UTC(2026, 8, 20, 9, 0, 0);
 const MINUTE = 60 * 1000;
 
@@ -89,20 +92,62 @@ function seed() {
         deletedAt: new Date(BASE - MINUTE),
     }));
 
-    const shop = [makeView({ id: '00000000-0000-4000-8000-0000000005e0', pagePath: '/cart', pageTitle: 'Cart' })];
+    // Older rows, so the date-range filter has something to exclude, and one
+    // custom event, so the event-type filter has something to select.
+    const DAY = 24 * 60 * MINUTE;
+    const shop = [
+        makeView({ id: '00000000-0000-4000-8000-0000000005e0', pagePath: '/cart', pageTitle: 'Cart' }),
+        makeView({
+            id: '00000000-0000-4000-8000-0000000005e1',
+            timestamp: new Date(BASE - 45 * DAY),
+            pagePath: '/downloads',
+            pageTitle: 'Downloads',
+            eventType: 'download',
+            country: 'JP',
+        }),
+        makeView({
+            id: '00000000-0000-4000-8000-0000000005e2',
+            timestamp: new Date(BASE - 200 * DAY),
+            pagePath: '/archive',
+            pageTitle: 'Archive',
+        }),
+    ];
 
     return { blog, shop };
 }
 
+/**
+ * A view-register-log receipt for every seeded view, at the view's own time,
+ * as the real server writes one per accepted request.
+ */
+function receiptsFor(views) {
+    return Object.entries(views)
+        .flatMap(([appId, rows]) => rows.map((view) => ({
+            id: `${view.id.slice(0, 24)}${'f'.repeat(12)}`,
+            createdAt: view.timestamp,
+            appId,
+            source: view.eventType === 'pageview' ? 'registerView' : 'event',
+            viewId: view.id,
+            eventType: view.eventType,
+            isUnique: view.isUnique,
+        })))
+        .sort((a, b) => b.createdAt - a.createdAt);
+}
+
 /** A fresh admin router over freshly seeded data, with no sessions. */
 function buildAdmin() {
-    const repos = createMemoryRepos({ views: seed() });
-    for (const view of repos.tables.get('blog').slice(0, 5)) {
-        repos.logRepo.writeViewLog({ appId: 'blog', source: 'registerView', viewId: view.id, eventType: 'pageview', isUnique: view.isUnique });
-    }
+    const now = DEMO ? new Date(Math.floor(Date.now() / MINUTE) * MINUTE) : new Date(BASE);
+    const data = DEMO ? demoData(now) : { views: seed() };
+    const repos = createMemoryRepos({ views: data.views, now: () => now });
+    repos.viewLog.push(...(data.viewLog || receiptsFor(data.views)));
+    repos.adminLog.push(...(data.adminLog || []));
 
     const config = {
-        allowed: { appId: ['blog', 'shop'], deviceSize: ['small', 'medium', 'large'], origins: {} },
+        allowed: {
+            appId: DEMO ? Object.keys(DEMO_APPS) : ['blog', 'shop'],
+            deviceSize: ['small', 'medium', 'large'],
+            origins: {},
+        },
         server: { isProduction: false },
         admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30 },
     };

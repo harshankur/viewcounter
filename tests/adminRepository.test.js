@@ -53,8 +53,9 @@ describe('AdminRepository', () => {
             const { select, count } = await run({ search: "50%_off'" });
             expect(select.sql).not.toContain('50%');
             expect(select.params).toContain('%50\\%\\_off\'%');
-            expect(select.params[0]).toBe("50%_off'");
-            expect(count.params).toEqual(select.params.slice(0, -2));
+            expect(select.params[0]).toBe('blog');
+            expect(select.params[1]).toBe("50%_off'");
+            expect(count.params).toEqual(select.params.slice(1, -2));
         });
 
         test('sorts by an allowlisted column and falls back for anything else', async () => {

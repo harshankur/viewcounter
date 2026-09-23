@@ -8,10 +8,14 @@
  */
 
 const {
+    ADMIN_RANGE_DAYS,
     ADMIN_SORT_COLUMNS,
+    ANALYSIS_TOP_N,
     EDITABLE_FIELDS,
     MODIFIED_FILTER,
     SORT_ORDER,
+    TREND_BUCKET,
+    TREND_BUCKET_MAX_DAYS,
     VIEW_STATUS,
 } = require('../constants');
 const { getError, ErrorType } = require('../utils/errorUtils');
@@ -71,10 +75,88 @@ function escapeLike(text) {
     return String(text).replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
+/**
+ * Columns the analysis reads. `visitor_hash` is here only so the database can
+ * count distinct visitors; it is never selected into a result set.
+ */
+const ANALYSIS_COLUMNS = [
+    'country', 'event_type', 'source_type', 'devicesize', 'browser', 'os',
+    'visitor_hash', 'is_unique', 'timestamp', 'admin_modified_at',
+].join(', ');
+
+/**
+ * Time-series bucket expressions, keyed by TREND_BUCKET. Fixed literals: the
+ * bucket is chosen in code from the data's span, never from caller input.
+ * Every bucket is labelled by the date it starts on (YYYY-MM-DD).
+ */
+const BUCKET_EXPRESSION = {
+    [TREND_BUCKET.DAY]: "DATE_FORMAT(timestamp, '%Y-%m-%d')",
+    [TREND_BUCKET.WEEK]: "DATE_FORMAT(DATE_SUB(DATE(timestamp), INTERVAL WEEKDAY(timestamp) DAY), '%Y-%m-%d')",
+    [TREND_BUCKET.MONTH]: "DATE_FORMAT(timestamp, '%Y-%m-01')",
+};
+
+/** Breakdown dimensions of the analysis: API name -> column. Fixed literals. */
+const BREAKDOWN_COLUMNS = {
+    source: 'source_type',
+    deviceSize: 'devicesize',
+    browser: 'browser',
+    os: 'os',
+    eventType: 'event_type',
+    app: 'app_id',
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The coarsest bucket that keeps a chart of this span readable. */
+function chooseBucket(firstAt, lastAt) {
+    if (!firstAt || !lastAt) return TREND_BUCKET.DAY;
+    const days = (new Date(lastAt).getTime() - new Date(firstAt).getTime()) / DAY_MS;
+    if (days <= TREND_BUCKET_MAX_DAYS[TREND_BUCKET.DAY]) return TREND_BUCKET.DAY;
+    if (days <= TREND_BUCKET_MAX_DAYS[TREND_BUCKET.WEEK]) return TREND_BUCKET.WEEK;
+    return TREND_BUCKET.MONTH;
+}
+
+/**
+ * The WHERE clause shared by the listing and the analysis, so the table and
+ * the charts above it always describe the same rows.
+ *
+ * @param {{ status?: string, modified?: string, search?: string, range?: string,
+ *   eventType?: string }} query
+ * @returns {{ clause: string, params: unknown[] }}
+ */
+function buildFilter({ status, modified, search, range, eventType } = {}) {
+    const where = [STATUS_CONDITION[status] || STATE.ACTIVE];
+    const params = [];
+
+    const modifiedCondition = MODIFIED_CONDITION[modified];
+    if (modifiedCondition) where.push(modifiedCondition);
+
+    if (eventType) {
+        where.push('event_type = ?');
+        params.push(eventType);
+    }
+
+    const days = ADMIN_RANGE_DAYS[range];
+    if (days) {
+        where.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)');
+        params.push(days);
+    }
+
+    if (search) {
+        const pattern = `%${escapeLike(search)}%`;
+        where.push(`(public_id = ? OR page_path LIKE ? OR page_title LIKE ? OR referrer_domain LIKE ?
+            OR note LIKE ? OR event_type LIKE ? OR session_id LIKE ?)`);
+        params.push(search, pattern, pattern, pattern, pattern, pattern, pattern);
+    }
+
+    return { clause: where.join(' AND '), params };
+}
+
 /** Shape one row for the API: camelCase, public ID, parsed JSON. */
-function toApiRow(row) {
+function toApiRow(row, appId = row.app_id) {
     return {
         id: row.public_id,
+        appId,
         timestamp: row.timestamp,
         maskedIp: row.masked_ip,
         country: row.country,
@@ -153,44 +235,176 @@ class AdminRepository {
     }
 
     /**
-     * One page of views.
+     * Which of these apps have a table. Listing and analysing all apps at
+     * once skips an app whose table is missing rather than failing outright.
+     * @param {string[]} appIds
+     * @returns {Promise<string[]>} in the order given
+     */
+    async existingTables(appIds) {
+        if (appIds.length === 0) return [];
+        const [rows] = await this.pool.query(
+            `SELECT TABLE_NAME AS name FROM information_schema.TABLES
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (?)`,
+            [appIds]
+        );
+        const present = new Set(rows.map((row) => row.name));
+        return appIds.filter((appId) => present.has(appId));
+    }
+
+    /**
+     * One page of views from one app or several.
      *
-     * @param {string} appId
-     * @param {{ status: string, modified: string, search?: string, sort: string,
-     *   order: string, page: number, pageSize: number }} query already validated
+     * Several apps are read with UNION ALL. Each branch is sorted and cut to
+     * the rows the requested page could possibly need, so a deep page on a
+     * large table never unions whole tables.
+     *
+     * @param {string|string[]} apps one app ID or several
+     * @param {{ status: string, modified: string, search?: string, range?: string,
+     *   sort: string, order: string, page: number, pageSize: number }} query already validated
      * @returns {Promise<{ views: object[], total: number }>}
      */
-    async listViews(appId, { status, modified, search, sort, order, page, pageSize }) {
-        const where = [STATUS_CONDITION[status] || STATE.ACTIVE];
-        const params = [];
+    async listViews(apps, query) {
+        const appIds = Array.isArray(apps) ? apps : [apps];
+        if (appIds.length === 0) return { views: [], total: 0 };
 
-        const modifiedCondition = MODIFIED_CONDITION[modified];
-        if (modifiedCondition) where.push(modifiedCondition);
-
-        if (search) {
-            const pattern = `%${escapeLike(search)}%`;
-            where.push(`(public_id = ? OR page_path LIKE ? OR page_title LIKE ? OR referrer_domain LIKE ?
-                OR note LIKE ? OR event_type LIKE ? OR session_id LIKE ?)`);
-            params.push(search, pattern, pattern, pattern, pattern, pattern, pattern);
-        }
-
+        const { page, pageSize, sort, order } = query;
+        const { clause, params } = buildFilter(query);
         const column = ADMIN_SORT_COLUMNS[sort] || ADMIN_SORT_COLUMNS.timestamp;
         const direction = order === SORT_ORDER.ASC ? 'ASC' : 'DESC';
-        const clause = where.join(' AND ');
+        const offset = (page - 1) * pageSize;
 
-        const [rows] = await this.pool.query(
-            `SELECT ${ADMIN_VIEW_COLUMNS} FROM ${this.table(appId)}
-             WHERE ${clause}
-             ORDER BY ${column} ${direction}, id DESC
-             LIMIT ? OFFSET ?`,
-            [...params, pageSize, (page - 1) * pageSize]
-        );
+        let rows;
+        if (appIds.length === 1) {
+            [rows] = await this.pool.query(
+                `SELECT ? AS app_id, ${ADMIN_VIEW_COLUMNS} FROM ${this.table(appIds[0])}
+                 WHERE ${clause}
+                 ORDER BY ${column} ${direction}, id DESC
+                 LIMIT ? OFFSET ?`,
+                [appIds[0], ...params, pageSize, offset]
+            );
+        } else {
+            const branches = appIds.map((appId) =>
+                `(SELECT ? AS app_id, ${ADMIN_VIEW_COLUMNS} FROM ${this.table(appId)}
+                  WHERE ${clause}
+                  ORDER BY ${column} ${direction}, public_id ${direction}
+                  LIMIT ?)`);
+            [rows] = await this.pool.query(
+                `${branches.join(' UNION ALL ')}
+                 ORDER BY ${column} ${direction}, public_id ${direction}
+                 LIMIT ? OFFSET ?`,
+                [...appIds.flatMap((appId) => [appId, ...params, offset + pageSize]), pageSize, offset]
+            );
+        }
+
+        const counts = appIds.map((appId) => `(SELECT COUNT(*) FROM ${this.table(appId)} WHERE ${clause})`);
         const [count] = await this.pool.query(
-            `SELECT COUNT(*) AS count FROM ${this.table(appId)} WHERE ${clause}`,
-            params
+            `SELECT ${counts.join(' + ')} AS count`,
+            appIds.flatMap(() => params)
         );
 
-        return { views: rows.map(toApiRow), total: Number(count[0]?.count || 0) };
+        return { views: rows.map((row) => toApiRow(row)), total: Number(count[0]?.count || 0) };
+    }
+
+    /**
+     * Aggregates over the same rows a listing with this query would show.
+     *
+     * @param {string[]} appIds
+     * @param {{ status: string, modified: string, search?: string, range?: string }} query
+     * @returns {Promise<object>} totals, trend, breakdowns, and per-country counts
+     */
+    async analyze(appIds, query) {
+        const empty = {
+            totals: { views: 0, uniqueViews: 0, visitors: 0, countries: 0, modified: 0, firstAt: null, lastAt: null },
+            bucket: TREND_BUCKET.DAY,
+            trend: [],
+            breakdowns: Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []])),
+            countries: [],
+        };
+        if (appIds.length === 0) return empty;
+
+        const { clause, params } = buildFilter(query);
+        const branches = appIds.map((appId) =>
+            `SELECT ? AS app_id, ${ANALYSIS_COLUMNS} FROM ${this.table(appId)} WHERE ${clause}`);
+        const cte = `WITH v AS (${branches.join(' UNION ALL ')})`;
+        const cteParams = appIds.flatMap((appId) => [appId, ...params]);
+
+        const [totalRows] = await this.pool.query(
+            `${cte} SELECT
+                COUNT(*) AS views,
+                COALESCE(SUM(is_unique), 0) AS unique_views,
+                COUNT(DISTINCT visitor_hash) AS visitors,
+                COUNT(DISTINCT country) AS countries,
+                COALESCE(SUM(admin_modified_at IS NOT NULL), 0) AS modified,
+                MIN(timestamp) AS first_at,
+                MAX(timestamp) AS last_at
+             FROM v`,
+            cteParams
+        );
+        const totalsRow = totalRows[0] || {};
+        const totals = {
+            views: Number(totalsRow.views || 0),
+            uniqueViews: Number(totalsRow.unique_views || 0),
+            visitors: Number(totalsRow.visitors || 0),
+            countries: Number(totalsRow.countries || 0),
+            modified: Number(totalsRow.modified || 0),
+            firstAt: totalsRow.first_at ?? null,
+            lastAt: totalsRow.last_at ?? null,
+        };
+        if (totals.views === 0) return { ...empty, totals };
+
+        const bucket = chooseBucket(totals.firstAt, totals.lastAt);
+        const [trendRows] = await this.pool.query(
+            `${cte} SELECT ${BUCKET_EXPRESSION[bucket]} AS period, COUNT(*) AS views,
+                COALESCE(SUM(is_unique), 0) AS unique_views
+             FROM v GROUP BY period ORDER BY period`,
+            cteParams
+        );
+
+        const groups = Object.entries(BREAKDOWN_COLUMNS).map(([dim, column]) =>
+            `SELECT '${dim}' AS dim, ${column} AS value, COUNT(*) AS views FROM v GROUP BY ${column}`);
+        const [breakdownRows] = await this.pool.query(
+            `${cte} SELECT dim, value, views FROM (
+                SELECT dim, value, views,
+                    ROW_NUMBER() OVER (PARTITION BY dim ORDER BY views DESC, value) AS rank_in_dim
+                FROM (${groups.join(' UNION ALL ')}) AS g
+             ) AS ranked
+             WHERE rank_in_dim <= ?
+             ORDER BY dim, views DESC, value`,
+            [...cteParams, ANALYSIS_TOP_N]
+        );
+        const breakdowns = Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []]));
+        for (const row of breakdownRows) {
+            breakdowns[row.dim]?.push({ value: row.value ?? null, views: Number(row.views) });
+        }
+
+        // Per-country counts, split by the leading event types so the map can
+        // show where each type comes from; the rest are grouped as null.
+        const types = breakdowns.eventType.map((entry) => entry.value).filter((value) => value !== null);
+        const [countryRows] = await this.pool.query(
+            `${cte} SELECT country,
+                CASE WHEN event_type IN (?) THEN event_type ELSE NULL END AS event_type,
+                COUNT(*) AS views
+             FROM v WHERE country IS NOT NULL
+             GROUP BY country, CASE WHEN event_type IN (?) THEN event_type ELSE NULL END
+             ORDER BY country`,
+            [...cteParams, types.length ? types : [''], types.length ? types : ['']]
+        );
+
+        return {
+            totals,
+            bucket,
+            trend: trendRows.map((row) => ({
+                period: String(row.period),
+                views: Number(row.views),
+                uniqueViews: Number(row.unique_views),
+            })),
+            breakdowns,
+            countries: countryRows.map((row) => ({
+                country: row.country,
+                eventType: row.event_type ?? null,
+                views: Number(row.views),
+            })),
+        };
     }
 
     /**
@@ -316,3 +530,7 @@ module.exports.ADMIN_VIEW_COLUMNS = ADMIN_VIEW_COLUMNS;
 module.exports.WRITABLE_COLUMNS = WRITABLE_COLUMNS;
 module.exports.escapeLike = escapeLike;
 module.exports.toApiRow = toApiRow;
+module.exports.buildFilter = buildFilter;
+module.exports.chooseBucket = chooseBucket;
+module.exports.BREAKDOWN_COLUMNS = BREAKDOWN_COLUMNS;
+module.exports.BUCKET_EXPRESSION = BUCKET_EXPRESSION;

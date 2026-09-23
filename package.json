@@ -28,6 +28,8 @@
     "start": "node index.js",
     "setup": "node scripts/setup.js",
     "assets": "node scripts/generate-brand-assets.js",
+    "map": "node scripts/generate-world-map.js",
+    "admin:demo": "node tests/ui/server.js 4173 --demo",
     "lint": "eslint .",
     "test": "npm run lint && jest --coverage --verbose && playwright test && node scripts/generate-test-report.js",
     "test:ui": "playwright test",
@@ -41,10 +43,14 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.63.0",
+    "d3-geo": "^3.1.1",
     "eslint": "^9.39.5",
+    "i18n-iso-countries": "^7.14.0",
     "jest": "^30.4.2",
     "jest-html-reporter": "^4.4.0",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "repository": {
     "type": "git",

@@ -125,7 +125,9 @@ describe('admin UI translations', () => {
         ['fields', Object.keys(EDITABLE_FIELDS)],
         ['tabs', ['views', 'trash', 'adminLog', 'viewLog']],
         ['deviceSizes', ['small', 'medium', 'large']],
-        ['columns', ['timestamp', 'page', 'source', 'device', 'country', 'client', 'event', 'status', 'actions']],
+        ['columns', ['timestamp', 'app', 'page', 'source', 'device', 'country', 'client', 'event', 'status', 'actions']],
+        ['ranges', ['7d', '30d', '90d', '1y', 'all']],
+        ['insights.breakdown', ['source', 'deviceSize', 'browser', 'os', 'eventType', 'app']],
     ])('the %s family covers every value the server can send', (family, values) => {
         const missing = values.filter((value) => !resolves(base, `${family}.${value}`));
         expect(missing).toEqual([]);

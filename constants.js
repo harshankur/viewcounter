@@ -174,6 +174,45 @@ const ADMIN = {
     TRASH_PURGE_INTERVAL_MS: 60 * 60 * 1000,
 };
 
+/**
+ * Date ranges an admin listing and its analysis can be limited to, mapped to
+ * a number of days. `all` has no lower bound. Only these values reach SQL.
+ */
+const ADMIN_RANGE = {
+    WEEK: '7d',
+    MONTH: '30d',
+    QUARTER: '90d',
+    YEAR: '1y',
+    ALL: 'all',
+};
+
+const ADMIN_RANGE_DAYS = {
+    [ADMIN_RANGE.WEEK]: 7,
+    [ADMIN_RANGE.MONTH]: 30,
+    [ADMIN_RANGE.QUARTER]: 90,
+    [ADMIN_RANGE.YEAR]: 365,
+    [ADMIN_RANGE.ALL]: null,
+};
+
+/**
+ * Time-series bucket for the admin analysis, chosen from the span of the data
+ * actually in the filtered set, so a chart never has thousands of points.
+ */
+const TREND_BUCKET = {
+    DAY: 'day',
+    WEEK: 'week',
+    MONTH: 'month',
+};
+
+/** Largest span, in days, charted per day and per week. */
+const TREND_BUCKET_MAX_DAYS = {
+    [TREND_BUCKET.DAY]: 92,
+    [TREND_BUCKET.WEEK]: 731,
+};
+
+/** Rows per breakdown returned by the admin analysis; the rest is "other". */
+const ANALYSIS_TOP_N = 8;
+
 /** Which rows an admin listing returns. */
 const VIEW_STATUS = {
     ACTIVE: 'active',
@@ -367,6 +406,11 @@ module.exports = {
     PRIVACY,
     ADMIN,
     VIEW_STATUS,
+    ADMIN_RANGE,
+    ADMIN_RANGE_DAYS,
+    TREND_BUCKET,
+    TREND_BUCKET_MAX_DAYS,
+    ANALYSIS_TOP_N,
     MODIFIED_FILTER,
     SORT_ORDER,
     ADMIN_SORT_COLUMNS,

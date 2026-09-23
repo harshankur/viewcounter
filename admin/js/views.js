@@ -17,9 +17,12 @@ import { confirmModal } from './modal.js';
 import { createPager, createSegmented, headerCell, messageRow } from './table.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { openDetails, openEditor, openNoteEditor } from './viewDialogs.js';
+import { createInsightsPanel } from './insights.js';
 import {
+    ALL_APPS,
     CLAMP_LINES,
     KEY,
+    RANGE,
     MODIFIED_FILTER,
     SEARCH_DEBOUNCE_MS,
     SORT_ORDER,
@@ -35,6 +38,7 @@ export const PANEL_MODE = Object.freeze({
 /** Columns in display order; `sort` names the API sort key. */
 const COLUMNS = [
     { key: 'timestamp', sort: 'timestamp', className: 'col-time' },
+    { key: 'app', className: 'col-app' },
     { key: 'page', sort: 'page', className: 'col-page' },
     { key: 'source', sort: 'source', className: 'col-source' },
     { key: 'device', sort: 'deviceSize', className: 'col-device' },
@@ -56,6 +60,9 @@ export function createViewsPanel({ mode, meta, context }) {
     const state = {
         showDeleted: false,
         modified: MODIFIED_FILTER.ANY,
+        range: RANGE.ALL,
+        eventType: '',
+        knownEventTypes: new Set(),
         search: '',
         sort: isTrash ? 'deletedAt' : 'timestamp',
         order: SORT_ORDER.DESC,
@@ -72,6 +79,15 @@ export function createViewsPanel({ mode, meta, context }) {
         if (isTrash) return VIEW_STATUS.DELETED;
         return state.showDeleted ? VIEW_STATUS.ALL : VIEW_STATUS.ACTIVE;
     };
+
+    /** The filters the table and the insights above it share. */
+    const filters = () => ({
+        status: status(),
+        modified: state.modified,
+        range: state.range,
+        eventType: state.eventType,
+        search: state.search,
+    });
 
     // ---- Toolbar -----------------------------------------------------------
 
@@ -94,10 +110,26 @@ export function createViewsPanel({ mode, meta, context }) {
         context.setAppId(appId);
     }
 
-    function renderAppTabs() {
+    /** Every app's tab, led by one for all of them together. */
+    function tabEntries() {
         const apps = context.apps();
+        const sum = (key) => apps.reduce((total, app) => total + app[key], 0);
+        return [
+            {
+                appId: ALL_APPS,
+                label: t('appTabs.all'),
+                active: sum('active'),
+                deleted: sum('deleted'),
+                modified: sum('modified'),
+                available: true,
+            },
+            ...apps.map((app) => ({ ...app, label: app.appId })),
+        ];
+    }
+
+    function renderAppTabs() {
         const current = context.appId();
-        replaceChildren(appTabs, apps.map((app) => {
+        replaceChildren(appTabs, tabEntries().map((app) => {
             const selected = app.appId === current;
             const count = isTrash ? app.deleted : app.active;
             const countText = t(isTrash ? 'appTabs.deletedCount' : 'appTabs.activeCount', { count });
@@ -108,7 +140,7 @@ export function createViewsPanel({ mode, meta, context }) {
                     role: 'tab',
                     'aria-selected': String(selected),
                     'aria-controls': tableId,
-                    'aria-label': t('appTabs.tabName', { app: app.appId, count: countText }),
+                    'aria-label': t('appTabs.tabName', { app: app.label, count: countText }),
                     tabindex: selected ? '0' : '-1',
                     title: app.available ? null : t('appTabs.unavailable', { app: app.appId }),
                 },
@@ -116,7 +148,7 @@ export function createViewsPanel({ mode, meta, context }) {
                 on: { click: () => selectApp(app.appId) },
             }, [
                 el('span', { className: 'prompt-char', text: '❯', attrs: { 'aria-hidden': 'true' } }),
-                el('span', { className: 'app-tab-name', text: app.appId }),
+                el('span', { className: 'app-tab-name', text: app.label }),
                 el('span', { className: 'app-tab-count', text: formatNumber(count), attrs: { 'aria-hidden': 'true' } }),
             ]);
         }));
@@ -127,7 +159,7 @@ export function createViewsPanel({ mode, meta, context }) {
     }
 
     appTabs.addEventListener('keydown', (event) => {
-        const ids = context.apps().map((app) => app.appId);
+        const ids = tabEntries().map((app) => app.appId);
         if (ids.length === 0) return;
         const index = Math.max(0, ids.indexOf(context.appId()));
         const moves = {
@@ -174,6 +206,31 @@ export function createViewsPanel({ mode, meta, context }) {
         } },
     });
 
+    const rangeFilter = createSegmented({
+        label: t('toolbar.range'),
+        value: RANGE.ALL,
+        options: meta.ranges.map((value) => ({ value, label: t(`ranges.${value}`) })),
+        onChange: (value) => {
+            state.range = value;
+            resetAndLoad();
+        },
+    });
+
+    const eventTypeOptions = () => [
+        { value: '', label: t('toolbar.allEventTypes') },
+        ...[...state.knownEventTypes].sort().map((type) => ({ value: type, label: tOr(`eventTypes.${type}`, type) })),
+    ];
+    const eventTypePicker = createListbox({
+        label: t('toolbar.eventType'),
+        options: eventTypeOptions(),
+        value: '',
+        className: 'event-type-picker',
+        onChange: (value) => {
+            state.eventType = value;
+            resetAndLoad();
+        },
+    });
+
     const pageSizePicker = createListbox({
         label: t('toolbar.pageSize'),
         options: meta.pageSizes.map((size) => ({ value: String(size), label: t('toolbar.perPage', { count: size }) })),
@@ -186,7 +243,11 @@ export function createViewsPanel({ mode, meta, context }) {
     });
 
     const toolbar = el('div', { className: 'toolbar' }, [
-        el('div', { className: 'toolbar-group' }, [searchInput]),
+        el('div', { className: 'toolbar-group' }, [
+            rangeFilter.element,
+            isTrash ? null : eventTypePicker.element,
+            searchInput,
+        ]),
         el('div', { className: 'toolbar-group' }, [
             modifiedFilter.element,
             isTrash ? null : el('label', { className: 'switch' }, [
@@ -243,10 +304,32 @@ export function createViewsPanel({ mode, meta, context }) {
 
     const retention = isTrash ? el('p', { className: 'notice' }) : null;
 
+    // Insights live on the Views tab; the trash is for recovery, not analysis.
+    const insights = isTrash ? null : createInsightsPanel({
+        reportError: context.reportError,
+        onData: (data) => {
+            // Offer every event type seen so far, so choosing one never hides the others.
+            const before = state.knownEventTypes.size;
+            for (const entry of data.breakdowns.eventType) {
+                if (entry.value !== null) state.knownEventTypes.add(entry.value);
+            }
+            if (state.knownEventTypes.size !== before) eventTypePicker.setOptions(eventTypeOptions(), state.eventType);
+        },
+    });
+
     const element = el('section', {
         className: 'panel',
         attrs: { 'aria-label': isTrash ? t('tabs.trash') : t('tabs.views') },
-    }, [appTabs, toolbar, retention, summary, batchBar, el('div', { className: 'table-wrap' }, [table]), pager.element]);
+    }, [
+        appTabs,
+        toolbar,
+        retention,
+        insights?.element,
+        summary,
+        batchBar,
+        el('div', { className: 'table-wrap' }, [table]),
+        pager.element,
+    ]);
 
     // ---- Selection ---------------------------------------------------------
 
@@ -354,6 +437,7 @@ export function createViewsPanel({ mode, meta, context }) {
         return el('tr', { className: deleted ? 'row-deleted' : '', dataset: { viewId: view.id } }, [
             el('td', { className: 'col-select' }, [checkbox]),
             el('td', { className: 'col-time' }, [clampText(formatDateTimeShort(view.timestamp))]),
+            el('td', { className: 'col-app' }, [clampText(view.appId, { className: 'mono' })]),
             el('td', { className: 'col-page' }, [
                 clampText(orNone(view.pagePath), { className: 'cell-primary' }),
                 clampText(orNone(view.pageTitle), { lines: CLAMP_LINES.SINGLE, className: 'cell-secondary' }),
@@ -412,7 +496,7 @@ export function createViewsPanel({ mode, meta, context }) {
             state.focusSort = null;
         }
 
-        const app = context.apps().find((entry) => entry.appId === context.appId());
+        const app = tabEntries().find((entry) => entry.appId === context.appId());
         summary.textContent = app
             ? t('views.summary', {
                 active: formatNumber(app.active),
@@ -436,15 +520,14 @@ export function createViewsPanel({ mode, meta, context }) {
         const seq = ++state.requestSeq;
         table.setAttribute('aria-busy', 'true');
         try {
-            const result = await api.views(appId, {
-                status: status(),
-                modified: state.modified,
-                search: state.search,
+            const query = {
+                ...filters(),
                 sort: state.sort,
                 order: state.order,
                 page: state.page,
                 pageSize: state.pageSize,
-            });
+            };
+            const result = appId === ALL_APPS ? await api.allViews(query) : await api.views(appId, query);
             // A slower, older response must never overwrite a newer one.
             if (seq !== state.requestSeq) return;
             state.rows = result.views;
@@ -462,10 +545,16 @@ export function createViewsPanel({ mode, meta, context }) {
         }
     }
 
+    /** Refresh the insights for the current filters; the table has its own paging. */
+    function loadInsights() {
+        if (insights && context.appId()) insights.load({ appId: context.appId(), ...filters() });
+    }
+
     function resetAndLoad() {
         state.page = 1;
         state.selection.clear();
         load();
+        loadInsights();
     }
 
     // ---- Operations --------------------------------------------------------
@@ -476,12 +565,19 @@ export function createViewsPanel({ mode, meta, context }) {
      * already restored, or already erased by someone else).
      */
     async function mutate(views, run, successKey) {
-        const appId = context.appId();
-        const ids = views.map((view) => view.id);
+        // Grouped by app, since each app is its own table: a selection made
+        // under "All apps" can span several.
+        const byApp = new Map();
+        for (const view of views) byApp.set(view.appId, [...(byApp.get(view.appId) || []), view.id]);
         try {
-            const result = await run(appId, ids);
+            const result = { affected: 0, ids: [] };
+            for (const [appId, ids] of byApp) {
+                const part = await run(appId, ids);
+                result.affected += part.affected;
+                result.ids.push(...part.ids);
+            }
             for (const id of result.ids) state.selection.delete(id);
-            const skipped = ids.length - result.affected;
+            const skipped = views.length - result.affected;
             showToast(
                 skipped > 0
                     ? t(`${successKey}Partial`, { count: result.affected, skipped })
@@ -490,6 +586,7 @@ export function createViewsPanel({ mode, meta, context }) {
             );
             await context.refreshApps();
             await load();
+            loadInsights();
             return true;
         } catch (error) {
             context.reportError(error);
@@ -558,7 +655,10 @@ export function createViewsPanel({ mode, meta, context }) {
         },
         /** Start over for the current app. */
         reload: resetAndLoad,
-        /** Refresh the current page, keeping the selection. */
-        refresh: load,
+        /** Refresh the current page and the insights, keeping the selection. */
+        refresh() {
+            load();
+            loadInsights();
+        },
     };
 }

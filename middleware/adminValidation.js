@@ -12,6 +12,7 @@ const { body, param, query, validationResult } = require('express-validator');
 const {
     ADMIN,
     ADMIN_ACTION,
+    ADMIN_RANGE,
     ADMIN_ERROR_CODE,
     ADMIN_SORT_COLUMNS,
     EDITABLE_FIELDS,
@@ -74,20 +75,39 @@ const validateLogin = () => [
         .withMessage('password is required'),
 ];
 
-const validateViewListing = (allowed) => [
-    adminAppIdParam(allowed),
+/** Filters shared by a listing and its analysis, for one app or all. */
+const filterQueries = () => [
     query('status').optional().custom(within(VIEW_STATUS)).withMessage('Invalid status'),
     query('modified').optional().custom(within(MODIFIED_FILTER)).withMessage('Invalid modified filter'),
-    query('sort').optional().custom((value) => Object.hasOwn(ADMIN_SORT_COLUMNS, value)).withMessage('Invalid sort'),
-    query('order').optional().custom(within(SORT_ORDER)).withMessage('Invalid order'),
+    query('range').optional().custom(within(ADMIN_RANGE)).withMessage('Invalid range'),
+    query('eventType')
+        .optional()
+        .isString().withMessage('eventType must be a string')
+        .isLength({ max: FIELD_MAX_LENGTH.EVENT_TYPE })
+        .withMessage(`eventType must be at most ${FIELD_MAX_LENGTH.EVENT_TYPE} characters`),
     query('search')
         .optional()
         .isString().withMessage('search must be a string')
         .isLength({ max: ADMIN.SEARCH_MAX_LENGTH })
         .withMessage(`search must be at most ${ADMIN.SEARCH_MAX_LENGTH} characters`),
+];
+
+/** A listing of one app (with `allowed`) or of every app (without). */
+const validateViewListing = (allowed) => [
+    ...(allowed ? [adminAppIdParam(allowed)] : []),
+    ...filterQueries(),
+    query('sort').optional().custom((value) => Object.hasOwn(ADMIN_SORT_COLUMNS, value)).withMessage('Invalid sort'),
+    query('order').optional().custom(within(SORT_ORDER)).withMessage('Invalid order'),
     pageQuery(),
     pageSizeQuery(),
 ];
+
+/** The analysis of one app (with `allowed`) or of every app (without). */
+const validateAnalysis = (allowed) => [
+    ...(allowed ? [adminAppIdParam(allowed)] : []),
+    ...filterQueries(),
+];
+
 
 /**
  * Validate one field of an edit and return the column value to store.
@@ -221,6 +241,7 @@ function handleAdminValidation(req, res, next) {
 module.exports = {
     validateLogin,
     validateViewListing,
+    validateAnalysis,
     validateEdit,
     validateNote,
     validateBatch,

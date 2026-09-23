@@ -10,7 +10,7 @@ import { closeModal } from './modal.js';
 import { initTheme } from './theme.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { createViewsPanel, PANEL_MODE } from './views.js';
-import { ERROR_CODE, KEY, STORAGE_KEY, TAB, THEME } from './constants.js';
+import { ALL_APPS, ERROR_CODE, KEY, STORAGE_KEY, TAB, THEME } from './constants.js';
 
 const TAB_ORDER = [TAB.VIEWS, TAB.TRASH, TAB.ADMIN_LOG, TAB.VIEW_LOG];
 
@@ -173,8 +173,9 @@ async function enterApp() {
     shell.meta = await api.meta();
     const { apps } = await api.apps();
     shell.apps = apps;
+    // Every app together by default; a remembered app wins while it still exists.
     const remembered = readLastApp();
-    shell.appId = apps.some((app) => app.appId === remembered) ? remembered : apps[0]?.appId ?? null;
+    shell.appId = apps.some((app) => app.appId === remembered) ? remembered : ALL_APPS;
 
     buildTabs();
     buildPanels();

@@ -47,11 +47,12 @@ test.describe('signing in', () => {
         await expect(page.getByRole('tablist')).toBeHidden();
     });
 
-    test('the right password opens the views of the first app', async ({ page }) => {
+    test('the right password opens every app\'s views together', async ({ page }) => {
         await signIn(page);
         await expect(sectionTab(page, 'views')).toHaveAttribute('aria-selected', 'true');
+        await expect(activePanel(page).getByRole('tab', { name: /^All apps,/ })).toHaveAttribute('aria-selected', 'true');
         await expect(rows(page)).toHaveCount(50);
-        await expect(activePanel(page).locator('.panel-summary')).toHaveText('61 views · 0 modified · 1 in trash');
+        await expect(activePanel(page).locator('.panel-summary')).toHaveText('64 views · 0 modified · 1 in trash');
     });
 
     test('the session survives a reload', async ({ page }) => {
@@ -152,7 +153,7 @@ test.describe('delete, restore, erase', () => {
 
         await expect(page.getByRole('status').filter({ hasText: 'Moved 1 view to the trash.' })).toBeVisible();
         await expect(row(page, FIRST)).toHaveCount(0);
-        await expect(activePanel(page).locator('.panel-summary')).toHaveText('60 views · 0 modified · 2 in trash');
+        await expect(activePanel(page).locator('.panel-summary')).toHaveText('63 views · 0 modified · 2 in trash');
 
         await sectionTab(page, 'trash').click();
         await expect(row(page, FIRST)).toBeVisible();
@@ -222,7 +223,7 @@ test.describe('selection and batch operations', () => {
         await signIn(page);
         await row(page, FIRST).getByRole('checkbox').check();
         await activePanel(page).getByRole('button', { name: 'Next' }).click();
-        await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 2 of 2 · 61 entries');
+        await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 2 of 2 · 64 entries');
         await expect(activePanel(page).locator('.batch-count')).toHaveText('1 view selected');
     });
 
@@ -353,10 +354,11 @@ test.describe('app tabs', () => {
     test('each app is a tab with its live view count', async ({ page }) => {
         await signIn(page);
         const tablist = activePanel(page).getByRole('tablist', { name: 'Apps' });
-        await expect(tablist.getByRole('tab')).toHaveCount(2);
+        await expect(tablist.getByRole('tab')).toHaveCount(3);
+        await expect(appTab(page, 'All apps')).toHaveAccessibleName('All apps, 64 views');
+        await expect(appTab(page, 'All apps')).toHaveAttribute('aria-selected', 'true');
         await expect(appTab(page, 'blog')).toHaveAccessibleName('blog, 61 views');
-        await expect(appTab(page, 'blog')).toHaveAttribute('aria-selected', 'true');
-        await expect(appTab(page, 'shop')).toHaveAccessibleName('shop, 1 view');
+        await expect(appTab(page, 'shop')).toHaveAccessibleName('shop, 3 views');
         await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'false');
     });
 
@@ -364,30 +366,33 @@ test.describe('app tabs', () => {
         await signIn(page);
         await appTab(page, 'shop').click();
         await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
-        await expect(rows(page)).toHaveCount(1);
+        await expect(rows(page)).toHaveCount(3);
         await expect(rows(page).first()).toContainText('/cart');
     });
 
     test('arrow keys, Home, and End switch apps and keep focus', async ({ page }) => {
         await signIn(page);
-        await appTab(page, 'blog').focus();
+        await appTab(page, 'All apps').focus();
+        await page.keyboard.press('ArrowRight');
+        await expect(appTab(page, 'blog')).toBeFocused();
+        await expect(appTab(page, 'blog')).toHaveAttribute('aria-selected', 'true');
         await page.keyboard.press('ArrowRight');
         await expect(appTab(page, 'shop')).toBeFocused();
-        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
         await expect(rows(page).first()).toContainText('/cart');
 
         await page.keyboard.press('ArrowRight');
-        await expect(appTab(page, 'blog')).toBeFocused();
+        await expect(appTab(page, 'All apps')).toBeFocused();
         await page.keyboard.press('End');
         await expect(appTab(page, 'shop')).toBeFocused();
         await page.keyboard.press('Home');
-        await expect(appTab(page, 'blog')).toBeFocused();
+        await expect(appTab(page, 'All apps')).toBeFocused();
         await expect(rows(page)).toHaveCount(50);
     });
 
     test('only the selected app tab is in the tab order', async ({ page }) => {
         await signIn(page);
-        await expect(appTab(page, 'blog')).toHaveAttribute('tabindex', '0');
+        await expect(appTab(page, 'All apps')).toHaveAttribute('tabindex', '0');
+        await expect(appTab(page, 'blog')).toHaveAttribute('tabindex', '-1');
         await expect(appTab(page, 'shop')).toHaveAttribute('tabindex', '-1');
     });
 
@@ -427,7 +432,7 @@ test.describe('custom listbox (never a native select)', () => {
         await expect(button).toHaveAttribute('aria-expanded', 'false');
         await expect(button).toBeFocused();
         await expect(button).toContainText('100 per page');
-        await expect(rows(page)).toHaveCount(61);
+        await expect(rows(page)).toHaveCount(64);
     });
 
     test('Escape closes the listbox without changing the value', async ({ page }) => {
@@ -496,10 +501,12 @@ test.describe('logs', () => {
         await expect(activePanel(page).locator('tbody tr').nth(1)).toContainText('Failed sign-in');
     });
 
-    test('the view log lists registered views', async ({ page }) => {
+    test('the view log has a receipt for every recorded view, at its own time', async ({ page }) => {
         await signIn(page, 'viewLog');
-        await expect(activePanel(page).locator('tbody tr')).toHaveCount(5);
+        await expect(activePanel(page).locator('tbody tr')).toHaveCount(50);
+        await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 1 of 2 · 65 entries');
         await expect(activePanel(page).locator('tbody tr').first()).toContainText('Page view');
+        await expect(activePanel(page).locator('tbody tr').last()).toContainText('Sep 19, 2026');
     });
 
     test('tabs move with the arrow keys and are deep-linkable', async ({ page }) => {
@@ -533,5 +540,133 @@ test.describe('theme and notices', () => {
         await expect(toast).toBeVisible();
         await toast.getByRole('button', { name: 'Dismiss' }).click();
         await expect(toast).toBeHidden();
+    });
+});
+
+test.describe('every app together, filters, and insights', () => {
+    const appTab = (page, name) => activePanel(page).getByRole('tab', { name: new RegExp(`^${name},`) });
+    const tile = (page, label) => activePanel(page).locator('.stat-tile')
+        .filter({ has: page.locator('.stat-label', { hasText: new RegExp(`^${label}$`) }) })
+        .locator('.stat-value');
+    const pagerSummary = (page) => activePanel(page).locator('.pager-summary');
+
+    test('the table names each row\'s app', async ({ page }) => {
+        await signIn(page);
+        await expect(activePanel(page).getByRole('button', { name: /Time/ })).toBeVisible();
+        await expect(activePanel(page).locator('th.col-app')).toHaveText('App');
+        await expect(row(page, FIRST).locator('.col-app')).toHaveText('blog');
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('Cart');
+        await expect(rows(page).first().locator('.col-app')).toHaveText('shop');
+    });
+
+    test('the headline numbers describe exactly the table\'s rows', async ({ page }) => {
+        await signIn(page);
+        await expect(tile(page, 'Views')).toHaveText('64');
+        await expect(tile(page, 'Countries')).toHaveText('6');
+        await appTab(page, 'shop').click();
+        await expect(tile(page, 'Views')).toHaveText('3');
+        await expect(activePanel(page).locator('.insights-caption')).toHaveText('shop, filtered like the table below');
+    });
+
+    test('the date range narrows the table and the insights together', async ({ page }) => {
+        await signIn(page);
+        // The fixture has one view 45 days old and one 200 days old.
+        await activePanel(page).getByRole('button', { name: '1 year' }).click();
+        await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 64 entries');
+        await activePanel(page).getByRole('button', { name: '90 days' }).click();
+        await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 63 entries');
+        await expect(tile(page, 'Views')).toHaveText('63');
+        await activePanel(page).getByRole('button', { name: '30 days' }).click();
+        await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 62 entries');
+        await expect(activePanel(page).getByRole('button', { name: '30 days' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('the event-type filter shows where one type of view comes from', async ({ page }) => {
+        await signIn(page);
+        await expect(tile(page, 'Views')).toHaveText('64');
+        await activePanel(page).getByRole('button', { name: 'Event type' }).click();
+        await activePanel(page).getByRole('option', { name: 'download' }).click();
+        await expect(rows(page)).toHaveCount(1);
+        await expect(rows(page).first()).toContainText('/downloads');
+        await expect(tile(page, 'Views')).toHaveText('1');
+        const countries = activePanel(page).getByRole('list', { name: 'Countries by views' });
+        await expect(countries.locator('.country-row')).toHaveCount(1);
+        await expect(countries.locator('.country-row').first()).toContainText('Japan');
+    });
+
+    test('the map colours countries and lists them in order', async ({ page }) => {
+        await signIn(page);
+        await expect(activePanel(page).locator('.map-svg path.country').first()).toBeAttached();
+        expect(await activePanel(page).locator('.map-svg path.country').count()).toBeGreaterThan(150);
+        await expect(activePanel(page).locator('.map-svg path[data-code="DE"]')).toHaveClass(/map-5/);
+        await expect(activePanel(page).locator('.map-svg path[data-code="AU"]')).toHaveClass(/map-0/);
+        const first = activePanel(page).locator('.country-row').first();
+        await expect(first).toContainText('Germany');
+        await expect(first).toContainText('15');
+    });
+
+    test('a country in the list shows its tooltip on keyboard focus', async ({ page }) => {
+        await signIn(page);
+        await activePanel(page).locator('.country-row').first().focus();
+        const tooltip = activePanel(page).locator('.chart-map .chart-tooltip');
+        await expect(tooltip).toBeVisible();
+        await expect(tooltip).toContainText('Germany');
+        await expect(tooltip).toContainText('15');
+        await expect(activePanel(page).locator('.map-svg path[data-code="DE"]')).toHaveClass(/active/);
+    });
+
+    test('the trend reads out by keyboard and has a table view', async ({ page }) => {
+        await signIn(page);
+        const chart = activePanel(page).locator('.trend-svg');
+        await chart.focus();
+        await page.keyboard.press('End');
+        const tooltip = activePanel(page).locator('.chart-trend .chart-tooltip');
+        await expect(tooltip).toBeVisible();
+        await expect(tooltip).toContainText('Views');
+
+        await activePanel(page).getByRole('button', { name: 'Show as table' }).click();
+        const table = activePanel(page).locator('.chart-trend table');
+        await expect(table.locator('tbody tr').first()).toBeVisible();
+        await expect(activePanel(page).getByRole('button', { name: 'Show as chart' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('breakdowns include apps only when every app is shown', async ({ page }) => {
+        await signIn(page);
+        const apps = activePanel(page).locator('.chart-card').filter({ has: page.getByRole('heading', { name: 'Apps', exact: true }) });
+        await expect(apps).toContainText('blog');
+        await expect(apps).toContainText('61');
+        await appTab(page, 'blog').click();
+        await expect(activePanel(page).locator('.insights-caption')).toHaveText('blog, filtered like the table below');
+        await expect(apps).toHaveCount(0);
+    });
+
+    test('the insights can be collapsed, and stay collapsed', async ({ page }) => {
+        await signIn(page);
+        const toggle = activePanel(page).getByRole('button', { name: 'insights' });
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(activePanel(page).locator('.insights-body')).toBeHidden();
+        await page.reload();
+        await expect(activePanel(page).getByRole('button', { name: 'insights' })).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    test('a batch can span apps', async ({ page }) => {
+        await signIn(page);
+        await row(page, FIRST).getByRole('checkbox').check();
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('Cart');
+        await expect(rows(page)).toHaveCount(1);
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('');
+        // A changed search clears the selection, so select both on one page.
+        await row(page, FIRST).getByRole('checkbox').check();
+        await activePanel(page).getByRole('button', { name: 'Rows per page' }).click();
+        await activePanel(page).getByRole('option', { name: '100 per page' }).click();
+        await row(page, '00000000-0000-4000-8000-0000000005e0').getByRole('checkbox').check();
+        await expect(activePanel(page).locator('.batch-count')).toHaveText('2 views selected');
+
+        await batchBar(page).getByRole('button', { name: 'Move to trash' }).click();
+        await page.getByRole('alertdialog').getByRole('button', { name: 'Move to trash' }).click();
+        await expect(page.getByRole('status').filter({ hasText: 'Moved 2 views to the trash.' })).toBeVisible();
+        await expect(activePanel(page).locator('.panel-summary')).toHaveText('62 views · 0 modified · 3 in trash');
+        await expect(appTab(page, 'shop')).toHaveAccessibleName('shop, 2 views');
     });
 });

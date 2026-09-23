@@ -49,6 +49,21 @@
     --backdrop: rgba(4, 7, 5, 0.72);
     color-scheme: dark;
 
+    /* Charts. Validated with the data-viz palette checks against the card
+       surfaces of each theme: one series hue inside the lightness band, and a
+       one-hue sequential map ramp, monotone, with its low end >= 2:1 so "few
+       views" never reads as "no views" (--map-0). */
+    --chart-series: #2aa862;
+    --chart-area: rgba(42, 168, 98, 0.1);
+    --chart-grid: rgba(61, 220, 132, 0.1);
+    --chart-baseline: rgba(61, 220, 132, 0.3);
+    --map-0: #1a2420;
+    --map-1: #236642;
+    --map-2: #288552;
+    --map-3: #2ea563;
+    --map-4: #4cc57f;
+    --map-5: #8fe3b2;
+
     --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
     --radius: 12px;
     --radius-small: 8px;
@@ -82,6 +97,16 @@
     --scanline-opacity: 0;
     --shadow: 0 24px 48px -20px rgba(27, 42, 32, 0.25);
     --backdrop: rgba(27, 42, 32, 0.4);
+    --chart-series: #1f7a4a;
+    --chart-area: rgba(31, 122, 74, 0.1);
+    --chart-grid: rgba(31, 122, 74, 0.1);
+    --chart-baseline: rgba(31, 122, 74, 0.35);
+    --map-0: #ebe5d2;
+    --map-1: #7cc298;
+    --map-2: #52ab79;
+    --map-3: #33935f;
+    --map-4: #1f7a4a;
+    --map-5: #11532f;
     color-scheme: light;
 }
 
@@ -578,6 +603,8 @@ textarea.input {
 
 .segmented {
     display: inline-flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     background: var(--code-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius-small);
@@ -827,6 +854,401 @@ textarea.input {
     font-size: 0.85rem;
 }
 
+/* ---------- Insights ---------- */
+
+.insights {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    transition: opacity 0.2s;
+}
+
+/* Refetch keeps the frame: the last render stays, dimmed, until the new one. */
+.insights.loading .insights-body {
+    opacity: 0.55;
+}
+
+.insights-header {
+    display: flex;
+    align-items: baseline;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+}
+
+.insights-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 0;
+}
+
+.insights-caret {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    transition: transform 0.2s;
+}
+
+.insights-toggle[aria-expanded='false'] .insights-caret {
+    transform: rotate(-90deg);
+}
+
+.insights-caption,
+.insights-span {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+.insights-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.stat-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    gap: 0.75rem;
+}
+
+.stat-tile {
+    padding: 0.85rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-small);
+}
+
+.stat-label {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.insights-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    gap: 1rem;
+}
+
+.breakdown-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+}
+
+.chart-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1rem 1.1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    min-width: 0;
+}
+
+.chart-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.chart-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.chart-body {
+    position: relative;
+    min-width: 0;
+}
+
+.chart-empty {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    padding: 1.5rem 0;
+    text-align: center;
+    list-style: none;
+}
+
+/* Views over time */
+
+.trend-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+}
+
+.trend-svg:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+.chart-grid {
+    stroke: var(--chart-grid);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.chart-baseline {
+    stroke: var(--chart-baseline);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.chart-tick {
+    fill: var(--text-muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-area {
+    fill: var(--chart-area);
+}
+
+.chart-line {
+    fill: none;
+    stroke: var(--chart-series);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+/* >= 8px across, with a 2px ring in the surface colour. */
+.chart-dot {
+    fill: var(--chart-series);
+    stroke: var(--surface-solid);
+    stroke-width: 2;
+}
+
+.chart-crosshair {
+    stroke: var(--text-muted);
+    stroke-width: 1;
+    shape-rendering: crispEdges;
+}
+
+.chart-table-wrap {
+    max-height: 16rem;
+    overflow-y: auto;
+}
+
+.chart-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-table th,
+.chart-table td {
+    text-align: left;
+    padding: 0.3rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.chart-table th {
+    color: var(--text-muted);
+    font-weight: 700;
+}
+
+/* Tooltip: values lead, labels follow, keyed with a short stroke. */
+
+.chart-tooltip {
+    position: absolute;
+    z-index: 20;
+    pointer-events: none;
+    min-width: 9rem;
+    padding: 0.55rem 0.7rem;
+    background: var(--surface-solid);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-small);
+    box-shadow: var(--shadow);
+    font-size: 0.8rem;
+}
+
+.chart-tooltip-title {
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+}
+
+.chart-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.chart-tooltip-row strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.chart-tooltip-row span:last-child {
+    color: var(--text-muted);
+}
+
+.chart-tooltip-key {
+    width: 0.8rem;
+    height: 2px;
+    background: var(--chart-series);
+    flex-shrink: 0;
+}
+
+/* Breakdown bars and the country list */
+
+.bar-list,
+.country-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    list-style: none;
+}
+
+.bar-row,
+.country-row {
+    display: grid;
+    grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.82rem;
+    padding: 0.1rem 0.25rem;
+    border-radius: 4px;
+    cursor: default;
+}
+
+.bar-row:hover,
+.bar-row:focus-visible,
+.country-row:hover,
+.country-row:focus-visible {
+    background: var(--row-hover);
+}
+
+.bar-other .bar-label {
+    color: var(--text-muted);
+}
+
+.bar-track {
+    display: block;
+    height: 10px;
+}
+
+.bar-fill {
+    display: block;
+    height: 100%;
+    min-width: 2px;
+    background: var(--chart-series);
+    border-radius: 0 4px 4px 0;
+}
+
+.bar-other .bar-fill {
+    background: var(--text-muted);
+    opacity: 0.6;
+}
+
+.bar-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    text-align: right;
+    min-width: 2.5rem;
+}
+
+/* World map */
+
+.map-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(11rem, 14rem);
+    gap: 1rem;
+    align-items: start;
+}
+
+.map-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.map-host {
+    position: relative;
+}
+
+.map-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+/* Borders are gaps in the surface colour, not drawn outlines. */
+.country {
+    stroke: var(--surface-solid);
+    stroke-width: 0.5;
+    transition: opacity 0.15s;
+}
+
+.country-point {
+    stroke-width: 2;
+}
+
+.country.active {
+    stroke: var(--text);
+    stroke-width: 1;
+}
+
+.map-0 { fill: var(--map-0); background: var(--map-0); }
+.map-1 { fill: var(--map-1); background: var(--map-1); }
+.map-2 { fill: var(--map-2); background: var(--map-2); }
+.map-3 { fill: var(--map-3); background: var(--map-3); }
+.map-4 { fill: var(--map-4); background: var(--map-4); }
+.map-5 { fill: var(--map-5); background: var(--map-5); }
+
+.map-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.legend-swatch {
+    width: 0.85rem;
+    height: 0.6rem;
+    border-radius: 2px;
+}
+
+.country-name {
+    color: var(--text);
+}
+
+.country-more {
+    padding: 0.2rem 0.25rem;
+}
+
+.country-more .btn {
+    padding: 0.25rem 0.5rem;
+}
+
+.event-type-picker {
+    min-width: 11rem;
+}
+
 /* Batch bar */
 
 .batch-bar {
@@ -964,6 +1386,7 @@ input[type='checkbox'] {
 
 .col-select { width: 2.6rem; }
 .col-time { width: 12.5rem; }
+.col-app { width: 8rem; }
 .col-page { width: auto; }
 .col-source { width: 9.5rem; }
 .col-device { width: 6.5rem; }
@@ -1254,6 +1677,10 @@ input[type='checkbox'] {
     .col-event {
         display: none;
     }
+
+    .insights-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 @media (max-width: 960px) {
@@ -1329,8 +1756,23 @@ input[type='checkbox'] {
         width: 100%;
     }
 
+    /* A segmented control spans the row and shares it evenly, rather than
+       pushing the page sideways (FRONTEND.md §12). */
+    .segmented {
+        width: 100%;
+    }
+
+    .segmented-btn {
+        flex: 1 1 auto;
+        padding: 0.35rem 0.45rem;
+    }
+
     .edit-row {
         grid-template-columns: 1.4rem 1fr;
+    }
+
+    .map-layout {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .edit-row .edit-control {

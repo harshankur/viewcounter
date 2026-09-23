@@ -67,7 +67,8 @@
             "one": "{count} in trash",
             "other": "{count} in trash"
         },
-        "unavailable": "The table for {app} is missing on the database server."
+        "unavailable": "The table for {app} is missing on the database server.",
+        "all": "All apps"
     },
     "toolbar": {
         "search": "Search views",
@@ -78,7 +79,10 @@
         "perPage": {
             "one": "{count} per page",
             "other": "{count} per page"
-        }
+        },
+        "range": "Date range",
+        "eventType": "Event type",
+        "allEventTypes": "All event types"
     },
     "modifiedFilter": {
         "any": "All",
@@ -117,7 +121,8 @@
         "client": "Client",
         "event": "Event",
         "status": "Status",
-        "actions": "Actions"
+        "actions": "Actions",
+        "app": "App"
     },
     "status": {
         "deleted": "In trash",
@@ -327,5 +332,57 @@
     "logSources": {
         "registerView": "Page view",
         "event": "Custom event"
+    },
+    "ranges": {
+        "7d": "7 days",
+        "30d": "30 days",
+        "90d": "90 days",
+        "1y": "1 year",
+        "all": "All time"
+    },
+    "eventTypes": {
+        "pageview": "Page view"
+    },
+    "insights": {
+        "title": "insights",
+        "scopeAll": "All apps, filtered like the table below",
+        "scopeApp": "{app}, filtered like the table below",
+        "span": "From {from} to {to}",
+        "noData": "No views match these filters.",
+        "views": "Views",
+        "uniqueViews": "Unique views",
+        "visitors": "Visitors",
+        "uniqueShare": "Unique views",
+        "countries": "Countries",
+        "modified": "Modified by admin",
+        "trendTitle": "Views over time",
+        "mapTitle": "Where views come from",
+        "showTable": "Show as table",
+        "showChart": "Show as chart",
+        "period": "Period",
+        "weekOf": "Week of {date}",
+        "trendLabel": "Views over time from {from} to {to}, peaking at {peak}. Use the arrow keys to read each period.",
+        "share": "of views",
+        "other": "Other",
+        "otherTypes": "Other types",
+        "unknown": "Unknown",
+        "topCountries": "Countries by views",
+        "mapLabel": "World map of views by country, {countries} countries with views. The list beside it gives the numbers.",
+        "mapUnavailable": "The map could not be loaded. The list beside it has every number.",
+        "noViews": "No views",
+        "moreCountries": {
+            "one": "Show {count} more country",
+            "other": "Show {count} more countries"
+        },
+        "breakdown": {
+            "source": "Sources",
+            "deviceSize": "Device sizes",
+            "browser": "Browsers",
+            "os": "Operating systems",
+            "eventType": "Event types",
+            "app": "Apps"
+        },
+        "inProgress": "{period} (so far)",
+        "fewerCountries": "Show fewer"
     }
 }
