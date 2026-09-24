@@ -669,4 +669,32 @@ test.describe('every app together, filters, and insights', () => {
         await expect(activePanel(page).locator('.panel-summary')).toHaveText('62 views · 0 modified · 3 in trash');
         await expect(appTab(page, 'shop')).toHaveAccessibleName('shop, 2 views');
     });
+
+    test('a batch that fails for one app still applies, and shows, the others', async ({ page }) => {
+        const CART = '00000000-0000-4000-8000-0000000005e0';
+        await signIn(page);
+        await activePanel(page).getByRole('button', { name: 'Rows per page' }).click();
+        await activePanel(page).getByRole('option', { name: '100 per page' }).click();
+        await row(page, FIRST).getByRole('checkbox').check();
+        await row(page, CART).getByRole('checkbox').check();
+        await expect(activePanel(page).locator('.batch-count')).toHaveText('2 views selected');
+
+        // blog's request succeeds; shop's fails on the server.
+        await page.route('**/api/apps/shop/views/delete', (route) => route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ code: 'SERVER_ERROR' }),
+        }));
+        await batchBar(page).getByRole('button', { name: 'Move to trash' }).click();
+        await page.getByRole('alertdialog').getByRole('button', { name: 'Move to trash' }).click();
+
+        await expect(page.getByRole('status').filter({ hasText: 'Moved 1 view to the trash.' })).toBeVisible();
+        await expect(page.getByText('Something went wrong on the server. Please try again.')).toBeVisible();
+        // The blog view really moved, so the table says so; the shop view is
+        // untouched and still selected, ready to retry.
+        await expect(activePanel(page).locator('.panel-summary')).toHaveText('63 views · 0 modified · 2 in trash');
+        await expect(row(page, FIRST)).toHaveCount(0);
+        await expect(activePanel(page).locator('.batch-count')).toHaveText('1 view selected');
+        await expect(row(page, CART).getByRole('checkbox')).toBeChecked();
+    });
 });

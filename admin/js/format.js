@@ -8,11 +8,15 @@ import { currentLocale, t } from './i18n.js';
 /** Intl time styles: with seconds, and without. */
 const TIME_STYLE = Object.freeze({ FULL: 'medium', SHORT: 'short' });
 
-function formatWith(value, timeStyle) {
+function formatParts(value, options) {
     if (value === null || value === undefined || value === '') return t('common.none');
     const date = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(date.getTime())) return String(value);
-    return new Intl.DateTimeFormat(currentLocale(), { dateStyle: 'medium', timeStyle }).format(date);
+    return new Intl.DateTimeFormat(currentLocale(), options).format(date);
+}
+
+function formatWith(value, timeStyle) {
+    return formatParts(value, { dateStyle: 'medium', timeStyle });
 }
 
 /** Date and time to the second: logs and the details dialog. */
@@ -20,9 +24,17 @@ export function formatDateTime(value) {
     return formatWith(value, TIME_STYLE.FULL);
 }
 
-/** Without seconds, so a timestamp fits a views-table cell. */
-export function formatDateTimeShort(value) {
-    return formatWith(value, TIME_STYLE.SHORT);
+/** The date alone: the first line of a table's time cell. */
+export function formatDate(value) {
+    return formatParts(value, { dateStyle: 'medium' });
+}
+
+/**
+ * The time of day alone: the second line of a table's time cell. Logs keep the
+ * seconds, since they order events that can be moments apart.
+ */
+export function formatTime(value, { seconds = false } = {}) {
+    return formatParts(value, { timeStyle: seconds ? TIME_STYLE.FULL : TIME_STYLE.SHORT });
 }
 
 /** @param {number} value */

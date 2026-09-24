@@ -136,7 +136,11 @@ async function readIndexes(pool, table) {
  *
  * Generated in Node with a CSPRNG rather than MySQL's UUID(), which is a
  * time-and-host based v1 value (CODE_STANDARDS.md §8), and batched so a large
- * table is not rewritten in one giant statement.
+ * table is not rewritten in one giant statement. Each batch resumes after the
+ * last id it saw (keyset pagination on the primary key), so the whole backfill
+ * reads every row once: restarting from the top each time would rescan all
+ * rows already done, quadratic in table size, and on a large table a single
+ * scan would outlast the pool's statement timeout and fail the migration.
  *
  * @param {object} pool
  * @param {string} table already validated
@@ -144,15 +148,17 @@ async function readIndexes(pool, table) {
  */
 async function backfillPublicIds(pool, table) {
     let total = 0;
+    let lastId = 0;
 
     for (;;) {
         const [rows] = await pool.query(
-            `SELECT id FROM \`${table}\` WHERE public_id IS NULL LIMIT ?`,
-            [DATABASE.BACKFILL_BATCH_SIZE]
+            `SELECT id FROM \`${table}\` WHERE id > ? AND public_id IS NULL ORDER BY id LIMIT ?`,
+            [lastId, DATABASE.BACKFILL_BATCH_SIZE]
         );
         if (rows.length === 0) return total;
 
         const ids = rows.map((row) => row.id);
+        lastId = ids[ids.length - 1];
         const cases = ids.map(() => 'WHEN ? THEN ?').join(' ');
         const params = ids.flatMap((id) => [id, crypto.randomUUID()]);
 

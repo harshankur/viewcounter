@@ -17,6 +17,7 @@ const crypto = require('crypto');
 const { ADMIN, ADMIN_ERROR_CODE, HTTP_STATUS } = require('../constants');
 const { safeEqual } = require('./auth');
 const { parseCookies } = require('../utils/cookieUtils');
+const { WarningType, logWarning } = require('../utils/errorUtils');
 
 /** Methods that never change state and so need no CSRF token. */
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -106,15 +107,16 @@ function readToken(req) {
 /**
  * Cookie attributes. `Secure` follows the connection: a deployment behind a
  * TLS-terminating proxy gets it through `trust proxy`, and plain-HTTP local
- * development still works. Path-scoped so the cookie never travels to the
- * public analytics endpoints.
+ * development still works. Scoped to wherever the admin router is mounted
+ * (`req.adminBasePath`), so the cookie never travels to the public analytics
+ * endpoints and still works when another app mounts the router elsewhere.
  */
 function cookieOptions(req) {
     return {
         httpOnly: true,
         sameSite: 'strict',
         secure: req.secure,
-        path: ADMIN.PATH_PREFIX,
+        path: req.adminBasePath || ADMIN.PATH_PREFIX,
         maxAge: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
     };
 }
@@ -142,6 +144,22 @@ function expectedOrigin(req) {
 }
 
 /**
+ * Whether a browser-supplied Origin (absent for same-origin GETs and non-browser
+ * clients) matches this server. A mismatch is logged with both values: behind a
+ * misconfigured proxy every admin request is refused, and the log is the only
+ * place that says why.
+ * @param {import('express').Request} req
+ */
+function originAllowed(req) {
+    const presented = req.get('origin');
+    if (!presented) return true;
+    const expected = expectedOrigin(req);
+    if (presented === expected) return true;
+    logWarning(WarningType.ADMIN_ORIGIN_REJECTED, { presented, expected });
+    return false;
+}
+
+/**
  * Reject a state-changing request that does not carry this session's CSRF
  * token, or that a browser says came from another origin.
  * @returns {import('express').RequestHandler}
@@ -150,11 +168,10 @@ function requireCsrf() {
     return (req, res, next) => {
         if (SAFE_METHODS.has(req.method)) return next();
 
-        const origin = req.get('origin');
         const presented = req.get(ADMIN.CSRF_HEADER) || '';
         const session = req.adminSession;
 
-        const originOk = !origin || origin === expectedOrigin(req);
+        const originOk = originAllowed(req);
         const tokenOk = Boolean(session) && safeEqual(presented, session.csrfToken);
 
         if (!originOk || !tokenOk) {
@@ -180,6 +197,7 @@ module.exports = {
     verifyPassword,
     cookieOptions,
     expectedOrigin,
+    originAllowed,
     readToken,
     hashToken,
     SAFE_METHODS,

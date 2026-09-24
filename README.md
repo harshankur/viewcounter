@@ -14,7 +14,7 @@ Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for de
 
 ## 🛡️ GDPR Compliant & Privacy-First
 **100% GDPR Compliant By Design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
-- **Zero Cookies**: No cookies, no local storage, and no consent banners required.
+- **Zero Cookies**: No cookies, no local storage, and no consent banners required for visitors. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
 - **Data Sovereignty**: You own your data. Analytics never leave your private infrastructure.
 - **Minimal Collection**: Tracks only what is necessary (Country, Browser, OS, Page Path).
 
@@ -101,6 +101,16 @@ npm start
 }
 ```
 
+On every start, in either mode, the server brings each app table up to the
+current schema and creates the log tables it needs, so the user needs `CREATE`,
+`ALTER`, and `INDEX` on the database as well as `SELECT`, `INSERT`, `UPDATE`,
+and `DELETE`. A user limited to reads and writes, which was enough before 3.1,
+fails startup with `MIGRATION_FAILED`. Grant these before upgrading:
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON viewcounterdb.* TO 'vcuser'@'%';
+```
+
 **Create Mode**: Auto-create database and tables
 ```json
 // dbInfo.json
@@ -165,8 +175,9 @@ at http://localhost:4173/admin/ over several thousand fake views (password
 - **Browse** one app's views, or every app's together under **All apps**:
   filter by date range (7, 30, or 90 days, a year, or all time), event type,
   and whether an admin changed them; search by page, title, source, note,
-  event, or session; sort by any column; page through them. Each row names its
-  app.
+  event, or session; sort by any column; page through them. Under **All apps**
+  each row names its app. On narrower screens the table drops its least useful
+  columns first, and on a phone each view becomes a card.
 - **See the insights** above the table, for exactly the rows its filters
   select: views, visitors, unique share, countries, and admin edits; views over
   time (with a table view); a **world map** of where views come from, with the
@@ -196,9 +207,16 @@ at http://localhost:4173/admin/ over several thousand fake views (password
 | `deleted_at` | Empty for live rows; set when the row went to the trash. |
 
 These columns, and the `_admin_log` and `_view_log` tables, are added
-automatically when the server starts, in both database modes. The upgrade is
-additive: nothing is dropped, and existing rows get their `public_id` on the
-first start.
+automatically when the server starts, in both database modes, whether or not
+the admin UI is enabled. The upgrade is additive: nothing is dropped, and
+existing rows get their `public_id` on the first start, in batches that each
+resume where the last stopped, so a large table is read once. The database user
+therefore needs `CREATE`, `ALTER`, and `INDEX` as well as the usual privileges
+(see [Database Modes](#database-modes)).
+
+The view log gains one row per accepted view and is not pruned automatically.
+It holds no personal data, so this is a matter of disk space: trim it with
+`DELETE FROM _view_log WHERE created_at < ...` whenever it suits you.
 
 ### Deleting, and GDPR
 
@@ -221,11 +239,18 @@ Neither log copies personal data, so erasing a row really erases it:
   `READ_API_KEYS` and `ADMIN_API_KEYS`, so leaking one never unlocks another,
   and the server warns if you reuse an API key as the password.
 - Signing in issues an `HttpOnly`, `SameSite=Strict` session cookie scoped to
-  `/admin`, marked `Secure` whenever the request arrived over HTTPS (through
+  the admin path (`/admin`, or wherever an embedding app mounts it), marked `Secure` whenever the request arrived over HTTPS (through
   `TRUST_PROXY` behind a proxy). Sessions end after 30 idle minutes or 12
   hours, and on restart.
 - Every change also needs a per-session CSRF token and a matching `Origin`.
-- Failed sign-ins are rate limited per IP and recorded in the admin log.
+- Wrong passwords are rate limited per IP (5 per 15 minutes) and recorded in
+  the admin log. Requests refused before the password is checked, such as a
+  foreign `Origin` or a malformed body, do not count toward the limit.
+- Behind a TLS-terminating proxy, set `TRUST_PROXY` and have the proxy pass
+  `X-Forwarded-Proto` and the original `Host`. Otherwise the server believes it
+  is serving `http://`, the browser's `https://` `Origin` does not match, and
+  every sign-in is refused as cross-origin. The server logs
+  `ADMIN_ORIGIN_REJECTED` with both origins when that happens.
 - The UI runs under a strict Content Security Policy (no inline script or
   style, no third-party origins, not frameable) and renders everything as
   text: page titles and referrers come from anonymous visitors and can never
@@ -695,6 +720,7 @@ const dbManager = new DatabaseManager({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
 });
+// Connects, and brings these apps' tables up to the current schema.
 await dbManager.initialize(['blog']);
 
 app.use('/analytics', createAnalyticsRouter({
@@ -723,6 +749,38 @@ Two things the host application owns in this mode, because the router does not
 install them itself: `helmet()` and the CORS allowlist, and `trust proxy`. Set
 `app.set('trust proxy', <hop count>)` — never `true`, or callers can forge
 their own IP through `X-Forwarded-For`.
+
+#### Adding the admin UI
+
+The [admin UI](#admin-ui) mounts the same way, at any path. Mount it before
+your CORS middleware: it is same-origin only and must never carry the CORS
+headers your tracked sites need. Its session cookie is scoped to the path you
+choose, and it refuses a password shorter than 16 characters.
+
+```js
+const { createAdminRouter, startTrashRetention } = require('@harshankur/viewcounter');
+
+const allowed = { appId: ['blog'], deviceSize: ['small', 'medium', 'large'], origins: {} };
+
+app.use('/admin', createAdminRouter({
+  adminRepo: dbManager.admin,
+  logRepo: dbManager.logs,
+  config: {
+    allowed,
+    admin: { password: process.env.ADMIN_PASSWORD, trashRetentionDays: 30 },
+    server: { isProduction: process.env.NODE_ENV === 'production' },
+  },
+}));
+
+// Erases trashed views once they are older than the retention period, hourly.
+// Returns a function that stops it.
+const stopRetention = startTrashRetention({
+  adminRepo: dbManager.admin,
+  logRepo: dbManager.logs,
+  getAppIds: () => allowed.appId,
+  days: 30,
+});
+```
 
 ### 3. Browser client
 

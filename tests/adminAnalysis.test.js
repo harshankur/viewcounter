@@ -128,14 +128,17 @@ describe('AdminRepository.analyze', () => {
                 ]];
             }
             if (sql.includes('GROUP BY country')) return [[{ country: 'DE', event_type: 'click', views: 2 }, { country: 'DE', event_type: null, views: 1 }]];
+            if (sql.includes('SELECT DISTINCT event_type')) return [[{ event_type: 'click' }, { event_type: 'download' }, { event_type: 'pageview' }]];
             return [[]];
         });
     }
 
+    const isEventTypeList = ({ sql }) => sql.startsWith('SELECT DISTINCT event_type');
+
     test('reads one filtered set through a CTE over every app', async () => {
         const pool = analysisPool();
         await new AdminRepository(dbWith(pool)).analyze(['blog', 'shop'], { status: 'active', range: '30d' });
-        for (const { sql } of pool.queries) {
+        for (const { sql } of pool.queries.filter((query) => !isEventTypeList(query))) {
             expect(sql).toMatch(/^WITH v AS \(SELECT \? AS app_id, .* FROM `blog` WHERE .* UNION ALL SELECT \? AS app_id, .* FROM `shop` WHERE /s);
         }
         expect(pool.queries[0].params).toEqual(['blog', 30, 'shop', 30]);
@@ -153,6 +156,18 @@ describe('AdminRepository.analyze', () => {
             { country: 'DE', eventType: 'click', views: 2 },
             { country: 'DE', eventType: null, views: 1 },
         ]);
+        expect(result.eventTypes).toEqual(['click', 'download', 'pageview']);
+    });
+
+    test('lists every event type by status alone, beyond the top N and outside the other filters', async () => {
+        const pool = analysisPool();
+        await new AdminRepository(dbWith(pool)).analyze(['blog', 'shop'], {
+            status: 'active', range: '30d', eventType: 'click', search: 'cart', modified: 'modified',
+        });
+        const [query] = pool.queries.filter(isEventTypeList);
+        expect(query.sql).toMatch(/FROM `blog` WHERE deleted_at IS NULL AND event_type IS NOT NULL UNION SELECT event_type FROM `shop`/);
+        expect(query.sql).not.toMatch(/LIMIT|event_type = \?|LIKE|DATE_SUB|admin_modified_at/);
+        expect(query.params).toEqual([]);
     });
 
     test('the trend bucket follows the span of the data', async () => {
@@ -188,12 +203,13 @@ describe('AdminRepository.analyze', () => {
         expect(serialized).not.toMatch(/[0-9a-f]{64}/);
     });
 
-    test('an empty filter set stops after the totals', async () => {
+    test('an empty filter set stops after the totals, still listing the event types to choose from', async () => {
         const pool = analysisPool({ views: 0 });
         const result = await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
-        expect(pool.queries).toHaveLength(1);
+        expect(pool.queries).toHaveLength(2);
         expect(result.trend).toEqual([]);
         expect(result.countries).toEqual([]);
+        expect(result.eventTypes).toEqual(['click', 'download', 'pageview']);
     });
 
     test('no apps means no query', async () => {
@@ -253,6 +269,20 @@ describe('every-app and analysis routes', () => {
         expect(res.body.apps).toEqual(['blog', 'shop']);
         expect(res.body.total).toBe(3);
         expect(res.body.views.map((v) => [v.appId, v.pagePath])).toEqual([['blog', '/a'], ['shop', '/cart'], ['blog', '/b']]);
+    });
+
+    test('the analysis offers every event type, beyond the top N and whatever the filters', async () => {
+        const types = Array.from({ length: ANALYSIS_TOP_N + 2 }, (_, i) => `type_${String(i).padStart(2, '0')}`);
+        const views = {
+            blog: types.map((eventType, i) => makeView({ eventType, timestamp: new Date(now.getTime() - (i + 1) * 20 * DAY) })),
+            shop: [makeView({ eventType: 'checkout', timestamp: new Date(now.getTime() - DAY) })],
+        };
+        const agent = await login(buildApp(views));
+        const narrowed = await agent.get(`${API}/apps/blog/analytics`).query({ range: '7d', eventType: 'type_00' }).expect(200);
+        expect(narrowed.body.totals.views).toBe(0);
+        expect(narrowed.body.eventTypes).toEqual(types);
+        const all = await agent.get(`${API}/analytics`).expect(200);
+        expect(all.body.eventTypes).toEqual(['checkout', ...types]);
     });
 
     test('the range and event-type filters narrow the listing', async () => {

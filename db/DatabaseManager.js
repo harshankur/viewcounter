@@ -212,7 +212,14 @@ class DatabaseManager {
     }
 
     /**
-     * Initialize database connection and optionally create schema
+     * Connect, create the schema in create mode, and bring the given apps'
+     * tables up to the current schema in either mode.
+     *
+     * The migration belongs here, not only at server startup: every query this
+     * manager runs assumes the current schema (public_id, deleted_at, the log
+     * tables), so an application that mounts the routers and calls only
+     * initialize() must still get tables those queries can run against.
+     * Idempotent: a table already in shape is read and left alone.
      */
     async initialize(allowedAppIds = []) {
         try {
@@ -247,8 +254,6 @@ class DatabaseManager {
 
             await this.pool.query('SELECT 1');
             logger.info(`Database connected (mode: ${this.mode})`);
-
-            return true;
         } catch (cause) {
             throw getError(ErrorType.DATABASE_CONNECTION_FAILED, {
                 host: this.config.host,
@@ -257,6 +262,11 @@ class DatabaseManager {
                 cause: cause.message,
             });
         }
+
+        // Outside the try: a failed migration is reported as MIGRATION_FAILED
+        // naming the table, not as a connection failure.
+        await this.migrate(allowedAppIds);
+        return true;
     }
 
     /**

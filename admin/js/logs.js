@@ -6,10 +6,10 @@
 import { api } from './api.js';
 import { clampText } from './clamp.js';
 import { el, replaceChildren } from './dom.js';
-import { formatDateTime, formatNumber, orNone } from './format.js';
+import { formatNumber, orNone } from './format.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
-import { createPager, headerCell, messageRow } from './table.js';
+import { createPager, headerCell, messageRow, timeCell } from './table.js';
 
 /** Sentinel for "no filter" in a filter listbox. */
 const ALL = '';
@@ -96,7 +96,7 @@ export function createAdminLogPanel({ meta, appIds, reportError }) {
     filters.push(actionFilter, appFilter);
 
     const renderRow = (entry) => el('tr', {}, [
-        el('td', { className: 'col-time' }, [clampText(formatDateTime(entry.createdAt))]),
+        timeCell(entry.createdAt, { seconds: true }),
         el('td', { className: 'col-action' }, [clampText(tOr(`actions.${entry.action}`, entry.action))]),
         el('td', { className: 'col-app' }, [clampText(orNone(entry.appId))]),
         el('td', { className: 'col-rows' }, [clampText(formatNumber(entry.targetCount))]),
@@ -134,7 +134,7 @@ export function createViewLogPanel({ meta, appIds, reportError }) {
         (value) => appFilter.onValue(value));
 
     const renderRow = (entry) => el('tr', {}, [
-        el('td', { className: 'col-time' }, [clampText(formatDateTime(entry.createdAt))]),
+        timeCell(entry.createdAt, { seconds: true }),
         el('td', { className: 'col-app' }, [clampText(entry.appId)]),
         el('td', { className: 'col-source' }, [clampText(tOr(`logSources.${entry.source}`, entry.source))]),
         el('td', { className: 'col-event' }, [clampText(orNone(entry.eventType))]),

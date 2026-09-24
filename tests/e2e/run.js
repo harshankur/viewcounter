@@ -20,6 +20,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const { DATABASE } = require('../../constants');
 
 const RUN_DIR = path.join(__dirname, '..', '..');
 const DB_PORT = process.argv[2];
@@ -167,6 +168,7 @@ async function main() {
         await verifyProvisioning(db);
         await verifyStatementTimeout(db);
         await verifyMigration(db);
+        await verifyEmbedding(db);
         await verifyAdmin(db);
     } catch (err) {
         fail++;
@@ -190,16 +192,19 @@ async function main() {
 
 // ---------------------------------------------------------------------------
 
-/** Rows seeded into the legacy table, so the backfill has real work to do. */
-const LEGACY_ROWS = 3;
+/**
+ * Rows seeded into the legacy table: two full backfill batches and a partial
+ * one, so the keyset pagination crosses batch boundaries on a real engine.
+ */
+const LEGACY_ROWS = DATABASE.BACKFILL_BATCH_SIZE * 2 + 3;
 
 /**
  * An app table exactly as schema v3 created it, before the admin columns, with
- * a few rows in it. The server's startup migration must bring it up to date.
+ * rows in it. The server's startup migration must bring it up to date.
  */
-async function createLegacyTable(connection) {
+async function createLegacyTable(connection, table = 'legacy_app', count = LEGACY_ROWS) {
     await connection.query(`
-        CREATE TABLE \`${DB_NAME}\`.\`legacy_app\` (
+        CREATE TABLE \`${DB_NAME}\`.\`${table}\` (
             \`id\` BIGINT AUTO_INCREMENT PRIMARY KEY,
             \`masked_ip\` VARCHAR(45) NOT NULL,
             \`visitor_hash\` VARCHAR(64) NOT NULL,
@@ -222,12 +227,47 @@ async function createLegacyTable(connection) {
             \`is_unique\` TINYINT(1) DEFAULT 1,
             INDEX \`idx_timestamp\` (\`timestamp\`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
-    for (let i = 0; i < LEGACY_ROWS; i++) {
-        await connection.query(
-            `INSERT INTO \`${DB_NAME}\`.\`legacy_app\` (masked_ip, visitor_hash, timestamp, devicesize, page_path)
-             VALUES ('198.51.100.0', ?, NOW(), 'large', ?)`,
-            ['e'.repeat(64), `/legacy/${i}`]
-        );
+    const rows = Array.from({ length: count }, (_, i) => ['198.51.100.0', 'e'.repeat(64), 'large', `/legacy/${i}`]);
+    await connection.query(
+        `INSERT INTO \`${DB_NAME}\`.\`${table}\` (masked_ip, visitor_hash, devicesize, page_path, timestamp)
+         VALUES ${rows.map(() => '(?, ?, ?, ?, NOW())').join(', ')}`,
+        rows.flat()
+    );
+}
+
+/**
+ * An application that embeds viewcounter builds its own DatabaseManager and
+ * calls only initialize(), never migrate(). Upgrading such an app over a table
+ * from before the admin schema must still leave every query runnable.
+ */
+async function verifyEmbedding(db) {
+    section('Embedded use: initialize() alone upgrades a legacy table');
+    const EMBED_ROWS = 3;
+    await createLegacyTable(db, 'legacy_embed', EMBED_ROWS);
+    const DatabaseManager = require('../../db/DatabaseManager');
+    const embedded = new DatabaseManager({
+        mode: 'connect', host: '127.0.0.1', port: Number(DB_PORT), database: DB_NAME, user: 'vcuser', password: 'vcpass',
+    });
+    try {
+        await embedded.initialize(['legacy_embed']);
+        const [cols] = await db.query(
+            `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'legacy_embed'`, [DB_NAME]);
+        const names = cols.map((c) => c.name);
+        check('initialize() added the admin columns', ['public_id', 'deleted_at', 'admin_modified_at', 'note'].every((n) => names.includes(n)),
+            names.join(','));
+        await embedded.registerEvent('legacy_embed', {
+            ip: '198.51.100.20', deviceSize: 'large', uniqueWindowHours: 0, visitorSecret: VISITOR_SECRET,
+        });
+        const stats = await embedded.getStats('legacy_embed');
+        check('an embedded manager records and reads over the upgraded table', Number(stats.totalViews) === EMBED_ROWS + 1,
+            JSON.stringify(stats));
+        const [missing] = await db.query('SELECT COUNT(*) AS n FROM `legacy_embed` WHERE public_id IS NULL');
+        check('every embedded row has a public id', Number(missing[0].n) === 0, `${missing[0].n} without`);
+    } catch (err) {
+        check('an embedded manager works over a legacy table', false, err.message);
+    } finally {
+        await embedded.close();
     }
 }
 
@@ -527,8 +567,9 @@ async function verifyMigration(db) {
 
     const [rows] = await db.query('SELECT public_id FROM `legacy_app`');
     const v4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-    check('every existing row was backfilled with a v4 UUID', rows.length === LEGACY_ROWS && rows.every(r => v4.test(r.public_id)),
-        rows.map(r => r.public_id).join(','));
+    const notV4 = rows.filter(r => !v4.test(r.public_id));
+    check('every existing row was backfilled with a v4 UUID', rows.length === LEGACY_ROWS && notV4.length === 0,
+        `${rows.length} rows, ${notV4.length} without a v4 UUID, e.g. ${notV4.slice(0, 3).map(r => r.public_id).join(', ')}`);
     check('backfilled IDs are distinct', new Set(rows.map(r => r.public_id)).size === rows.length);
 
     const [idx] = await db.query(
@@ -728,9 +769,16 @@ async function verifyAdmin(db) {
     check('analysis has a trend and per-country counts',
         Array.isArray(analysis.body?.trend) && analysis.body.trend.length > 0 && Array.isArray(analysis.body?.countries));
     check('analysis never returns a visitor hash', !/[0-9a-f]{64}/.test(JSON.stringify(analysis.body)));
+    const offered = analysis.body?.eventTypes;
+    check('analysis lists the event types on offer, each once', Array.isArray(offered) && offered.includes('pageview')
+        && new Set(offered).size === offered.length, JSON.stringify(offered));
     const filtered = await admin.call('GET', '/apps/tenant_a/analytics?range=7d&eventType=pageview&modified=unmodified');
     check('one app\'s analysis with every filter runs', filtered.status === 200
         && filtered.body.totals.views <= analysis.body.totals.views, `got ${filtered.status}`);
+    const unfiltered = await admin.call('GET', '/apps/tenant_a/analytics');
+    check('filters never narrow the event types on offer',
+        JSON.stringify(filtered.body?.eventTypes) === JSON.stringify(unfiltered.body?.eventTypes),
+        `${JSON.stringify(filtered.body?.eventTypes)} vs ${JSON.stringify(unfiltered.body?.eventTypes)}`);
 
     // Longer spans switch the trend to weeks, then months.
     const backdate = async (days) => db.query(

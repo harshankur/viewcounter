@@ -34,7 +34,7 @@ const {
     VIEW_STATUS,
 } = require('../constants');
 const logger = require('../utils/logger');
-const { logWarning, WarningType } = require('../utils/errorUtils');
+const { ErrorType, getError, logWarning, WarningType } = require('../utils/errorUtils');
 const { noStore } = require('../middleware/security');
 const {
     createSessionStore,
@@ -42,7 +42,7 @@ const {
     requireCsrf,
     verifyPassword,
     cookieOptions,
-    expectedOrigin,
+    originAllowed,
     readToken,
 } = require('../middleware/adminAuth');
 const {
@@ -119,9 +119,25 @@ function createAdminRouter({
     isReady = () => true,
     uiDir = ADMIN_UI_DIR,
 }) {
+    // The standalone server checks this when it loads its config; an app
+    // embedding the router gets the same floor, not a weaker admin surface.
+    const password = config?.admin?.password;
+    if (typeof password !== 'string' || password.length < ADMIN.MIN_PASSWORD_LENGTH) {
+        throw getError(ErrorType.CONFIG_INVALID_VALUE, {
+            field: 'admin.password',
+            reason: `must be at least ${ADMIN.MIN_PASSWORD_LENGTH} characters`,
+        });
+    }
+
     const router = express.Router();
 
     router.use(withRequestId);
+    // Where this router is mounted ('/admin' in the server, anything when
+    // another app embeds it): the session cookie is scoped to it.
+    router.use((req, res, next) => {
+        req.adminBasePath = req.baseUrl || '/';
+        next();
+    });
     router.use(helmet.contentSecurityPolicy({ useDefaults: false, directives: ADMIN_CSP }));
     router.use((req, res, next) => {
         res.set('X-Robots-Tag', 'noindex, nofollow');
@@ -189,7 +205,11 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
     const loginLimiter = rateLimit({
         windowMs: ADMIN.LOGIN_RATE_LIMIT_WINDOW_MS,
         limit: ADMIN.LOGIN_RATE_LIMIT_MAX,
+        // Only a wrong password is a guess. A refused origin or a malformed
+        // body never reaches the password check, so it must not lock the
+        // admin out (a misconfigured proxy would otherwise do exactly that).
         skipSuccessfulRequests: true,
+        requestWasSuccessful: (req, res) => res.statusCode !== HTTP_STATUS.UNAUTHORIZED,
         standardHeaders: true,
         legacyHeaders: false,
         handler: (req, res) => res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({ code: ADMIN_ERROR_CODE.TOO_MANY_ATTEMPTS }),
@@ -197,8 +217,7 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
 
     api.post('/login', loginLimiter, validateLogin(), handleAdminValidation, async (req, res) => {
         try {
-            const origin = req.get('origin');
-            if (origin && origin !== expectedOrigin(req)) {
+            if (!originAllowed(req)) {
                 return res.status(HTTP_STATUS.FORBIDDEN).json({ code: ADMIN_ERROR_CODE.CSRF_REJECTED });
             }
 

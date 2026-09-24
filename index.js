@@ -124,9 +124,10 @@ const initializeServer = async () => {
         // anyone editing allowed.json.
         await mergeRegisteredApps();
 
-        // Additive, idempotent schema upgrade for every known app, including
-        // ones registered at runtime. Fails startup rather than serving over a
-        // half-migrated table.
+        // initialize() migrated the configured apps; this also covers the ones
+        // registered at runtime and merged in above. Idempotent, so apps
+        // already in shape cost one information_schema read. Fails startup
+        // rather than serving over a half-migrated table.
         await dbManager.migrate(config.allowed.appId);
 
         stopTrashRetention = startTrashRetention({
@@ -209,6 +210,7 @@ module.exports = app;
 module.exports.createApp = createApp;
 module.exports.createAnalyticsRouter = createAnalyticsRouter;
 module.exports.createAdminRouter = createAdminRouter;
+module.exports.startTrashRetention = startTrashRetention;
 module.exports.DatabaseManager = DatabaseManager;
 module.exports.dbManager = dbManager;
 module.exports.initializeServer = initializeServer;

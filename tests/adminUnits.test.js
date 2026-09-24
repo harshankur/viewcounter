@@ -188,6 +188,7 @@ describe('verifyPassword and cookie helpers', () => {
             httpOnly: true, sameSite: 'strict', secure: true, path: ADMIN.PATH_PREFIX, maxAge: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
         });
         expect(cookieOptions({ secure: false }).secure).toBe(false);
+        expect(cookieOptions({ secure: true, adminBasePath: '/dashboard' }).path).toBe('/dashboard');
     });
 
     test('expectedOrigin is scheme plus host', () => {
@@ -373,6 +374,7 @@ describe('admin message text', () => {
         [WarningType.ADMIN_UI_DISABLED, {}, 'ADMIN_PASSWORD is not set; the admin UI and its API are disabled.'],
         [WarningType.ADMIN_PASSWORD_REUSED, {}, 'ADMIN_PASSWORD is identical to a configured API key. Use an independent secret so leaking one credential tier never unlocks another.'],
         [WarningType.ADMIN_INSECURE_TRANSPORT, {}, 'An admin login arrived over plain HTTP. The session cookie is not marked Secure on such a request; serve the admin UI over HTTPS.'],
+        [WarningType.ADMIN_ORIGIN_REJECTED, { presented: 'https://a', expected: 'http://a' }, "Refused an admin request from origin 'https://a'; this server expected 'http://a'. Behind a TLS-terminating proxy, set TRUST_PROXY and have the proxy pass X-Forwarded-Proto and the original Host."],
         [WarningType.MIGRATION_TABLE_MISSING, { table: 'x' }, "Table 'x' does not exist; skipping its schema migration."],
         [WarningType.VIEW_LOG_WRITE_FAILED, { appId: 'a', cause: 'c' }, "Could not write the view register log entry for 'a': c"],
         [WarningType.ADMIN_LOG_WRITE_FAILED, { action: 'x', cause: 'c' }, "Could not write the admin operation log entry 'x': c"],

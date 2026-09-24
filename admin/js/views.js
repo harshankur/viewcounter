@@ -10,11 +10,11 @@
 import { api } from './api.js';
 import { clampText } from './clamp.js';
 import { el, replaceChildren, debounce, uniqueId } from './dom.js';
-import { formatDateTime, formatDateTimeShort, formatNumber, orNone } from './format.js';
+import { formatDateTime, formatNumber, orNone } from './format.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
 import { confirmModal } from './modal.js';
-import { createPager, createSegmented, headerCell, messageRow } from './table.js';
+import { createPager, createSegmented, headerCell, messageRow, timeCell } from './table.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { openDetails, openEditor, openNoteEditor } from './viewDialogs.js';
 import { createInsightsPanel } from './insights.js';
@@ -296,7 +296,7 @@ export function createViewsPanel({ mode, meta, context }) {
     });
     const thead = el('thead');
     const tbody = el('tbody');
-    const table = el('table', { className: 'data-table', attrs: { id: tableId } }, [thead, tbody]);
+    const table = el('table', { className: 'data-table views-table', attrs: { id: tableId } }, [thead, tbody]);
     const pager = createPager((page) => {
         state.page = page;
         load();
@@ -308,12 +308,15 @@ export function createViewsPanel({ mode, meta, context }) {
     const insights = isTrash ? null : createInsightsPanel({
         reportError: context.reportError,
         onData: (data) => {
-            // Offer every event type seen so far, so choosing one never hides the others.
-            const before = state.knownEventTypes.size;
-            for (const entry of data.breakdowns.eventType) {
-                if (entry.value !== null) state.knownEventTypes.add(entry.value);
-            }
-            if (state.knownEventTypes.size !== before) eventTypePicker.setOptions(eventTypeOptions(), state.eventType);
+            // The server lists every event type these apps hold, whatever the
+            // other filters say, so choosing one never hides the others. The
+            // current choice stays on offer even if its last view was edited.
+            const types = new Set(data.eventTypes);
+            if (state.eventType) types.add(state.eventType);
+            const known = state.knownEventTypes;
+            if (types.size === known.size && [...types].every((type) => known.has(type))) return;
+            state.knownEventTypes = types;
+            eventTypePicker.setOptions(eventTypeOptions(), state.eventType);
         },
     });
 
@@ -436,7 +439,7 @@ export function createViewsPanel({ mode, meta, context }) {
 
         return el('tr', { className: deleted ? 'row-deleted' : '', dataset: { viewId: view.id } }, [
             el('td', { className: 'col-select' }, [checkbox]),
-            el('td', { className: 'col-time' }, [clampText(formatDateTimeShort(view.timestamp))]),
+            timeCell(view.timestamp),
             el('td', { className: 'col-app' }, [clampText(view.appId, { className: 'mono' })]),
             el('td', { className: 'col-page' }, [
                 clampText(orNone(view.pagePath), { className: 'cell-primary' }),
@@ -532,6 +535,8 @@ export function createViewsPanel({ mode, meta, context }) {
             if (seq !== state.requestSeq) return;
             state.rows = result.views;
             state.total = result.total;
+            // Rows name their app only under All apps; one app's tab already does.
+            table.classList.toggle('has-app', appId === ALL_APPS);
             if (state.rows.length === 0 && state.page > 1 && state.total > 0) {
                 state.page = Math.max(1, Math.ceil(state.total / state.pageSize));
                 await load();
@@ -569,29 +574,45 @@ export function createViewsPanel({ mode, meta, context }) {
         // under "All apps" can span several.
         const byApp = new Map();
         for (const view of views) byApp.set(view.appId, [...(byApp.get(view.appId) || []), view.id]);
-        try {
-            const result = { affected: 0, ids: [] };
-            for (const [appId, ids] of byApp) {
+        // Each app is its own request and its own transaction. One that fails
+        // must not hide what the others already did: those rows are changed
+        // for real, so they leave the selection and the table is refreshed.
+        const result = { attempted: 0, affected: 0, ids: [] };
+        let failure = null;
+        for (const [appId, ids] of byApp) {
+            try {
                 const part = await run(appId, ids);
+                result.attempted += ids.length;
                 result.affected += part.affected;
                 result.ids.push(...part.ids);
+            } catch (error) {
+                failure ??= error;
             }
-            for (const id of result.ids) state.selection.delete(id);
-            const skipped = views.length - result.affected;
+        }
+        for (const id of result.ids) state.selection.delete(id);
+
+        if (result.attempted > 0) {
+            // Skipped means refused for a reason the server gave; rows whose
+            // request failed are covered by the error instead.
+            const skipped = result.attempted - result.affected;
             showToast(
                 skipped > 0
                     ? t(`${successKey}Partial`, { count: result.affected, skipped })
                     : t(successKey, { count: result.affected }),
                 TOAST_TYPE.SUCCESS,
             );
-            await context.refreshApps();
-            await load();
-            loadInsights();
-            return true;
-        } catch (error) {
-            context.reportError(error);
-            return false;
         }
+        if (failure) context.reportError(failure);
+        if (result.affected > 0 || !failure) {
+            try {
+                await context.refreshApps();
+                await load();
+                loadInsights();
+            } catch (error) {
+                context.reportError(error);
+            }
+        }
+        return !failure;
     }
 
     function editViews(views) {

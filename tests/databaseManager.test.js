@@ -267,6 +267,22 @@ describe('DatabaseManager', () => {
         });
     });
 
+    describe('initialize', () => {
+        test('brings the given apps up to the current schema, so an embedding app needs no extra call', async () => {
+            // Regression: only the standalone server called migrate(), so an
+            // app mounting the routers over a 3.0 table got queries naming
+            // public_id and deleted_at against a table without them.
+            const fresh = new DatabaseManager(testConfig);
+            await fresh.initialize(['embedded_app']);
+            const sql = fresh.pool.queries.map((q) => q.sql).join('\n');
+            expect(sql).toContain('CREATE TABLE IF NOT EXISTS `_admin_log`');
+            expect(sql).toContain('CREATE TABLE IF NOT EXISTS `_view_log`');
+            expect(fresh.pool.queries.some((q) => q.sql.includes('information_schema.COLUMNS')
+                && q.params.includes('embedded_app'))).toBe(true);
+            await fresh.close();
+        });
+    });
+
     describe('statement timeout hook', () => {
         test('applies the timeout without treating a raw connection as a promise', async () => {
             // Regression: mysql2/promise's pool emits the RAW callback-style

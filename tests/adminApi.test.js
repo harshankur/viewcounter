@@ -16,6 +16,7 @@ const {
 const { createAdminRouter } = require('../routes/admin');
 const { createSessionStore } = require('../middleware/adminAuth');
 const { createMemoryRepos, makeView } = require('./support/memoryRepos');
+const logger = require('../utils/logger');
 
 const PASSWORD = 'correct horse battery staple';
 const APP = 'blog';
@@ -126,6 +127,37 @@ describe('Admin API', () => {
             expect(res.body.code).toBe(ADMIN_ERROR_CODE.CSRF_REJECTED);
         });
 
+        test('a refused origin is logged with the origin the server expected', async () => {
+            const lines = [];
+            logger.configure({ level: logger.LogLevel.DEBUG, writer: (line) => lines.push(line) });
+            try {
+                await request(app).post(`${API}/login`)
+                    .set('Host', 'views.example.com')
+                    .set('Origin', 'https://views.example.com')
+                    .send({ password: PASSWORD })
+                    .expect(403);
+            } finally {
+                logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} });
+            }
+            // Plain HTTP reached the server while the browser was on HTTPS: the
+            // TLS-terminating-proxy case, spelled out in the log.
+            const warning = lines.find((line) => line.includes('ADMIN_ORIGIN_REJECTED'));
+            expect(warning).toContain("'https://views.example.com'");
+            expect(warning).toContain("expected 'http://views.example.com'");
+            expect(warning).toContain('TRUST_PROXY');
+        });
+
+        test('only wrong passwords count toward the login limit', async () => {
+            for (let i = 0; i < ADMIN.LOGIN_RATE_LIMIT_MAX + 2; i++) {
+                await request(app).post(`${API}/login`)
+                    .set('Origin', 'https://attacker.example')
+                    .send({ password: 'wrong' })
+                    .expect(403);
+                await request(app).post(`${API}/login`).send({}).expect(422);
+            }
+            await login(app);
+        });
+
         test('the correct password starts a session with a hardened cookie', async () => {
             const { res, csrf } = await login(app);
             const cookie = res.headers['set-cookie'][0];
@@ -179,6 +211,27 @@ describe('Admin API', () => {
             const after = await agent.get(`${API}/session`).expect(200);
             expect(after.body.authenticated).toBe(false);
             await agent.get(`${API}/apps`).expect(401);
+        });
+
+        test('the router refuses a password shorter than the standalone server accepts', () => {
+            for (const password of [undefined, '', 'x'.repeat(ADMIN.MIN_PASSWORD_LENGTH - 1)]) {
+                expect(() => createAdminRouter({
+                    config: buildConfig({ admin: { enabled: true, password, trashRetentionDays: 30 } }),
+                    adminRepo: repos.adminRepo,
+                    logRepo: repos.logRepo,
+                })).toThrow(`Invalid configuration for 'admin.password': must be at least ${ADMIN.MIN_PASSWORD_LENGTH} characters`);
+            }
+        });
+
+        test('the session cookie follows the mount path when another app embeds the router', async () => {
+            const host = express();
+            host.set('trust proxy', false);
+            host.use('/dashboard', createAdminRouter({ config: buildConfig(), adminRepo: repos.adminRepo, logRepo: repos.logRepo }));
+            const agent = request.agent(host);
+            const res = await agent.post('/dashboard/api/login').send({ password: PASSWORD }).expect(200);
+            expect(res.headers['set-cookie'][0]).toContain('Path=/dashboard;');
+            // The agent's jar honours cookie paths, so this proves the browser would send it.
+            await agent.get('/dashboard/api/apps').expect(200);
         });
 
         test('failed logins are rate limited', async () => {

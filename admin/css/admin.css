@@ -1385,7 +1385,7 @@ input[type='checkbox'] {
 }
 
 .col-select { width: 2.6rem; }
-.col-time { width: 12.5rem; }
+.col-time { width: 8.5rem; }
 .col-app { width: 8rem; }
 .col-page { width: auto; }
 .col-source { width: 9.5rem; }
@@ -1393,10 +1393,9 @@ input[type='checkbox'] {
 .col-country { width: 5.5rem; }
 .col-client { width: 8rem; }
 .col-event { width: 7rem; }
-.col-status { width: 11rem; }
+.col-status { width: 10.5rem; }
 .col-actions { width: 8.5rem; }
 
-.log-table .col-time { width: 15rem; }
 .log-table .col-action { width: 11rem; }
 .log-table .col-app { width: 9rem; }
 .log-table .col-rows { width: 5rem; }
@@ -1407,6 +1406,141 @@ input[type='checkbox'] {
 .log-table .col-event { width: 9rem; }
 .log-table .col-unique { width: 6rem; }
 .log-table .col-view { width: auto; }
+
+/*
+ * Reflow (FRONTEND.md §12). A table answers to its own width, not the
+ * viewport's: it drops optional columns, least useful first, and becomes cards
+ * where even its essential columns no longer fit (views below 53rem, logs
+ * below 46rem). Each threshold is the width at which the columns still shown
+ * leave the flexible column (page, fields, or view) at least 13rem:
+ *
+ *   views, one app   always 39.6 (select, time, source, status, actions);
+ *                    + event 7 from 60, country 5.5 from 65.5,
+ *                    device 6.5 from 72, client 8 from 80
+ *   views, All apps  the same plus app 8, so each step comes 8rem later;
+ *                    source also steps aside between the cards and 61
+ *   admin log        always 45.5; + ip 11 from 57, session 7 from 64
+ *   view log         always 40.5; + view ID 12 from 53
+ */
+.table-wrap {
+    container: table / inline-size;
+}
+
+/* One app's tab already names the app. */
+.views-table:not(.has-app) .col-app {
+    display: none;
+}
+
+@container table (width < 88rem) {
+    .views-table.has-app .col-client { display: none; }
+}
+
+@container table (width < 80rem) {
+    .views-table .col-client,
+    .views-table.has-app .col-device { display: none; }
+}
+
+@container table (width < 73.5rem) {
+    .views-table.has-app .col-country { display: none; }
+}
+
+@container table (width < 72rem) {
+    .views-table .col-device { display: none; }
+}
+
+@container table (width < 68rem) {
+    .views-table.has-app .col-event { display: none; }
+}
+
+@container table (width < 65.5rem) {
+    .views-table .col-country { display: none; }
+}
+
+@container table (width < 64rem) {
+    .log-table .col-session { display: none; }
+}
+
+@container table (53rem <= width < 61rem) {
+    .views-table.has-app .col-source { display: none; }
+}
+
+@container table (width < 60rem) {
+    .views-table .col-event { display: none; }
+}
+
+@container table (width < 57rem) {
+    .log-table .col-ip { display: none; }
+}
+
+@container table (width < 53rem) {
+    .log-table .col-view {
+        display: none;
+    }
+
+    .views-table thead {
+        display: none;
+    }
+
+    .views-table,
+    .views-table tbody,
+    .views-table tr,
+    .views-table td {
+        display: block;
+        width: 100%;
+    }
+
+    /* The left gutter holds the row's checkbox. */
+    .views-table tbody tr {
+        height: auto;
+        position: relative;
+        padding: 0.6rem 0.8rem 0.6rem 2.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .views-table td {
+        border: none;
+        padding: 0.15rem 0;
+    }
+
+    .views-table td.col-select {
+        position: absolute;
+        left: 0.8rem;
+        top: 0.8rem;
+        width: auto;
+    }
+
+    /* A card's status line is full width, so every badge fits on one line;
+       fixed, so a card with no badges is as tall as one with some. */
+    .views-table .badges {
+        height: 1.4rem;
+    }
+}
+
+/* Log rows have no checkbox, so their cards need no gutter. */
+@container table (width < 46rem) {
+    .log-table thead {
+        display: none;
+    }
+
+    .log-table,
+    .log-table tbody,
+    .log-table tr,
+    .log-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .log-table tbody tr {
+        height: auto;
+        padding: 0.6rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .log-table td {
+        border: none;
+        padding: 0.15rem 0;
+    }
+}
 
 .cell-primary {
     color: var(--text);
@@ -1440,13 +1574,15 @@ input[type='checkbox'] {
 
 .badges {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
+    align-content: center;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.2rem 0.3rem;
     overflow: hidden;
-    /* Fixed, so a row with no badges is exactly as tall as one with some
-       (FRONTEND.md §14: like items share one height). */
-    height: 1.4rem;
+    /* Fixed at the row's two text lines, so a row with no badges is exactly
+       as tall as one with four, which wrap onto a second line rather than
+       being cut off (FRONTEND.md §14: like items share one height). */
+    height: 2.5rem;
 }
 
 .badge {
@@ -1457,6 +1593,7 @@ input[type='checkbox'] {
     padding: 0.1rem 0.45rem;
     border-radius: 4px;
     border: 1px solid currentColor;
+    line-height: 1.2;
     white-space: nowrap;
 }
 
@@ -1673,11 +1810,6 @@ input[type='checkbox'] {
 /* ---------- Narrow screens (FRONTEND.md §12: reflow, never scroll sideways) ---------- */
 
 @media (max-width: 1180px) {
-    .col-client,
-    .col-event {
-        display: none;
-    }
-
     .insights-grid {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -1692,58 +1824,12 @@ input[type='checkbox'] {
         padding: 0.8rem 1rem;
     }
 
-    .col-country,
-    .col-device,
-    .log-table .col-session,
-    .log-table .col-fields,
-    .log-table .col-view {
-        display: none;
-    }
-
     .batch-bar {
         top: 3.6rem;
     }
 }
 
 @media (max-width: 720px) {
-    .data-table thead {
-        display: none;
-    }
-
-    .data-table,
-    .data-table tbody,
-    .data-table tr,
-    .data-table td {
-        display: block;
-        width: 100%;
-    }
-
-    .data-table tbody tr {
-        height: auto;
-        position: relative;
-        padding: 0.6rem 0.8rem 0.6rem 2.8rem;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .data-table td {
-        border: none;
-        padding: 0.15rem 0;
-    }
-
-    .data-table td.col-select {
-        position: absolute;
-        left: 0.8rem;
-        top: 0.8rem;
-        width: auto;
-    }
-
-    .data-table .col-country,
-    .data-table .col-device,
-    .data-table .col-client,
-    .data-table .col-event {
-        display: none;
-    }
-
     .tabs {
         flex-wrap: wrap;
     }

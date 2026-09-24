@@ -195,7 +195,9 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
                 lastAt: views ? new Date(Math.max(...times)) : null,
             };
             const breakdowns = Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []]));
-            if (views === 0) return { totals, bucket: 'day', trend: [], breakdowns, countries: [] };
+            const eventTypes = [...new Set(filtered(appIds, { status: query.status })
+                .map((row) => row.eventType).filter((type) => type !== null && type !== undefined))].sort();
+            if (views === 0) return { totals, bucket: 'day', trend: [], breakdowns, countries: [], eventTypes };
 
             const bucket = chooseBucket(totals.firstAt, totals.lastAt);
             const trend = new Map();
@@ -233,6 +235,7 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
                 trend: [...trend.values()].sort((a, b) => a.period.localeCompare(b.period)),
                 breakdowns,
                 countries: [...byCountry.values()].sort((a, b) => a.country.localeCompare(b.country)),
+                eventTypes,
             };
         },
 

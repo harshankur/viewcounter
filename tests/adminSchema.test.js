@@ -28,11 +28,29 @@ beforeEach(() => {
 afterEach(() => logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} }));
 
 /**
+ * Rows 1..count still without a public_id, answering the backfill's keyset
+ * SELECT (`id > ? ... ORDER BY id LIMIT ?`) and UPDATE like a real table.
+ */
+function pendingRows(count) {
+    const pending = new Set(Array.from({ length: count }, (_, i) => i + 1));
+    return {
+        select: ([afterId, limit]) => [[...pending].filter((id) => id > afterId).slice(0, limit).map((id) => ({ id }))],
+        update: (params) => {
+            for (const id of params[params.length - 1]) pending.delete(id);
+            return [{ affectedRows: 0 }];
+        },
+    };
+}
+
+const isBackfillSelect = (sql) => sql.includes('AND public_id IS NULL ORDER BY id LIMIT');
+const isBackfillUpdate = (sql) => sql.includes('SET public_id = CASE id');
+
+/**
  * A pool scripted to look like a pre-admin app table: the original columns,
  * `pending` rows still without a public_id, and whatever indexes are given.
  */
 function legacyTablePool({ columns = ['id', 'masked_ip'], nullable = {}, pending = 0, indexes = ['PRIMARY'] } = {}) {
-    let remaining = pending;
+    const rows = pendingRows(pending);
     return createScriptedPool((sql, params) => {
         if (sql.includes('information_schema.COLUMNS')) {
             return [columns.map((name) => ({ name, nullable: nullable[name] ? 'YES' : 'NO' }))];
@@ -40,11 +58,8 @@ function legacyTablePool({ columns = ['id', 'masked_ip'], nullable = {}, pending
         if (sql.includes('information_schema.STATISTICS')) {
             return [indexes.map((name) => ({ name }))];
         }
-        if (sql.includes('WHERE public_id IS NULL LIMIT')) {
-            const batch = Math.min(remaining, params[0]);
-            remaining -= batch;
-            return [Array.from({ length: batch }, (_, i) => ({ id: i + 1 }))];
-        }
+        if (isBackfillSelect(sql)) return rows.select(params);
+        if (isBackfillUpdate(sql)) return rows.update(params);
         return [{ affectedRows: 0 }];
     });
 }
@@ -84,6 +99,14 @@ describe('migrateAppTable', () => {
         const result = await migrateAppTable(pool, 'blog');
         expect(result.backfilled).toBe(DATABASE.BACKFILL_BATCH_SIZE + 3);
         expect(pool.matching('SET public_id = CASE id')).toHaveLength(2);
+    });
+
+    test('each batch resumes after the last id, so no row is scanned twice', async () => {
+        const size = DATABASE.BACKFILL_BATCH_SIZE;
+        const pool = legacyTablePool({ pending: size * 2 + 3 });
+        await migrateAppTable(pool, 'blog');
+        const resumedAfter = pool.matching('AND public_id IS NULL ORDER BY id LIMIT').map((q) => q.params[0]);
+        expect(resumedAfter).toEqual([0, size, size * 2, size * 2 + 3]);
     });
 
     test('an already migrated table is read and left alone', async () => {
@@ -227,15 +250,12 @@ describe('DatabaseManager admin wiring', () => {
     });
 
     test('migrate reports how many existing rows received public IDs', async () => {
-        let pending = 3;
+        const rows = pendingRows(3);
         const manager = managerWith((sql, params) => {
             if (sql.includes('information_schema.COLUMNS')) return [[{ name: 'id', nullable: 'NO' }]];
             if (sql.includes('information_schema.STATISTICS')) return [[]];
-            if (sql.includes('WHERE public_id IS NULL LIMIT')) {
-                const batch = Math.min(pending, params[0]);
-                pending -= batch;
-                return [Array.from({ length: batch }, (_, i) => ({ id: i + 1 }))];
-            }
+            if (isBackfillSelect(sql)) return rows.select(params);
+            if (isBackfillUpdate(sql)) return rows.update(params);
             return undefined;
         });
         await manager.migrate(['blog']);

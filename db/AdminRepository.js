@@ -319,6 +319,7 @@ class AdminRepository {
             trend: [],
             breakdowns: Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []])),
             countries: [],
+            eventTypes: [],
         };
         if (appIds.length === 0) return empty;
 
@@ -350,7 +351,10 @@ class AdminRepository {
             firstAt: totalsRow.first_at ?? null,
             lastAt: totalsRow.last_at ?? null,
         };
-        if (totals.views === 0) return { ...empty, totals };
+        // Before the early return: when the filters match nothing is exactly
+        // when the admin needs every type on offer to pick another.
+        const eventTypes = await this.eventTypes(appIds, query.status);
+        if (totals.views === 0) return { ...empty, totals, eventTypes };
 
         const bucket = chooseBucket(totals.firstAt, totals.lastAt);
         const [trendRows] = await this.pool.query(
@@ -404,7 +408,29 @@ class AdminRepository {
                 eventType: row.event_type ?? null,
                 views: Number(row.views),
             })),
+            eventTypes,
         };
+    }
+
+    /**
+     * Every event type the apps hold in this status, whatever the other
+     * filters say. The event-type filter offers all of them, so narrowing the
+     * range or choosing one type never hides the rest, and a rare type is
+     * never cut off the way the top-N breakdown cuts it.
+     *
+     * @param {string[]} appIds
+     * @param {string} status
+     * @returns {Promise<string[]>}
+     */
+    async eventTypes(appIds, status) {
+        const { clause, params } = buildFilter({ status });
+        const branches = appIds.map((appId) =>
+            `SELECT event_type FROM ${this.table(appId)} WHERE ${clause} AND event_type IS NOT NULL`);
+        const [rows] = await this.pool.query(
+            `SELECT DISTINCT event_type FROM (${branches.join(' UNION ')}) AS e ORDER BY event_type`,
+            appIds.flatMap(() => params)
+        );
+        return rows.map((row) => row.event_type);
     }
 
     /**

@@ -41,6 +41,7 @@ const WarningType = {
     ADMIN_UI_DISABLED: 'ADMIN_UI_DISABLED',
     ADMIN_PASSWORD_REUSED: 'ADMIN_PASSWORD_REUSED',
     ADMIN_INSECURE_TRANSPORT: 'ADMIN_INSECURE_TRANSPORT',
+    ADMIN_ORIGIN_REJECTED: 'ADMIN_ORIGIN_REJECTED',
     MIGRATION_TABLE_MISSING: 'MIGRATION_TABLE_MISSING',
     VIEW_LOG_WRITE_FAILED: 'VIEW_LOG_WRITE_FAILED',
     ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
@@ -106,6 +107,9 @@ const WARNING_MESSAGES = {
     [WarningType.ADMIN_INSECURE_TRANSPORT]:
         'An admin login arrived over plain HTTP. The session cookie is not marked Secure on ' +
         'such a request; serve the admin UI over HTTPS.',
+    [WarningType.ADMIN_ORIGIN_REJECTED]: (info) =>
+        `Refused an admin request from origin '${info?.presented}'; this server expected '${info?.expected}'. ` +
+        'Behind a TLS-terminating proxy, set TRUST_PROXY and have the proxy pass X-Forwarded-Proto and the original Host.',
     [WarningType.MIGRATION_TABLE_MISSING]: (info) =>
         `Table '${info?.table}' does not exist; skipping its schema migration.`,
     [WarningType.VIEW_LOG_WRITE_FAILED]: (info) =>

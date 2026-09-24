@@ -3,8 +3,9 @@
  * empty and loading states.
  */
 
+import { clampText } from './clamp.js';
 import { el, replaceChildren } from './dom.js';
-import { formatNumber } from './format.js';
+import { formatDate, formatNumber, formatTime } from './format.js';
 import { t } from './i18n.js';
 import { SORT_ORDER } from './constants.js';
 
@@ -32,6 +33,20 @@ export function headerCell({ label, sortKey, sort, order, onSort, className = ''
             el('span', { text: label }),
             el('span', { className: 'sort-indicator', text: indicator, attrs: { 'aria-hidden': 'true' } }),
         ]),
+    ]);
+}
+
+/**
+ * A timestamp cell: the date above the time of day, like every other two-line
+ * cell, so it never needs the width of both on one line.
+ *
+ * @param {string|Date} value
+ * @param {{ seconds?: boolean }} [options]
+ */
+export function timeCell(value, { seconds = false } = {}) {
+    return el('td', { className: 'col-time' }, [
+        clampText(formatDate(value), { className: 'cell-primary' }),
+        clampText(formatTime(value, { seconds }), { className: 'cell-secondary' }),
     ]);
 }
 

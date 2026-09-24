@@ -32,6 +32,72 @@ for (const tab of ['views', 'trash', 'adminLog', 'viewLog']) {
     });
 }
 
+/**
+ * Every width between the phone and desktop projects, where a table has the
+ * least room: it reflows by dropping optional columns (or turning into cards),
+ * never by squeezing the page column away, clipping a header or a timestamp,
+ * or scrolling sideways.
+ */
+const SWEEP_WIDTHS = [1920, 1600, 1440, 1366, 1280, 1180, 1100, 1024, 961, 900, 800, 768, 721];
+/** The page column is what a view is about, so it keeps a readable width. */
+const PAGE_COLUMN_MIN_PX = 200;
+
+function tableFit(page) {
+    return page.evaluate(() => {
+        const table = document.querySelector('[role="tabpanel"]:not([hidden]) table');
+        const shown = (node) => getComputedStyle(node).display !== 'none';
+        const clipped = (node) => node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1;
+        const cards = !shown(table.querySelector('thead'));
+        const pageHeader = table.querySelector('thead th.col-page');
+        return {
+            cards,
+            pageWidth: !cards && pageHeader && shown(pageHeader) ? pageHeader.getBoundingClientRect().width : null,
+            clippedHeaders: cards ? [] : [...table.querySelectorAll('thead th')]
+                .filter((th) => shown(th) && th.scrollWidth > th.clientWidth + 1)
+                .map((th) => th.className),
+            clippedTimes: [...table.querySelectorAll('tbody td.col-time .clamp')].filter(clipped).length,
+            clippedBadges: [...table.querySelectorAll('tbody .badges')].filter(clipped).length,
+        };
+    });
+}
+
+test.describe('at every width between phone and desktop', () => {
+    test.skip(({ isMobile }) => isMobile, 'the desktop project sweeps the widths');
+
+    const appTab = (page, name) => activePanel(page).getByRole('tab', { name: new RegExp(`^${name},`) });
+    const panels = [
+        ['all apps', (page) => signIn(page)],
+        ['one app', async (page) => {
+            await signIn(page);
+            await appTab(page, 'blog').click();
+            await expect(appTab(page, 'blog')).toHaveAttribute('aria-selected', 'true');
+            await expect(activePanel(page).locator('table')).not.toHaveAttribute('aria-busy', 'true');
+        }],
+        ['trash', (page) => signIn(page, 'trash')],
+        ['admin log', (page) => signIn(page, 'adminLog')],
+        ['view log', (page) => signIn(page, 'viewLog')],
+    ];
+
+    for (const [label, open] of panels) {
+        test(`the ${label} table reflows without clipping or scrolling sideways`, async ({ page }) => {
+            await open(page);
+            const failures = [];
+            for (const width of SWEEP_WIDTHS) {
+                await page.setViewportSize({ width, height: 900 });
+                await page.evaluate(() => new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))));
+                const overflow = await sidewaysOverflow(page);
+                const fit = await tableFit(page);
+                if (overflow.length) failures.push(`${width}px scrolls sideways: ${overflow.join(', ')}`);
+                if (fit.pageWidth !== null && fit.pageWidth < PAGE_COLUMN_MIN_PX) failures.push(`${width}px page column is ${Math.round(fit.pageWidth)}px`);
+                if (fit.clippedHeaders.length) failures.push(`${width}px clipped headers: ${fit.clippedHeaders.join(', ')}`);
+                if (fit.clippedTimes) failures.push(`${width}px ${fit.clippedTimes} timestamps truncated`);
+                if (fit.clippedBadges) failures.push(`${width}px ${fit.clippedBadges} badge groups clipped`);
+            }
+            expect(failures).toEqual([]);
+        });
+    }
+});
+
 test('the login screen never scrolls sideways', async ({ page }) => {
     await page.goto('/admin/');
     await expect(page.getByLabel('Password')).toBeVisible();
