@@ -5,6 +5,26 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.1.0]
+
+Adds the admin UI, fixes how direct visits are classified, and resolves runtime
+dependency advisories. No API is removed or renamed.
+
+Upgrading from 3.0:
+
+- The database user needs `CREATE`, `ALTER`, and `INDEX` on the database, in
+  both modes: the first start adds columns and indexes to every app table and
+  creates the two log tables. A user limited to reads and writes fails startup
+  with `MIGRATION_FAILED`. See the README's Database Modes section for the
+  `GRANT`.
+- The first start also gives every existing row a `public_id`, in batches of
+  500. Expect it to take a moment on a large table; later starts skip it.
+- To use the admin UI behind a TLS-terminating proxy, set `TRUST_PROXY` and
+  have the proxy pass `X-Forwarded-Proto` and the original `Host`.
+- An application that depends on viewcounter should add
+  `"overrides": { "ip-address": "^10.7.2" }` to its own `package.json` (see
+  Fixed).
+
 ### Added
 
 - **Admin UI** at `/admin`, enabled by setting `ADMIN_PASSWORD` (at least 16
@@ -14,7 +34,11 @@ All notable changes to this project are documented here. This project follows
   title, referrer, device size, event type and data); add notes; move views to
   the trash, restore them, or erase them permanently. Build-free, same design
   language as the documentation site, no third-party requests, and a strict
-  Content Security Policy.
+  Content Security Policy. Its tables reflow to any width: they drop their
+  least useful columns first and become cards on a phone. Only wrong passwords
+  count toward the sign-in rate limit, and a request refused for its `Origin`
+  is logged with the origin the server expected (`ADMIN_ORIGIN_REJECTED`), so a
+  misconfigured proxy is easy to diagnose.
 - Every app table gains `public_id` (a random UUID used by the admin UI and
   API in place of the enumerable row number), `note`, `admin_modified_at`
   (whether and when an admin changed the row's content), and `deleted_at`.
@@ -32,17 +56,30 @@ All notable changes to this project are documented here. This project follows
   browser, OS, event type, and app. The map is drawn from Natural Earth data
   shipped with the UI, so it makes no third-party request.
 - Date-range and event-type filters in the admin UI, shared by the table and
-  the insights.
+  the insights. The event-type filter offers every type the app has recorded,
+  whatever the other filters select.
 - `TRASH_RETENTION_DAYS` (default 30): trashed views are erased for good after
   this many days. 0 keeps them until erased by hand.
+- `VIEW_LOG_RETENTION_DAYS` (default 90): view-log entries older than this are
+  removed hourly, in batches, and each removal is recorded in the admin log.
+  0 keeps the view log forever. The admin log itself is never pruned.
 - `createAdminRouter` export, for mounting the admin surface into another
-  Express app.
+  Express app at any path; its session cookie is scoped to that path, and it
+  refuses a password shorter than 16 characters. `startRetention` export, so
+  an embedding app can run the trash purge and view-log pruning too.
 
 ### Changed
 
 - Every analytics read (`/stats`, `/views`, `/trends`, `/referrers`,
   `/browsers`, `/pages`, `/sessions`) and the duplicate-visit check now ignore
   views an admin has moved to the trash.
+- `DatabaseManager.initialize()` now brings the tables of the apps it is given
+  up to the current schema, so an application that embeds the routers needs no
+  extra call when upgrading.
+- The bundled country data is refreshed (`geoip-country` 5.0.202609230144),
+  and `express-rate-limit` is 8.7.0.
+- The release workflow runs the admin UI's browser tests before publishing, as
+  the test workflow already did.
 
 ### Fixed
 

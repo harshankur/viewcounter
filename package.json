@@ -1,7 +1,7 @@
 {
   "name": "@harshankur/viewcounter",
   "description": "A middleware backend server that registers views to my db server when requested to register a view from my other projects.",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "main": "index.js",
   "engines": {
     "node": ">=24"
@@ -74,9 +74,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.0",
+    "express-rate-limit": "^8.7.0",
     "express-validator": "^7.3.2",
-    "geoip-country": "^5.0.202607180103",
+    "geoip-country": "^5.0.202609230144",
     "helmet": "^8.3.0",
     "mysql2": "^3.24.4",
     "ua-parser-js": "^2.0.10",

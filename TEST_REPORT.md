@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 9/24/2026, 8:23:20 AM  
+**Generated**: 9/25/2026, 12:08:35 AM  
 **Status**: ✅ EXCELLENT  
-**Overall Coverage**: 93.41%
+**Overall Coverage**: 93.57%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 94.57% (1464/1548) | ✅ |
-| **Branches** | 89.42% (668/747) | ✅ |
-| **Functions** | 94.81% (311/328) | ✅ |
-| **Lines** | 94.84% (1325/1397) | ✅ |
+| **Statements** | 94.73% (1510/1594) | ✅ |
+| **Branches** | 89.54% (685/765) | ✅ |
+| **Functions** | 95% (323/340) | ✅ |
+| **Lines** | 94.99% (1367/1439) | ✅ |
 
 ---
 
@@ -22,19 +22,19 @@
 | File | Statements | Branches | Functions | Lines |
 |------|------------|----------|-----------|-------|
 | constants.js | 100% | 100% | 100% | 100% |
-| index.js | 65.97% | 29.16% | 37.5% | 69.56% |
-| index.js | 96.87% | 95.45% | 95.23% | 96.66% |
+| index.js | 66.32% | 29.16% | 37.5% | 69.89% |
+| index.js | 96.89% | 95.45% | 95.45% | 96.69% |
 | AdminRepository.js | 100% | 94.44% | 100% | 100% |
-| DatabaseManager.js | 87.17% | 67.79% | 92.3% | 87.58% |
-| LogRepository.js | 100% | 95% | 100% | 100% |
+| DatabaseManager.js | 87.26% | 67.79% | 92.3% | 87.66% |
+| LogRepository.js | 100% | 95.45% | 100% | 100% |
 | adminSchema.js | 100% | 100% | 100% | 100% |
-| trashRetention.js | 100% | 88.88% | 100% | 100% |
+| retention.js | 100% | 93.33% | 100% | 100% |
 | adminAuth.js | 100% | 100% | 100% | 100% |
 | adminValidation.js | 100% | 100% | 100% | 100% |
 | auth.js | 94.33% | 86.11% | 100% | 95.65% |
 | security.js | 100% | 95% | 100% | 100% |
 | validation.js | 100% | 100% | 100% | 100% |
-| admin.js | 98.79% | 96.22% | 96.77% | 98.72% |
+| admin.js | 98.83% | 94.73% | 96.96% | 98.77% |
 | analytics.js | 87.96% | 73.33% | 90.47% | 87.69% |
 | appIdUtils.js | 80% | 66.66% | 100% | 100% |
 | cookieUtils.js | 100% | 100% | 100% | 100% |

@@ -105,6 +105,14 @@ jobs:
         env:
           NODE_ENV: test
 
+      # The admin UI ships in the tarball, so the release is gated on the same
+      # browser tests as test.yml. Runs against tests/ui/server.js, no database.
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UI tests
+        run: npx playwright test
+
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
 
