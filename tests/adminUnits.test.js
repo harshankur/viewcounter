@@ -302,7 +302,12 @@ describe('admin config', () => {
 
     test('ADMIN_PASSWORD set and long enough enables the UI', () => {
         expect(new Config({ NODE_ENV: 'test', ADMIN_PASSWORD: PASSWORD }).admin)
-            .toEqual({ password: PASSWORD, enabled: true, trashRetentionDays: ADMIN.DEFAULT_TRASH_RETENTION_DAYS });
+            .toEqual({
+                password: PASSWORD,
+                enabled: true,
+                trashRetentionDays: ADMIN.DEFAULT_TRASH_RETENTION_DAYS,
+                viewLogRetentionDays: ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS,
+            });
     });
 
     test('ADMIN_PASSWORD unset leaves the UI disabled', () => {
@@ -325,6 +330,19 @@ describe('admin config', () => {
         [String(ADMIN.MAX_TRASH_RETENTION_DAYS + 1), ADMIN.DEFAULT_TRASH_RETENTION_DAYS],
     ])('TRASH_RETENTION_DAYS=%j resolves to %j', (raw, expected) => {
         expect(new Config({ NODE_ENV: 'test', TRASH_RETENTION_DAYS: raw }).admin.trashRetentionDays).toBe(expected);
+    });
+
+    test.each([
+        ['7', 7],
+        ['0', 0],
+        [String(ADMIN.MAX_VIEW_LOG_RETENTION_DAYS), ADMIN.MAX_VIEW_LOG_RETENTION_DAYS],
+        [undefined, ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS],
+        ['', ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS],
+        ['abc', ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS],
+        ['-1', ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS],
+        [String(ADMIN.MAX_VIEW_LOG_RETENTION_DAYS + 1), ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS],
+    ])('VIEW_LOG_RETENTION_DAYS=%j resolves to %j', (raw, expected) => {
+        expect(new Config({ NODE_ENV: 'test', VIEW_LOG_RETENTION_DAYS: raw }).admin.viewLogRetentionDays).toBe(expected);
     });
 
     test('production refuses to boot on a too-short password, with the exact message', () => {
@@ -379,6 +397,7 @@ describe('admin message text', () => {
         [WarningType.VIEW_LOG_WRITE_FAILED, { appId: 'a', cause: 'c' }, "Could not write the view register log entry for 'a': c"],
         [WarningType.ADMIN_LOG_WRITE_FAILED, { action: 'x', cause: 'c' }, "Could not write the admin operation log entry 'x': c"],
         [WarningType.TRASH_PURGE_FAILED, { appId: 'a', cause: 'c' }, "Automatic trash purge failed for 'a': c"],
+        [WarningType.VIEW_LOG_PRUNE_FAILED, { cause: 'c' }, 'Automatic view log pruning failed: c'],
     ])('%s reads exactly', (type, info, message) => {
         const entry = WARNING_MESSAGES[type];
         expect(typeof entry === 'function' ? entry(info) : entry).toBe(message);

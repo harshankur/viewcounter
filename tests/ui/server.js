@@ -149,7 +149,7 @@ function buildAdmin() {
             origins: {},
         },
         server: { isProduction: false },
-        admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30 },
+        admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30, viewLogRetentionDays: 90 },
     };
     return createAdminRouter({ config, adminRepo: repos.adminRepo, logRepo: repos.logRepo });
 }

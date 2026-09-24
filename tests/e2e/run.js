@@ -242,6 +242,7 @@ async function createLegacyTable(connection, table = 'legacy_app', count = LEGAC
  */
 async function verifyEmbedding(db) {
     section('Embedded use: initialize() alone upgrades a legacy table');
+    const crypto = require('crypto');
     const EMBED_ROWS = 3;
     await createLegacyTable(db, 'legacy_embed', EMBED_ROWS);
     const DatabaseManager = require('../../db/DatabaseManager');
@@ -264,6 +265,24 @@ async function verifyEmbedding(db) {
             JSON.stringify(stats));
         const [missing] = await db.query('SELECT COUNT(*) AS n FROM `legacy_embed` WHERE public_id IS NULL');
         check('every embedded row has a public id', Number(missing[0].n) === 0, `${missing[0].n} without`);
+
+        // View-log retention: a batched DELETE ... ORDER BY ... LIMIT on the
+        // real engine removes only entries past the cutoff.
+        const OLD_ENTRIES = 3;
+        for (let i = 0; i < OLD_ENTRIES; i++) {
+            await db.query(
+                `INSERT INTO \`_view_log\` (id, created_at, app_id, source, view_id, event_type, is_unique)
+                 VALUES (?, DATE_SUB(NOW(3), INTERVAL 100 DAY), 'legacy_embed', 'registerView', ?, 'pageview', 1)`,
+                [crypto.randomUUID(), crypto.randomUUID()]);
+        }
+        const [[{ n: before }]] = await db.query('SELECT COUNT(*) AS n FROM `_view_log`');
+        const pruned = await embedded.logs.pruneViewLog(90);
+        const [[{ n: after }]] = await db.query('SELECT COUNT(*) AS n FROM `_view_log`');
+        const [[{ n: stale }]] = await db.query(
+            'SELECT COUNT(*) AS n FROM `_view_log` WHERE created_at < DATE_SUB(NOW(3), INTERVAL 90 DAY)');
+        check('pruning the view log removes exactly the entries past the retention',
+            pruned === OLD_ENTRIES && Number(before) - Number(after) === OLD_ENTRIES && Number(stale) === 0,
+            `pruned ${pruned}, ${before} -> ${after}, ${stale} stale left`);
     } catch (err) {
         check('an embedded manager works over a legacy table', false, err.message);
     } finally {

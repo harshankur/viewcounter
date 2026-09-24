@@ -7,7 +7,7 @@
 
 const AdminRepository = require('../db/AdminRepository');
 const LogRepository = require('../db/LogRepository');
-const { ADMIN_ACTION, ADMIN_LOG_TABLE, VIEW_LOG_TABLE, VIEW_LOG_SOURCE } = require('../constants');
+const { ADMIN, ADMIN_ACTION, ADMIN_LOG_TABLE, VIEW_LOG_TABLE, VIEW_LOG_SOURCE } = require('../constants');
 const logger = require('../utils/logger');
 const { createScriptedPool, dbWith } = require('./support/scriptedPool');
 
@@ -284,6 +284,25 @@ describe('LogRepository', () => {
         const result = await new LogRepository(dbWith(pool)).listAdminLog({ page: 1, pageSize: 25 });
         expect(pool.queries[0].sql).not.toContain('WHERE');
         expect(result.total).toBe(0);
+    });
+
+    test('pruneViewLog deletes old entries in batches until a batch comes up short', async () => {
+        const batch = ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE;
+        const removed = [batch, batch, 7];
+        const pool = createScriptedPool(() => [{ affectedRows: removed.shift() }]);
+        expect(await new LogRepository(dbWith(pool)).pruneViewLog(90)).toBe(batch * 2 + 7);
+        expect(pool.queries).toHaveLength(3);
+        for (const { sql, params } of pool.queries) {
+            expect(sql.startsWith(`DELETE FROM \`${VIEW_LOG_TABLE}\` WHERE created_at < DATE_SUB(NOW(3), INTERVAL ? DAY)`)).toBe(true);
+            expect(sql).toContain('ORDER BY created_at LIMIT ?');
+            expect(params).toEqual([90, batch]);
+        }
+    });
+
+    test('pruneViewLog never touches the admin log', async () => {
+        const pool = createScriptedPool(() => [{ affectedRows: 0 }]);
+        await new LogRepository(dbWith(pool)).pruneViewLog(1);
+        expect(pool.queries.map((q) => q.sql).join('\n')).not.toContain(ADMIN_LOG_TABLE);
     });
 
     test('listViewLog filters, pages, and maps rows', async () => {

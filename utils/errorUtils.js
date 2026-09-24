@@ -42,6 +42,7 @@ const WarningType = {
     ADMIN_PASSWORD_REUSED: 'ADMIN_PASSWORD_REUSED',
     ADMIN_INSECURE_TRANSPORT: 'ADMIN_INSECURE_TRANSPORT',
     ADMIN_ORIGIN_REJECTED: 'ADMIN_ORIGIN_REJECTED',
+    VIEW_LOG_PRUNE_FAILED: 'VIEW_LOG_PRUNE_FAILED',
     MIGRATION_TABLE_MISSING: 'MIGRATION_TABLE_MISSING',
     VIEW_LOG_WRITE_FAILED: 'VIEW_LOG_WRITE_FAILED',
     ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
@@ -116,6 +117,8 @@ const WARNING_MESSAGES = {
         `Could not write the view register log entry for '${info?.appId}': ${info?.cause}`,
     [WarningType.ADMIN_LOG_WRITE_FAILED]: (info) =>
         `Could not write the admin operation log entry '${info?.action}': ${info?.cause}`,
+    [WarningType.VIEW_LOG_PRUNE_FAILED]: (info) =>
+        `Automatic view log pruning failed: ${info?.cause}`,
     [WarningType.TRASH_PURGE_FAILED]: (info) =>
         `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
 };

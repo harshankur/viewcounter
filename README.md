@@ -150,7 +150,7 @@ than running on a guessable default:
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
 `RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
-`TRASH_RETENTION_DAYS`.
+`TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`.
 
 ## Admin UI
 
@@ -161,7 +161,8 @@ there, with no separate deployment and no build step.
 ```bash
 # .env (or the environment of your container)
 ADMIN_PASSWORD=<at least 16 characters, e.g. from: openssl rand -base64 24>
-TRASH_RETENTION_DAYS=30   # optional; 0 keeps trash until emptied by hand
+TRASH_RETENTION_DAYS=30      # optional; 0 keeps trash until emptied by hand
+VIEW_LOG_RETENTION_DAYS=90   # optional; 0 keeps the view log forever
 ```
 
 Then open `https://<your-server>/admin/` and sign in.
@@ -214,9 +215,12 @@ resume where the last stopped, so a large table is read once. The database user
 therefore needs `CREATE`, `ALTER`, and `INDEX` as well as the usual privileges
 (see [Database Modes](#database-modes)).
 
-The view log gains one row per accepted view and is not pruned automatically.
-It holds no personal data, so this is a matter of disk space: trim it with
-`DELETE FROM _view_log WHERE created_at < ...` whenever it suits you.
+The view log gains one row per accepted view, so entries older than
+`VIEW_LOG_RETENTION_DAYS` (default 90) are removed hourly, in batches, and each
+run that removes anything is recorded in the admin log. It holds no personal
+data, so this only bounds its size; the views themselves are untouched. The
+admin log is never pruned: it is the record of who changed or erased what, and
+it grows only with admin activity.
 
 ### Deleting, and GDPR
 
@@ -758,7 +762,7 @@ headers your tracked sites need. Its session cookie is scoped to the path you
 choose, and it refuses a password shorter than 16 characters.
 
 ```js
-const { createAdminRouter, startTrashRetention } = require('@harshankur/viewcounter');
+const { createAdminRouter, startRetention } = require('@harshankur/viewcounter');
 
 const allowed = { appId: ['blog'], deviceSize: ['small', 'medium', 'large'], origins: {} };
 
@@ -767,18 +771,20 @@ app.use('/admin', createAdminRouter({
   logRepo: dbManager.logs,
   config: {
     allowed,
-    admin: { password: process.env.ADMIN_PASSWORD, trashRetentionDays: 30 },
+    // The retention periods are shown in the UI; pass the ones you schedule below.
+    admin: { password: process.env.ADMIN_PASSWORD, trashRetentionDays: 30, viewLogRetentionDays: 90 },
     server: { isProduction: process.env.NODE_ENV === 'production' },
   },
 }));
 
-// Erases trashed views once they are older than the retention period, hourly.
-// Returns a function that stops it.
-const stopRetention = startTrashRetention({
+// Hourly: erases trashed views past their retention, and removes view-log
+// entries past theirs (0 for either keeps it). Returns a function that stops it.
+const stopRetention = startRetention({
   adminRepo: dbManager.admin,
   logRepo: dbManager.logs,
   getAppIds: () => allowed.appId,
-  days: 30,
+  trashDays: 30,
+  viewLogDays: 90,
 });
 ```
 

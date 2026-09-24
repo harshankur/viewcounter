@@ -120,7 +120,7 @@ jobs:
           npm install /tmp/pkg/*.tgz express >/dev/null
           NODE_ENV=production node -e "
             const vc = require('@harshankur/viewcounter');
-            const needed = ['createAnalyticsRouter','createAdminRouter','startTrashRetention','createApp','DatabaseManager'];
+            const needed = ['createAnalyticsRouter','createAdminRouter','startRetention','createApp','DatabaseManager'];
             const missing = needed.filter(k => typeof vc[k] !== 'function');
             if (missing.length) { console.error('missing exports: ' + missing); process.exit(1); }
             const fs = require('fs');

@@ -170,8 +170,12 @@ const ADMIN = {
     SEARCH_MAX_LENGTH: 200,
     DEFAULT_TRASH_RETENTION_DAYS: 30,
     MAX_TRASH_RETENTION_DAYS: 3650,
-    /** How often expired trash is checked for. */
-    TRASH_PURGE_INTERVAL_MS: 60 * 60 * 1000,
+    DEFAULT_VIEW_LOG_RETENTION_DAYS: 90,
+    MAX_VIEW_LOG_RETENTION_DAYS: 3650,
+    /** Rows removed per statement when pruning the view log, so no delete holds locks for long. */
+    VIEW_LOG_PRUNE_BATCH_SIZE: 5000,
+    /** How often expired trash and old view-log entries are checked for. */
+    RETENTION_INTERVAL_MS: 60 * 60 * 1000,
 };
 
 /**
@@ -278,6 +282,7 @@ const ADMIN_ACTION = {
     VIEWS_RESTORED: 'views_restored',
     VIEWS_PURGED: 'views_purged',
     TRASH_AUTO_PURGED: 'trash_auto_purged',
+    VIEW_LOG_PRUNED: 'view_log_pruned',
 };
 
 /**

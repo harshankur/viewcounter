@@ -194,6 +194,12 @@ test.describe('delete, restore, erase', () => {
         await signIn(page, 'trash');
         await expect(activePanel(page).locator('.notice')).toContainText('erased permanently 30 days after being deleted');
     });
+
+    test('the view log explains its retention period', async ({ page }) => {
+        await signIn(page, 'viewLog');
+        await expect(activePanel(page).locator('.notice')).toHaveText(
+            'Entries are removed automatically 90 days after they are recorded. The views themselves are not affected.');
+    });
 });
 
 test.describe('selection and batch operations', () => {

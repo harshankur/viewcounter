@@ -302,7 +302,12 @@
         "allSources": "All sources",
         "system": "system",
         "emptyAdmin": "No admin operations recorded yet.",
-        "emptyViews": "No views recorded yet."
+        "emptyViews": "No views recorded yet.",
+        "viewLogRetention": {
+            "one": "Entries are removed automatically {count} day after they are recorded. The views themselves are not affected.",
+            "other": "Entries are removed automatically {count} days after they are recorded. The views themselves are not affected."
+        },
+        "viewLogRetentionOff": "Entries are kept until removed by hand (VIEW_LOG_RETENTION_DAYS=0)."
     },
     "logColumns": {
         "time": "Time",
@@ -327,7 +332,8 @@
         "views_deleted": "Moved to trash",
         "views_restored": "Restored",
         "views_purged": "Erased",
-        "trash_auto_purged": "Trash auto-erased"
+        "trash_auto_purged": "Trash auto-erased",
+        "view_log_pruned": "View log pruned"
     },
     "logSources": {
         "registerView": "Page view",

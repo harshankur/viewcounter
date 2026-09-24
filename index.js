@@ -10,14 +10,14 @@ const logger = require('./utils/logger');
 const { buildCorsOptions } = require('./middleware/security');
 const { createAnalyticsRouter } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
-const { startTrashRetention } = require('./db/trashRetention');
+const { startRetention } = require('./db/retention');
 
 logger.configure({ level: config.server.logLevel });
 
 const dbManager = new DatabaseManager(config.dbInfo);
 let isServerReady = false;
 let httpServer = null;
-let stopTrashRetention = () => {};
+let stopRetention = () => {};
 
 /**
  * Build the Express application.
@@ -130,11 +130,12 @@ const initializeServer = async () => {
         // rather than serving over a half-migrated table.
         await dbManager.migrate(config.allowed.appId);
 
-        stopTrashRetention = startTrashRetention({
+        stopRetention = startRetention({
             adminRepo: dbManager.admin,
             logRepo: dbManager.logs,
             getAppIds: () => config.allowed.appId,
-            days: config.admin.trashRetentionDays,
+            trashDays: config.admin.trashRetentionDays,
+            viewLogDays: config.admin.viewLogRetentionDays,
         });
 
         isServerReady = true;
@@ -176,7 +177,7 @@ const shutdown = async (signal, exitCode = 0) => {
     forceExit.unref();
 
     try {
-        stopTrashRetention();
+        stopRetention();
         if (httpServer) {
             await new Promise((resolve) => httpServer.close(resolve));
         }
@@ -210,7 +211,7 @@ module.exports = app;
 module.exports.createApp = createApp;
 module.exports.createAnalyticsRouter = createAnalyticsRouter;
 module.exports.createAdminRouter = createAdminRouter;
-module.exports.startTrashRetention = startTrashRetention;
+module.exports.startRetention = startRetention;
 module.exports.DatabaseManager = DatabaseManager;
 module.exports.dbManager = dbManager;
 module.exports.initializeServer = initializeServer;

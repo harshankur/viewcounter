@@ -272,6 +272,7 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             pageSizeDefault: ADMIN.PAGE_SIZE_DEFAULT,
             searchMaxLength: ADMIN.SEARCH_MAX_LENGTH,
             trashRetentionDays: config.admin.trashRetentionDays,
+            viewLogRetentionDays: config.admin.viewLogRetentionDays,
             maxLength: {
                 note: FIELD_MAX_LENGTH.NOTE,
                 pagePath: FIELD_MAX_LENGTH.PAGE_PATH,

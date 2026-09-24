@@ -12,7 +12,7 @@ const {
     migrateAppTable,
 } = require('../db/adminSchema');
 const DatabaseManager = require('../db/DatabaseManager');
-const { purgeExpiredTrash, startTrashRetention } = require('../db/trashRetention');
+const { purgeExpiredTrash, pruneViewLog, startRetention } = require('../db/retention');
 const { ADMIN_ACTION, DATABASE, VIEW_LOG_SOURCE } = require('../constants');
 const logger = require('../utils/logger');
 const { createScriptedPool } = require('./support/scriptedPool');
@@ -329,8 +329,8 @@ describe('trash retention', () => {
             const calls = [];
             const adminRepo = { purgeExpired: async (appId) => { calls.push(appId); return 0; } };
             let apps = ['a'];
-            const stop = startTrashRetention({
-                adminRepo, logRepo: { writeAdminLog: async () => true }, getAppIds: () => apps, days: 30, intervalMs: 1000,
+            const stop = startRetention({
+                adminRepo, logRepo: { writeAdminLog: async () => true }, getAppIds: () => apps, trashDays: 30, viewLogDays: 0, intervalMs: 1000,
             });
             await Promise.resolve();
             expect(calls).toEqual(['a']);
@@ -347,10 +347,65 @@ describe('trash retention', () => {
         }
     });
 
-    test('a zero retention schedules nothing', () => {
+    test('zero retention for both schedules nothing', () => {
         const adminRepo = { purgeExpired: jest.fn() };
-        const stop = startTrashRetention({ adminRepo, logRepo: {}, getAppIds: () => ['a'], days: 0 });
+        const logRepo = { pruneViewLog: jest.fn() };
+        const stop = startRetention({ adminRepo, logRepo, getAppIds: () => ['a'], trashDays: 0, viewLogDays: 0 });
         expect(adminRepo.purgeExpired).not.toHaveBeenCalled();
+        expect(logRepo.pruneViewLog).not.toHaveBeenCalled();
         expect(stop()).toBeUndefined();
+    });
+
+    test('each job runs on its own retention: view log only, with trash kept forever', async () => {
+        jest.useFakeTimers();
+        try {
+            const adminRepo = { purgeExpired: jest.fn(async () => 0) };
+            const logRepo = { pruneViewLog: jest.fn(async () => 0), writeAdminLog: async () => true };
+            const stop = startRetention({ adminRepo, logRepo, getAppIds: () => ['a'], trashDays: 0, viewLogDays: 90, intervalMs: 1000 });
+            await jest.advanceTimersByTimeAsync(0);
+            expect(logRepo.pruneViewLog).toHaveBeenCalledWith(90);
+            await jest.advanceTimersByTimeAsync(1000);
+            expect(logRepo.pruneViewLog).toHaveBeenCalledTimes(2);
+            expect(adminRepo.purgeExpired).not.toHaveBeenCalled();
+            stop();
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+});
+
+describe('pruneViewLog', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+
+    test('removes entries older than the retention and records it as the system', async () => {
+        let clock = new Date('2026-09-01T00:00:00Z');
+        const repos = createMemoryRepos({ now: () => clock });
+        await repos.logRepo.writeViewLog({ appId: 'blog', source: VIEW_LOG_SOURCE.REGISTER_VIEW, viewId: 'old', eventType: 'pageview', isUnique: true });
+        clock = new Date(clock.getTime() + 91 * DAY);
+        await repos.logRepo.writeViewLog({ appId: 'blog', source: VIEW_LOG_SOURCE.REGISTER_VIEW, viewId: 'new', eventType: 'pageview', isUnique: true });
+
+        expect(await pruneViewLog({ logRepo: repos.logRepo, days: 90 })).toBe(1);
+        expect(repos.viewLog.map((entry) => entry.viewId)).toEqual(['new']);
+        expect(repos.adminLog).toHaveLength(1);
+        expect(repos.adminLog[0]).toMatchObject({ action: ADMIN_ACTION.VIEW_LOG_PRUNED, targetCount: 1, sessionId: null, appId: null });
+    });
+
+    test('a run that removes nothing leaves no log entry', async () => {
+        const repos = createMemoryRepos();
+        await repos.logRepo.writeViewLog({ appId: 'blog', source: VIEW_LOG_SOURCE.REGISTER_VIEW, viewId: 'x', eventType: 'pageview', isUnique: true });
+        expect(await pruneViewLog({ logRepo: repos.logRepo, days: 90 })).toBe(0);
+        expect(repos.adminLog).toHaveLength(0);
+    });
+
+    test.each([0, -1, undefined])('retention of %s removes nothing', async (days) => {
+        const logRepo = { pruneViewLog: jest.fn() };
+        expect(await pruneViewLog({ logRepo, days })).toBe(0);
+        expect(logRepo.pruneViewLog).not.toHaveBeenCalled();
+    });
+
+    test('a failure is reported, not thrown, so the next run can try again', async () => {
+        const logRepo = { pruneViewLog: async () => { throw new TypeError('locked'); } };
+        expect(await pruneViewLog({ logRepo, days: 90 })).toBe(0);
+        expect(lines.join('\n')).toContain('Automatic view log pruning failed: locked');
     });
 });

@@ -311,20 +311,32 @@ class Config {
      * `TRASH_RETENTION_DAYS` bounds how long a soft-deleted view is kept before
      * it is erased for good (GDPR Art. 5(1)(e), storage limitation). Zero keeps
      * trash until an admin empties it by hand.
+     *
+     * `VIEW_LOG_RETENTION_DAYS` bounds the view register log, which gains a
+     * row for every accepted view. It holds no personal data, so this is about
+     * storage rather than law, but a log nobody bounds grows as large as all
+     * the app tables together. Zero keeps it forever. The admin log is never
+     * pruned: it is the record of who changed or erased what, and it grows only
+     * with admin activity.
+     *
+     * An out-of-range or unparseable value falls back to the default.
      */
     loadAdminConfig() {
         const password = this.env.ADMIN_PASSWORD || '';
         const longEnough = password.length >= ADMIN.MIN_PASSWORD_LENGTH;
 
-        const days = parseIntOr(this.env.TRASH_RETENTION_DAYS, ADMIN.DEFAULT_TRASH_RETENTION_DAYS);
-        const trashRetentionDays = days >= 0 && days <= ADMIN.MAX_TRASH_RETENTION_DAYS
-            ? days
-            : ADMIN.DEFAULT_TRASH_RETENTION_DAYS;
+        const retention = (raw, fallback, max) => {
+            const days = parseIntOr(raw, fallback);
+            return days >= 0 && days <= max ? days : fallback;
+        };
 
         return {
             password,
             enabled: longEnough,
-            trashRetentionDays,
+            trashRetentionDays: retention(
+                this.env.TRASH_RETENTION_DAYS, ADMIN.DEFAULT_TRASH_RETENTION_DAYS, ADMIN.MAX_TRASH_RETENTION_DAYS),
+            viewLogRetentionDays: retention(
+                this.env.VIEW_LOG_RETENTION_DAYS, ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS, ADMIN.MAX_VIEW_LOG_RETENTION_DAYS),
         };
     }
 

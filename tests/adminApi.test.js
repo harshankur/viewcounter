@@ -26,7 +26,7 @@ function buildConfig(overrides = {}) {
     return {
         allowed: { appId: [APP, OTHER_APP], deviceSize: ['small', 'medium', 'large'], origins: {} },
         server: { isProduction: false },
-        admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30 },
+        admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30, viewLogRetentionDays: 90 },
         ...overrides,
     };
 }
@@ -304,6 +304,7 @@ describe('Admin API', () => {
                 maxBatchIds: ADMIN.MAX_BATCH_IDS,
                 pageSizes: ADMIN.PAGE_SIZES,
                 trashRetentionDays: 30,
+                viewLogRetentionDays: 90,
             });
             expect(res.body.editableFields).not.toContain('maskedIp');
             expect(res.body.actions).toContain(ADMIN_ACTION.VIEWS_PURGED);

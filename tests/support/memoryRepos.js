@@ -296,6 +296,14 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             return true;
         },
 
+        async pruneViewLog(days) {
+            const cutoff = now().getTime() - days * 24 * 60 * 60 * 1000;
+            const before = viewLog.length;
+            const kept = viewLog.filter((entry) => entry.createdAt.getTime() >= cutoff);
+            viewLog.splice(0, viewLog.length, ...kept);
+            return before - kept.length;
+        },
+
         async listAdminLog({ page, pageSize, action, appId }) {
             const entries = adminLog.filter((entry) => (!action || entry.action === action) && (!appId || entry.appId === appId));
             const start = (page - 1) * pageSize;

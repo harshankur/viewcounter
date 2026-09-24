@@ -24,12 +24,12 @@ function filterListbox(label, allLabel, values, labelFor, onChange) {
 }
 
 /**
- * A paged, filterable, read-only log table.
+ * A paged, filterable, read-only log table, optionally with a notice above it.
  * @param {{ title: string, columns: string[], filters: object[], fetchPage: (query: object) => Promise<object>,
  *   renderRow: (entry: object) => HTMLElement, meta: object, reportError: (error: unknown) => void,
- *   emptyKey: string }} options
+ *   emptyKey: string, notice?: string }} options
  */
-function createLogPanel({ title, columns, filters, fetchPage, renderRow, meta, reportError, emptyKey }) {
+function createLogPanel({ title, columns, filters, fetchPage, renderRow, meta, reportError, emptyKey, notice }) {
     const state = { page: 1, pageSize: meta.pageSizeDefault, total: 0, entries: [], query: {}, seq: 0 };
 
     const tbody = el('tbody');
@@ -48,6 +48,7 @@ function createLogPanel({ title, columns, filters, fetchPage, renderRow, meta, r
 
     const element = el('section', { className: 'panel', attrs: { 'aria-label': title } }, [
         toolbar,
+        notice ? el('p', { className: 'notice', text: notice }) : null,
         el('div', { className: 'table-wrap' }, [table]),
         pager.element,
     ]);
@@ -123,6 +124,16 @@ export function createAdminLogPanel({ meta, appIds, reportError }) {
 }
 
 /**
+ * Why old entries leave the view log. Empty when the host did not say (an
+ * embedding app that configures no retention), so the UI never guesses.
+ * @param {number|undefined} days
+ */
+function viewLogNotice(days) {
+    if (typeof days !== 'number') return '';
+    return days > 0 ? t('logs.viewLogRetention', { count: days }) : t('logs.viewLogRetentionOff');
+}
+
+/**
  * @param {{ meta: object, appIds: () => string[], reportError: (error: unknown) => void }} deps
  */
 export function createViewLogPanel({ meta, appIds, reportError }) {
@@ -151,5 +162,6 @@ export function createViewLogPanel({ meta, appIds, reportError }) {
         meta,
         reportError,
         emptyKey: 'logs.emptyViews',
+        notice: viewLogNotice(meta.viewLogRetentionDays),
     });
 }

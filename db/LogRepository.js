@@ -7,7 +7,7 @@
 
 const crypto = require('crypto');
 
-const { ADMIN_LOG_TABLE, VIEW_LOG_TABLE } = require('../constants');
+const { ADMIN, ADMIN_LOG_TABLE, VIEW_LOG_TABLE } = require('../constants');
 const { logWarning, WarningType } = require('../utils/errorUtils');
 
 /**
@@ -113,6 +113,28 @@ class LogRepository {
         } catch (cause) {
             logWarning(WarningType.VIEW_LOG_WRITE_FAILED, { appId, cause: cause.message });
             return false;
+        }
+    }
+
+    /**
+     * Remove view-log entries older than `days`, a batch at a time so no single
+     * statement holds its locks for long. Ordered by the indexed `created_at`,
+     * so each batch reads only what it deletes.
+     *
+     * @param {number} days
+     * @returns {Promise<number>} entries removed
+     */
+    async pruneViewLog(days) {
+        let total = 0;
+        for (;;) {
+            const [result] = await this.pool.query(
+                `DELETE FROM \`${VIEW_LOG_TABLE}\` WHERE created_at < DATE_SUB(NOW(3), INTERVAL ? DAY)
+                 ORDER BY created_at LIMIT ?`,
+                [days, ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE]
+            );
+            const removed = Number(result?.affectedRows || 0);
+            total += removed;
+            if (removed < ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE) return total;
         }
     }
 
