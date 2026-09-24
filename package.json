@@ -78,13 +78,11 @@
     "express-validator": "^7.3.2",
     "geoip-country": "^5.0.202607180103",
     "helmet": "^8.3.0",
-    "mysql2": "^3.23.0",
+    "mysql2": "^3.24.4",
     "ua-parser-js": "^2.0.10",
     "url-parse": "^1.5.10"
   },
   "overrides": {
-    "geoip-country": {
-      "ip-address": "^10.2.0"
-    }
+    "ip-address": "^10.7.2"
   }
 }

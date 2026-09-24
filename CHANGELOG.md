@@ -46,6 +46,20 @@ All notable changes to this project are documented here. This project follows
 
 ### Fixed
 
+- Runtime dependency advisories reported by `npm audit --omit=dev`:
+  - `ip-address` (high, SSRF and trust-boundary bypass through leading-zero
+    octets, CIDR suffixes, and IPv4-mapped addresses). The override that pinned
+    it for `geoip-country` resolved to a vulnerable 10.2.0, and
+    `express-rate-limit` pulled in the same version. The override now applies to
+    every path and requires `^10.7.2`. npm overrides only affect this
+    repository's own installs, so an application that installs viewcounter as a
+    dependency should add `"overrides": { "ip-address": "^10.7.2" }` to its own
+    `package.json` to get the same pin under `geoip-country`.
+  - `mysql2` (moderate, unbounded zlib inflate in the compressed protocol
+    handler). The minimum is now `^3.24.4`.
+  - `qs` (moderate, `isBuffer` denial of service and an array-limit bypass),
+    used by Express and body-parser. Their existing ranges already accept the
+    patched 6.16.0, so the lockfile was refreshed and no override is needed.
 - `GET /registerView` recorded direct visits as referrals from the tracked
   site's own domain. When the `referrer` query parameter was empty or absent,
   the handler fell back to the request's `Referer` header, but on every browser
