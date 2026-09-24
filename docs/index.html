@@ -541,6 +541,33 @@
             color: var(--primary);
         }
 
+        /* Admin UI screenshots: one per theme, following the switcher. */
+        .shot {
+            margin: 0 0 1.75rem;
+        }
+
+        .shot img {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .shot .for-light,
+        [data-theme="light"] .shot .for-dark {
+            display: none;
+        }
+
+        [data-theme="light"] .shot .for-light {
+            display: block;
+        }
+
+        .shot figcaption {
+            padding: 0.85rem 1.25rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
         /* ---------- Privacy pipeline ---------- */
 
         .pipeline-strip {
@@ -760,6 +787,7 @@
         </a>
         <div class="nav-links">
             <a href="#features"><span class="prompt-char">❯</span>features</a>
+            <a href="#admin"><span class="prompt-char">❯</span>admin</a>
             <a href="#quick-start"><span class="prompt-char">❯</span>quick-start</a>
             <a href="#api-reference"><span class="prompt-char">❯</span>api-reference</a>
             <a href="https://github.com/harshankur/viewcounter"><span class="prompt-char">❯</span>github</a>
@@ -927,8 +955,8 @@
                     </div>
                     <div class="term-body">
                         <h3>🍪 Zero Cookies</h3>
-                        <p>No <code>Set-Cookie</code> headers, no <code>localStorage</code>, and no "Cookie Consent"
-                            banners needed.</p>
+                        <p>No <code>Set-Cookie</code> on any tracking request, no <code>localStorage</code>, and no
+                            "Cookie Consent" banners needed.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -990,6 +1018,150 @@
                         <h3>✅ Automated Guardrails</h3>
                         <p>Our build pipeline includes <b>Fail-Safe Tests</b> that scan database queries to ensure
                             raw IPs never leak into storage.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="admin" style="margin-top: 8rem;">
+            <div class="section-title">
+                <span class="eyebrow"><span class="prompt-char">$</span>open /admin</span>
+                <h2>Admin UI</h2>
+                <p>Browse, correct, and erase what you have recorded, from a browser. Built in, and off until you set a
+                    password.</p>
+            </div>
+            <figure class="shot term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">views.example.com/admin</span>
+                </div>
+                <img class="for-dark" src="admin-dark-top.webp" width="1920" height="1412" loading="lazy"
+                    alt="The admin UI showing every app together: app tabs, date and event filters, totals, views over time, and a world map of where views come from.">
+                <img class="for-light" src="admin-light-top.webp" width="1920" height="1412" loading="lazy"
+                    alt="The admin UI showing every app together: app tabs, date and event filters, totals, views over time, and a world map of where views come from.">
+                <figcaption>Insights for exactly the rows the filters select, here every app at once. Sample data.</figcaption>
+            </figure>
+            <figure class="shot term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">views.example.com/admin</span>
+                </div>
+                <img class="for-dark" src="admin-dark-table.webp" width="1920" height="840" loading="lazy"
+                    alt="Three views from different apps selected, with a bar offering to edit fields, set a note, move to trash, or restore them.">
+                <img class="for-light" src="admin-light-table.webp" width="1920" height="840" loading="lazy"
+                    alt="Three views from different apps selected, with a bar offering to edit fields, set a note, move to trash, or restore them.">
+                <figcaption>Select across pages and apps, then act on all of them at once. Sample data.</figcaption>
+            </figure>
+            <div class="feature-grid">
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">browse.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🗂️ Browse &amp; Filter</h3>
+                        <p>One app, or every app together. Filter by date range, event type, and admin changes; search by page, title, source, or note; sort any column.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">insights.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🌍 Insights</h3>
+                        <p>Totals, views over time, a world map of where views come from, and breakdowns by source, device, browser, OS, and event type.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">edits.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>✏️ Honest Edits</h3>
+                        <p>Correct what was viewed (path, title, referrer, event), never who viewed it or when. Every edited row is marked <b>modified by admin</b>.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">trash.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🗑️ Trash &amp; Erasure</h3>
+                        <p>Deleting is always soft first, and restorable. Trashed views are erased after 30 days, or at once for a GDPR Art. 17 request.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">audit.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>📜 Audit Logs</h3>
+                        <p>Every sign-in and change is logged with <em>which</em> fields changed, never their values, so erasing a row really erases it.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">auth.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🔐 Its Own Key</h3>
+                        <p>A separate <code>ADMIN_PASSWORD</code>, never an API key. <code>HttpOnly</code> session, CSRF tokens, a login rate limit, and a strict CSP.</p>
+                    </div>
+                </div>
+            </div>
+            <div style="max-width: 700px; margin: 3rem auto 0;">
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">enable-admin.sh</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="prompt-char">❯</span><span>echo "ADMIN_PASSWORD=$(openssl rand
+                                -base64 24)" &gt;&gt; .env</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>npm start</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>open
+                                https://your-server/admin/</span></div>
                     </div>
                 </div>
             </div>
@@ -1086,8 +1258,8 @@
                         503, check your database credentials in <code>dbInfo.json</code>.</p>
                     <br>
                     <h3>Testing with Mocks</h3>
-                    <p>Run <code>npm test</code> to execute 60+ tests using our custom mocking system. No real
-                        database required!</p>
+                    <p>Run <code>npm test</code> for lint, 700+ unit and integration tests on our custom database
+                        mocks, and the admin UI's browser tests. No real database required!</p>
                     <br>
                     <h3>View Persistent Data</h3>
                     <p>Run <code>PERSIST_TEST_DB=true npm test</code> to keep the test database for inspection.</p>
