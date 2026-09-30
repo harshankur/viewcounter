@@ -1,4 +1,16 @@
 const UAParser = require('ua-parser-js');
+const { isbot } = require('isbot');
+
+/**
+ * ua-parser-js 1.x is used because 2.x is licensed AGPL-3.0, which an MIT
+ * package cannot pass on to the people who install it. 1.x names a few things
+ * differently from the 2.x that recorded the data before 3.2, so its output is
+ * mapped to the 2.x names: otherwise one browser would split into two rows of
+ * every breakdown, depending on when a view was recorded.
+ */
+const OS_NAMES = { 'Mac OS': 'macOS', 'Chromium OS': 'Chrome OS' };
+/** 2.x prefixes these with "Mobile " on phones (not on tablets). */
+const MOBILE_PREFIXED_BROWSERS = new Set(['Chrome', 'Firefox']);
 
 /**
  * Parse user agent string to extract browser, OS, and device information
@@ -23,13 +35,31 @@ class UserAgentParser {
         const parser = new UAParser(userAgent);
         const result = parser.getResult();
 
+        // 2.x also recognises a bare "iPad" token that 1.x needs more of the string for.
+        const deviceType = result.device.type || (/\biPad\b/.test(userAgent) ? 'tablet' : undefined);
+        const onPhone = deviceType === 'mobile';
+        const browser = result.browser.name && onPhone && MOBILE_PREFIXED_BROWSERS.has(result.browser.name)
+            ? `Mobile ${result.browser.name}`
+            : result.browser.name;
+
         return {
-            browser: result.browser.name || null,
+            browser: browser || null,
             browserVersion: result.browser.version || null,
-            os: result.os.name || null,
+            os: OS_NAMES[result.os.name] || result.os.name || null,
             osVersion: result.os.version || null,
-            deviceType: this.getDeviceType(result.device.type)
+            deviceType: this.getDeviceType(deviceType)
         };
+    }
+
+    /**
+     * Whether the user agent is a crawler, link previewer, headless browser, or
+     * command-line client rather than a person. Such requests are counted in
+     * the tracking log but never stored as views.
+     * @param {string} userAgent
+     * @returns {boolean}
+     */
+    static isBot(userAgent) {
+        return Boolean(userAgent) && isbot(userAgent);
     }
 
     /**

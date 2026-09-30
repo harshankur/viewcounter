@@ -78,8 +78,9 @@
     "express-validator": "^7.3.2",
     "geoip-country": "^5.0.202609230144",
     "helmet": "^8.3.0",
+    "isbot": "^5.2.2",
     "mysql2": "^3.24.4",
-    "ua-parser-js": "^2.0.10",
+    "ua-parser-js": "^1.0.41",
     "url-parse": "^1.5.10"
   },
   "overrides": {
