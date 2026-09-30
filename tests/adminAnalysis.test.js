@@ -633,4 +633,23 @@ describe('the worked scenario, through the in-memory analysis', () => {
     test('custom event properties', () => {
         expect(result.eventProperties).toEqual(EXPECTED.eventProperties);
     });
+
+    test('every number per hour, with visits in the hour they began', () => {
+        expect(result.bucket).toBe('hour');
+        expect(result.trend).toHaveLength(EXPECTED.trend.length);
+        result.trend.forEach((point, index) => {
+            for (const [key, expected] of Object.entries(EXPECTED.trend[index])) {
+                if (typeof expected === 'number') expect([key, point[key]]).toEqual([key, expect.closeTo(expected, 6)]);
+                else expect([key, point[key]]).toEqual([key, expected]);
+            }
+        });
+    });
+
+    test('how visits arrived counts page views only', () => {
+        const sourceRows = rows.map((row) => ({ ...row, sourceType: null }));
+        const sources = memoryAnalysis(sourceRows, null);
+        expect(sources.breakdowns.source).toEqual(EXPECTED.sources);
+        expect(sources.breakdownTotals.source).toBe(EXPECTED.totals.pageviews);
+        expect(sources.breakdownTotals.page).toBe(EXPECTED.totals.views);
+    });
 });

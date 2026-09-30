@@ -11,6 +11,9 @@
  *   C  10:20 /b, a "buy" click at 10:25, 10:40 /a: 20 minutes apart, one visit
  *
  * Visits: A1 /a /b /b (7 min), A2 /c (5 s), B1 /a (3 s), C1 /b /a (20 min).
+ *
+ * Charted per hour (the data spans two): the 10:00 hour holds seven views and
+ * the three visits that began in it, the 12:00 hour A's second visit.
  */
 
 const at = (time) => `2026-09-10T${time}Z`;
@@ -62,6 +65,25 @@ const EXPECTED = {
         { page: '/c', views: 1, visitors: 1 },
     ],
     eventProperties: [{ eventType: 'click', key: 'button', value: 'buy', count: 1 }],
+    // Visits count in the hour they began; averages cover what was measured.
+    trend: [
+        {
+            period: '2026-09-10 10:00', views: 7, pageviews: 6, uniqueViews: 7, visitors: 3,
+            visits: 3, bounceRate: 1 / 3,
+            // (420 000 + 3 000 + 1 200 000) / 3
+            avgVisitMs: 541000,
+            pagesPerVisit: 2,
+            // (20 000 + 60 000 + 3 000) / 3
+            avgEngagedMs: 83000 / 3,
+            avgScroll: (40 + 80 + 10) / 3,
+        },
+        {
+            period: '2026-09-10 12:00', views: 1, pageviews: 1, uniqueViews: 1, visitors: 1,
+            visits: 1, bounceRate: 1, avgVisitMs: 5000, pagesPerVisit: 1, avgEngagedMs: 5000, avgScroll: null,
+        },
+    ],
+    // How visits arrived counts page views only: no source for the click.
+    sources: [{ value: null, views: 7, visitors: 3 }],
 };
 
 module.exports = { ROWS, EXPECTED };

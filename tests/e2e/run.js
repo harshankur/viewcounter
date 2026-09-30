@@ -957,6 +957,41 @@ async function verifyAnalysisScenario(db, admin) {
     check('scenario event properties', JSON.stringify(body.eventProperties) === JSON.stringify(EXPECTED.eventProperties),
         JSON.stringify(body.eventProperties));
     check('the scenario is charted per hour', body.bucket === 'hour', body.bucket);
+    const near = (actual, expected) => (expected === null ? actual === null : Math.abs(Number(actual) - expected) < 0.01);
+    const trend = body.trend || [];
+    check('the scenario has one trend point per hour with views', trend.length === EXPECTED.trend.length, JSON.stringify(trend));
+    EXPECTED.trend.forEach((expected, index) => {
+        const point = trend[index] || {};
+        const wrong = Object.entries(expected).filter(([key, value]) => (typeof value === 'string' ? point[key] !== value : !near(point[key], value)));
+        check(`scenario trend ${expected.period} carries every number, visits in the hour they began`, wrong.length === 0,
+            JSON.stringify(wrong.map(([key]) => [key, point[key]])));
+    });
+    check('how visits arrived counts page views only', JSON.stringify(body.breakdowns?.source) === JSON.stringify(EXPECTED.sources)
+        && body.breakdownTotals?.source === EXPECTED.totals.pageviews, JSON.stringify([body.breakdowns?.source, body.breakdownTotals]));
+
+    // Breakdown filters, each through its own SQL expression on the real engine.
+    const narrowed = async (where) => {
+        const result = await admin.call('GET', `/apps/scenario_app/analytics?range=all&where=${encodeURIComponent(JSON.stringify(where))}`);
+        return result.status === 200 ? result.body.totals.views : `status ${result.status}`;
+    };
+    check('a page filter narrows the analysis', await narrowed({ page: '/a' }) === 3);
+    check('an "unknown" filter matches rows with no value', await narrowed({ referrer: null }) === 8);
+    for (const dim of ['region', 'city', 'browserVersion', 'osVersion', 'source', 'utmCampaign', 'language', 'hostname']) {
+        check(`the ${dim} filter runs on the real engine`, await narrowed({ [dim]: null }) === 8);
+    }
+    check('filters combine', await narrowed({ page: '/b', eventType: 'click' }) === 1);
+    const listed = await admin.call('GET', `/apps/scenario_app/views?pageSize=10&where=${encodeURIComponent(JSON.stringify({ page: '/c' }))}`);
+    const view = listed.body?.views?.[0] || {};
+    check('a filtered listing returns the same rows', listed.status === 200 && listed.body.total === 1, `got ${listed.status}`);
+    check('a listing returns every stored field but the visitor hash',
+        ['hostname', 'language', 'utmSource', 'utmCampaign', 'region', 'city', 'engagedMs', 'scrollDepth'].every((key) => key in view)
+        && view.engagedMs === 5000 && !('visitorHash' in view), JSON.stringify(view));
+    const types = await admin.call('GET', '/apps/scenario_app/event-types');
+    check('the event types of an app are listed', JSON.stringify(types.body?.eventTypes) === JSON.stringify(['click', 'pageview']),
+        JSON.stringify(types.body));
+    const weekTrend = await admin.call('GET', '/apps/scenario_app/analytics?range=7d');
+    check('a bounded range reports its window and is charted by it', weekTrend.status === 200
+        && weekTrend.body.window && weekTrend.body.bucket === 'day', JSON.stringify([weekTrend.body?.window, weekTrend.body?.bucket]));
     check('the heatmap has hourly counts', Array.isArray(body.hours) && body.hours.reduce((sum, h) => sum + h.views, 0) === 8);
     check('the analysis never returns a visitor hash', !/(a{64}|b{64}|c{64})/.test(JSON.stringify(body)));
 
