@@ -51,6 +51,7 @@ jest.mock('../config', () => {
 
 // Import after mocking config and mysql2
 const app = require('../index');
+const { listenOnLoopback } = require('./support/loopback');
 const { initializeServer } = app;
 
 /** Read endpoints require a key; this is the authenticated request helper. */
@@ -64,9 +65,8 @@ describe('API Endpoints - Integration Tests', () => {
         testDb = new TestDatabase();
         await testDb.setup();
         await initializeServer();
-        // See the note in security.test.js: one listener per suite, not one per
-        // request, so ephemeral port reuse cannot misroute an assertion.
-        server = app.listen(0);
+        // One listener for the whole suite, on loopback (support/loopback.js).
+        server = await listenOnLoopback(app);
     });
 
     afterAll(async () => {

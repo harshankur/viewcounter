@@ -64,6 +64,7 @@ jest.mock('../config', () => {
 
 const app = require('../index');
 const config = require('../config');
+const { listenOnLoopback } = require('./support/loopback');
 const { initializeServer } = app;
 
 const get = (path, key) => request(server).get(path).set(API_KEY_HEADER, key);
@@ -72,9 +73,8 @@ let server;
 
 beforeAll(async () => {
     await initializeServer();
-    // See the note in security.test.js: one listener per suite, not one per
-    // request, so ephemeral port reuse cannot misroute an assertion.
-    server = app.listen(0);
+    // One listener for the whole suite, on loopback (support/loopback.js).
+    server = await listenOnLoopback(app);
 });
 
 afterAll(async () => {

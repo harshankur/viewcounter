@@ -32,6 +32,7 @@ jest.mock('../config', () => {
 
 const app = require('../index');
 const { ADMIN } = require('../constants');
+const { listenOnLoopback } = require('./support/loopback');
 
 const API = `${ADMIN.PATH_PREFIX}${ADMIN.API_PATH}`;
 
@@ -40,7 +41,7 @@ describe('admin surface mounted by index.js', () => {
 
     beforeAll(async () => {
         await app.initializeServer();
-        server = app.listen(0);
+        server = await listenOnLoopback(app);
     });
 
     afterAll(async () => {

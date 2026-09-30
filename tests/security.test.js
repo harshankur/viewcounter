@@ -48,6 +48,7 @@ jest.mock('../config', () => {
 });
 
 const app = require('../index');
+const { listenOnLoopback } = require('./support/loopback');
 const { initializeServer, dbManager } = app;
 
 const authed = (path) => request(server).get(path).set(API_KEY_HEADER, TEST_API_KEY);
@@ -63,11 +64,8 @@ let server;
 
 beforeAll(async () => {
     await initializeServer();
-    // One listener for the whole suite. supertest otherwise opens and closes a
-    // fresh ephemeral port per request; a reused port can deliver a request to
-    // a socket that is no longer the server it was aimed at, which surfaces as
-    // a 404 for a route that demonstrably exists.
-    server = app.listen(0);
+    // One listener for the whole suite, on loopback (support/loopback.js).
+    server = await listenOnLoopback(app);
 });
 
 afterAll(async () => {
