@@ -339,18 +339,21 @@ async function verifyTracking(db) {
     await engage({ appId: 'tenant_a', id: crypto.randomUUID(), ms: 5, scroll: 5 });
 
     // Counted in memory and written in batches; give the batch time to land.
+    // Other sections count refusals too, so each check looks for its own row.
     let reasons = [];
-    for (let i = 0; i < 40 && reasons.length < 4; i++) {
+    const counted = (reason, match) => reasons.some((r) => r.reason === reason && Object.entries(match).every(([key, value]) => r[key] === value));
+    const landed = () => counted('bot', { detail: 'Googlebot' }) && counted('unknown_app', { app_id: 'nosuchapp' })
+        && counted('origin_not_allowed', { hostname: 'evil.example' }) && counted('unknown_view', { source: 'engage' });
+    for (let i = 0; i < 40 && !landed(); i++) {
         await new Promise((r) => setTimeout(r, 500));
         [reasons] = await db.query('SELECT source, reason, app_id, detail, hostname, requests FROM `_tracking_rejections` ORDER BY reason');
     }
-    const byReason = Object.fromEntries(reasons.map((r) => [r.reason, r]));
-    check('the bot is counted by name', byReason.bot?.detail === 'Googlebot' && byReason.bot?.app_id === 'tenant_a', JSON.stringify(byReason.bot));
-    check('the unknown app is counted with the ID sent', byReason.unknown_app?.app_id === 'nosuchapp', JSON.stringify(byReason.unknown_app));
+    const shown = (reason) => JSON.stringify(reasons.filter((r) => r.reason === reason));
+    check('the bot is counted by name', counted('bot', { detail: 'Googlebot', app_id: 'tenant_a' }), shown('bot'));
+    check('the unknown app is counted with the ID sent', counted('unknown_app', { app_id: 'nosuchapp' }), shown('unknown_app'));
     check('the unregistered site is counted with its hostname',
-        byReason.origin_not_allowed?.hostname === 'evil.example' && byReason.origin_not_allowed?.app_id === 'runtime_tenant',
-        JSON.stringify(byReason.origin_not_allowed));
-    check('engagement for a view that does not exist is counted', byReason.unknown_view?.source === 'engage', JSON.stringify(byReason.unknown_view));
+        counted('origin_not_allowed', { hostname: 'evil.example', app_id: 'runtime_tenant' }), shown('origin_not_allowed'));
+    check('engagement for a view that does not exist is counted', counted('unknown_view', { source: 'engage' }), shown('unknown_view'));
     const dump = JSON.stringify(reasons);
     check('counted rejections hold no IP or user agent', !dump.includes('198.51.100') && !dump.includes('DistinctiveFingerprint'));
 }
@@ -947,7 +950,8 @@ async function verifyAnalysisScenario(db, admin) {
     for (const [key, expected] of Object.entries(EXPECTED.totals)) {
         check(`scenario ${key} is ${expected}`, Math.abs(Number(totals[key]) - expected) < 1e-9, `got ${totals[key]}`);
     }
-    check('scenario average scroll', Math.abs(Number(totals.avgScroll) - EXPECTED.avgScroll) < 1e-6, `got ${totals.avgScroll}`);
+    // AVG() carries four decimals on both engines.
+    check('scenario average scroll', Math.abs(Number(totals.avgScroll) - EXPECTED.avgScroll) < 1e-3, `got ${totals.avgScroll}`);
     const strip = (entries) => JSON.stringify((entries || []).map(({ appId, ...rest }) => rest)); // eslint-disable-line no-unused-vars
     check('scenario entry pages', strip(body.entryPages) === JSON.stringify(EXPECTED.entryPages), strip(body.entryPages));
     check('scenario exit pages', strip(body.exitPages) === JSON.stringify(EXPECTED.exitPages), strip(body.exitPages));
@@ -980,7 +984,7 @@ async function verifyAnalysisScenario(db, admin) {
         check(`the ${dim} filter runs on the real engine`, await narrowed({ [dim]: null }) === 8);
     }
     check('filters combine', await narrowed({ page: '/b', eventType: 'click' }) === 1);
-    const listed = await admin.call('GET', `/apps/scenario_app/views?pageSize=10&where=${encodeURIComponent(JSON.stringify({ page: '/c' }))}`);
+    const listed = await admin.call('GET', `/apps/scenario_app/views?pageSize=25&where=${encodeURIComponent(JSON.stringify({ page: '/c' }))}`);
     const view = listed.body?.views?.[0] || {};
     check('a filtered listing returns the same rows', listed.status === 200 && listed.body.total === 1, `got ${listed.status}`);
     check('a listing returns every stored field but the visitor hash',
