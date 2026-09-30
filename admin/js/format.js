@@ -47,6 +47,11 @@ export function formatCompact(value) {
     return new Intl.NumberFormat(currentLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(Number(value) || 0);
 }
 
+/** A headline count: exact below ten thousand (1,029), compact above (12.9K). */
+export function formatHeadline(value) {
+    return Math.abs(Number(value) || 0) < 10000 ? formatNumber(value) : formatCompact(value);
+}
+
 /** A ratio (0..1) as a percentage. */
 export function formatPercent(ratio) {
     return new Intl.NumberFormat(currentLocale(), { style: 'percent', maximumFractionDigits: 1 }).format(Number(ratio) || 0);

@@ -14,7 +14,7 @@ import {
 } from './charts.js';
 import { el, replaceChildren, uniqueId } from './dom.js';
 import {
-    formatCompact, formatDateTime, formatDecimal, formatDuration, formatNumber, formatPercent, formatTime, periodStart,
+    formatCompact, formatDateTime, formatDecimal, formatDuration, formatHeadline, formatNumber, formatPercent, formatTime, periodStart,
 } from './format.js';
 import { icon } from './icons.js';
 import { currentLocale, t, tOr } from './i18n.js';
@@ -113,7 +113,7 @@ export function fillGaps(trend, bucket, from = null, to = new Date()) {
 // ---- Metrics ------------------------------------------------------------------
 
 const read = (key) => (source) => (source ? source[key] ?? null : null);
-const COUNT = { format: formatNumber, tile: formatCompact, tick: formatCompact, kind: 'count', better: 'up' };
+const COUNT = { format: formatNumber, tile: formatHeadline, tick: formatCompact, kind: 'count', better: 'up' };
 const DURATION = { format: formatDuration, tile: formatDuration, tick: formatDuration, kind: 'duration', better: 'up', area: false };
 
 /** The headline numbers, in tile order. `read` takes totals or a trend point. */

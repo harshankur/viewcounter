@@ -12,7 +12,7 @@ import { api } from './api.js';
 import { statTiles } from './charts.js';
 import { clampText } from './clamp.js';
 import { el, replaceChildren } from './dom.js';
-import { formatCompact, formatNumber, orNone } from './format.js';
+import { formatHeadline, formatNumber, orNone } from './format.js';
 import { icon } from './icons.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
@@ -187,7 +187,7 @@ export function createTrackingLogPanel({ meta, appIds, reportError, openView }) 
                 return {
                     key: outcome,
                     label: tOr(`outcomes.${outcome}`, outcome),
-                    value: formatCompact(count),
+                    value: formatHeadline(count),
                     exact: formatNumber(count),
                     note: t('logs.lastHours', { count: summary.hours }),
                     spark: [],
