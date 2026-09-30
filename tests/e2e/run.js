@@ -911,8 +911,61 @@ async function verifyAdmin(db) {
     check('an 800-day span is charted per month', monthly.body?.bucket === 'month'
         && monthly.body.trend.every((p) => p.period.endsWith('-01')), JSON.stringify(monthly.body?.trend?.slice(0, 3)));
 
+    await verifyAnalysisScenario(db, admin);
+
     const logout = await admin.call('POST', '/logout');
     check('logout ends the session', logout.status === 204 && (await admin.call('GET', '/apps')).status === 401);
+}
+
+/**
+ * The worked scenario in tests/support/analysisScenario.js, through the real
+ * SQL: visits from LAG/SUM/ROW_NUMBER/LEAD windows, entry and exit pages,
+ * page flow, engagement, and event properties must come out exactly as worked
+ * by hand, the same numbers the in-memory analysis is held to.
+ */
+async function verifyAnalysisScenario(db, admin) {
+    section('The worked analysis scenario on the real engine');
+    const crypto = require('crypto');
+    const { ROWS, EXPECTED } = require('../support/analysisScenario');
+
+    const made = await req('POST', '/apps', { key: ADMIN_KEY, body: { appId: 'scenario_app' } });
+    check('the scenario app is provisioned', made.status === 200, `got ${made.status}`);
+    for (const row of ROWS) {
+        await db.query(
+            `INSERT INTO \`scenario_app\` (public_id, masked_ip, visitor_hash, timestamp, devicesize, page_path,
+                event_type, event_data, is_unique, engaged_ms, scroll_depth)
+             VALUES (?, '198.51.100.0', ?, ?, 'large', ?, ?, ?, 1, ?, ?)`,
+            [crypto.randomUUID(), row.visitor.repeat(64), row.time.replace('T', ' ').replace('Z', ''), row.page,
+                row.eventType || 'pageview', row.eventData ? JSON.stringify(row.eventData) : null,
+                row.engagedMs ?? null, row.scrollDepth ?? null]);
+    }
+
+    const res = await admin.call('GET', '/apps/scenario_app/analytics?range=all');
+    const body = res.body || {};
+    check('the scenario analysis runs', res.status === 200, `got ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+    const totals = body.totals || {};
+    for (const [key, expected] of Object.entries(EXPECTED.totals)) {
+        check(`scenario ${key} is ${expected}`, Math.abs(Number(totals[key]) - expected) < 1e-9, `got ${totals[key]}`);
+    }
+    check('scenario average scroll', Math.abs(Number(totals.avgScroll) - EXPECTED.avgScroll) < 1e-6, `got ${totals.avgScroll}`);
+    const strip = (entries) => JSON.stringify((entries || []).map(({ appId, ...rest }) => rest)); // eslint-disable-line no-unused-vars
+    check('scenario entry pages', strip(body.entryPages) === JSON.stringify(EXPECTED.entryPages), strip(body.entryPages));
+    check('scenario exit pages', strip(body.exitPages) === JSON.stringify(EXPECTED.exitPages), strip(body.exitPages));
+    check('scenario page flow skips reloads', strip(body.transitions) === JSON.stringify(EXPECTED.transitions), strip(body.transitions));
+    const pages = JSON.stringify((body.pages || []).map(({ page, views, visitors }) => ({ page, views, visitors })));
+    check('scenario pages with visitors', pages === JSON.stringify(EXPECTED.pages), pages);
+    check('scenario event properties', JSON.stringify(body.eventProperties) === JSON.stringify(EXPECTED.eventProperties),
+        JSON.stringify(body.eventProperties));
+    check('the scenario is charted per hour', body.bucket === 'hour', body.bucket);
+    check('the heatmap has hourly counts', Array.isArray(body.hours) && body.hours.reduce((sum, h) => sum + h.views, 0) === 8);
+    check('the analysis never returns a visitor hash', !/(a{64}|b{64}|c{64})/.test(JSON.stringify(body)));
+
+    const live = await admin.call('GET', '/realtime');
+    check('the realtime view runs on the real engine', live.status === 200 && typeof live.body?.visitors === 'number'
+        && Array.isArray(live.body?.minutes), `got ${live.status}`);
+    const weekly = await admin.call('GET', '/analytics?range=7d');
+    check('a bounded range carries the previous period', weekly.status === 200 && Boolean(weekly.body?.previous)
+        && typeof weekly.body.previous.views === 'number', JSON.stringify(weekly.body?.previous));
 }
 
 async function verifyStatementTimeout(db) {

@@ -109,6 +109,9 @@ const validateAnalysis = (allowed) => [
     ...filterQueries(),
 ];
 
+/** Right now takes no filters, only the app for the per-app route. */
+const validateRealtime = (allowed) => (allowed ? [adminAppIdParam(allowed)] : []);
+
 
 /**
  * Validate one field of an edit and return the column value to store.
@@ -246,6 +249,7 @@ module.exports = {
     validateLogin,
     validateViewListing,
     validateAnalysis,
+    validateRealtime,
     validateEdit,
     validateNote,
     validateBatch,

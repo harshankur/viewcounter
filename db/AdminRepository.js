@@ -10,14 +10,12 @@
 const {
     ADMIN_RANGE_DAYS,
     ADMIN_SORT_COLUMNS,
-    ANALYSIS_TOP_N,
     EDITABLE_FIELDS,
     MODIFIED_FILTER,
     SORT_ORDER,
-    TREND_BUCKET,
-    TREND_BUCKET_MAX_DAYS,
     VIEW_STATUS,
 } = require('../constants');
+const analysis = require('./analysis');
 const { getError, ErrorType } = require('../utils/errorUtils');
 const { isValidAppId } = require('../utils/appIdUtils');
 const { parseJson } = require('./LogRepository');
@@ -76,55 +74,18 @@ function escapeLike(text) {
 }
 
 /**
- * Columns the analysis reads. `visitor_hash` is here only so the database can
- * count distinct visitors; it is never selected into a result set.
- */
-const ANALYSIS_COLUMNS = [
-    'country', 'event_type', 'source_type', 'devicesize', 'browser', 'os',
-    'visitor_hash', 'is_unique', 'timestamp', 'admin_modified_at',
-].join(', ');
-
-/**
- * Time-series bucket expressions, keyed by TREND_BUCKET. Fixed literals: the
- * bucket is chosen in code from the data's span, never from caller input.
- * Every bucket is labelled by the date it starts on (YYYY-MM-DD).
- */
-const BUCKET_EXPRESSION = {
-    [TREND_BUCKET.DAY]: "DATE_FORMAT(timestamp, '%Y-%m-%d')",
-    [TREND_BUCKET.WEEK]: "DATE_FORMAT(DATE_SUB(DATE(timestamp), INTERVAL WEEKDAY(timestamp) DAY), '%Y-%m-%d')",
-    [TREND_BUCKET.MONTH]: "DATE_FORMAT(timestamp, '%Y-%m-01')",
-};
-
-/** Breakdown dimensions of the analysis: API name -> column. Fixed literals. */
-const BREAKDOWN_COLUMNS = {
-    source: 'source_type',
-    deviceSize: 'devicesize',
-    browser: 'browser',
-    os: 'os',
-    eventType: 'event_type',
-    app: 'app_id',
-};
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** The coarsest bucket that keeps a chart of this span readable. */
-function chooseBucket(firstAt, lastAt) {
-    if (!firstAt || !lastAt) return TREND_BUCKET.DAY;
-    const days = (new Date(lastAt).getTime() - new Date(firstAt).getTime()) / DAY_MS;
-    if (days <= TREND_BUCKET_MAX_DAYS[TREND_BUCKET.DAY]) return TREND_BUCKET.DAY;
-    if (days <= TREND_BUCKET_MAX_DAYS[TREND_BUCKET.WEEK]) return TREND_BUCKET.WEEK;
-    return TREND_BUCKET.MONTH;
-}
-
-/**
  * The WHERE clause shared by the listing and the analysis, so the table and
  * the charts above it always describe the same rows.
  *
+ * With `window` 'previous', the range moves back by its own length, for
+ * comparing with the period before: last 7 days against the 7 days before.
+ *
  * @param {{ status?: string, modified?: string, search?: string, range?: string,
  *   eventType?: string }} query
+ * @param {'previous'} [window]
  * @returns {{ clause: string, params: unknown[] }}
  */
-function buildFilter({ status, modified, search, range, eventType } = {}) {
+function buildFilter({ status, modified, search, range, eventType } = {}, window) {
     const where = [STATUS_CONDITION[status] || STATE.ACTIVE];
     const params = [];
 
@@ -137,7 +98,10 @@ function buildFilter({ status, modified, search, range, eventType } = {}) {
     }
 
     const days = ADMIN_RANGE_DAYS[range];
-    if (days) {
+    if (days && window === 'previous') {
+        where.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY) AND timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)');
+        params.push(days * 2, days);
+    } else if (days) {
         where.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)');
         params.push(days);
     }
@@ -306,110 +270,32 @@ class AdminRepository {
     }
 
     /**
-     * Aggregates over the same rows a listing with this query would show.
+     * Aggregates over the same rows a listing with this query would show: see
+     * db/analysis.js. A bounded range is compared with the period before it.
      *
      * @param {string[]} appIds
-     * @param {{ status: string, modified: string, search?: string, range?: string }} query
-     * @returns {Promise<object>} totals, trend, breakdowns, and per-country counts
+     * @param {{ status: string, modified: string, search?: string, range?: string, eventType?: string }} query
+     * @returns {Promise<object>}
      */
     async analyze(appIds, query) {
-        const empty = {
-            totals: { views: 0, uniqueViews: 0, visitors: 0, countries: 0, modified: 0, firstAt: null, lastAt: null },
-            bucket: TREND_BUCKET.DAY,
-            trend: [],
-            breakdowns: Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []])),
-            countries: [],
-            eventTypes: [],
-        };
-        if (appIds.length === 0) return empty;
-
-        const { clause, params } = buildFilter(query);
-        const branches = appIds.map((appId) =>
-            `SELECT ? AS app_id, ${ANALYSIS_COLUMNS} FROM ${this.table(appId)} WHERE ${clause}`);
-        const cte = `WITH v AS (${branches.join(' UNION ALL ')})`;
-        const cteParams = appIds.flatMap((appId) => [appId, ...params]);
-
-        const [totalRows] = await this.pool.query(
-            `${cte} SELECT
-                COUNT(*) AS views,
-                COALESCE(SUM(is_unique), 0) AS unique_views,
-                COUNT(DISTINCT visitor_hash) AS visitors,
-                COUNT(DISTINCT country) AS countries,
-                COALESCE(SUM(admin_modified_at IS NOT NULL), 0) AS modified,
-                MIN(timestamp) AS first_at,
-                MAX(timestamp) AS last_at
-             FROM v`,
-            cteParams
-        );
-        const totalsRow = totalRows[0] || {};
-        const totals = {
-            views: Number(totalsRow.views || 0),
-            uniqueViews: Number(totalsRow.unique_views || 0),
-            visitors: Number(totalsRow.visitors || 0),
-            countries: Number(totalsRow.countries || 0),
-            modified: Number(totalsRow.modified || 0),
-            firstAt: totalsRow.first_at ?? null,
-            lastAt: totalsRow.last_at ?? null,
-        };
-        // Before the early return: when the filters match nothing is exactly
-        // when the admin needs every type on offer to pick another.
-        const eventTypes = await this.eventTypes(appIds, query.status);
-        if (totals.views === 0) return { ...empty, totals, eventTypes };
-
-        const bucket = chooseBucket(totals.firstAt, totals.lastAt);
-        const [trendRows] = await this.pool.query(
-            `${cte} SELECT ${BUCKET_EXPRESSION[bucket]} AS period, COUNT(*) AS views,
-                COALESCE(SUM(is_unique), 0) AS unique_views
-             FROM v GROUP BY period ORDER BY period`,
-            cteParams
-        );
-
-        const groups = Object.entries(BREAKDOWN_COLUMNS).map(([dim, column]) =>
-            `SELECT '${dim}' AS dim, ${column} AS value, COUNT(*) AS views FROM v GROUP BY ${column}`);
-        const [breakdownRows] = await this.pool.query(
-            `${cte} SELECT dim, value, views FROM (
-                SELECT dim, value, views,
-                    ROW_NUMBER() OVER (PARTITION BY dim ORDER BY views DESC, value) AS rank_in_dim
-                FROM (${groups.join(' UNION ALL ')}) AS g
-             ) AS ranked
-             WHERE rank_in_dim <= ?
-             ORDER BY dim, views DESC, value`,
-            [...cteParams, ANALYSIS_TOP_N]
-        );
-        const breakdowns = Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []]));
-        for (const row of breakdownRows) {
-            breakdowns[row.dim]?.push({ value: row.value ?? null, views: Number(row.views) });
+        if (appIds.length === 0) {
+            return { totals: null, previous: null, ...analysis.emptySections(), eventTypes: [] };
         }
+        const result = await analysis.runAnalysis(this.pool, (appId) => this.table(appId), appIds,
+            (window) => buildFilter(query, window), { hasPrevious: Boolean(ADMIN_RANGE_DAYS[query.range]) });
+        // After the analysis: when the filters match nothing is exactly when
+        // the admin needs every type on offer to pick another.
+        return { ...result, eventTypes: await this.eventTypes(appIds, query.status) };
+    }
 
-        // Per-country counts, split by the leading event types so the map can
-        // show where each type comes from; the rest are grouped as null.
-        const types = breakdowns.eventType.map((entry) => entry.value).filter((value) => value !== null);
-        const [countryRows] = await this.pool.query(
-            `${cte} SELECT country,
-                CASE WHEN event_type IN (?) THEN event_type ELSE NULL END AS event_type,
-                COUNT(*) AS views
-             FROM v WHERE country IS NOT NULL
-             GROUP BY country, CASE WHEN event_type IN (?) THEN event_type ELSE NULL END
-             ORDER BY country`,
-            [...cteParams, types.length ? types : [''], types.length ? types : ['']]
-        );
-
-        return {
-            totals,
-            bucket,
-            trend: trendRows.map((row) => ({
-                period: String(row.period),
-                views: Number(row.views),
-                uniqueViews: Number(row.unique_views),
-            })),
-            breakdowns,
-            countries: countryRows.map((row) => ({
-                country: row.country,
-                eventType: row.event_type ?? null,
-                views: Number(row.views),
-            })),
-            eventTypes,
-        };
+    /**
+     * Who is on the sites right now, and views per minute over the last half
+     * hour. Live views of these apps only.
+     * @param {string[]} appIds
+     */
+    async realtime(appIds) {
+        if (appIds.length === 0) return { visitors: 0, nowMinute: null, minutes: [], pages: [] };
+        return analysis.runRealtime(this.pool, (appId) => this.table(appId), appIds);
     }
 
     /**
@@ -557,6 +443,6 @@ module.exports.WRITABLE_COLUMNS = WRITABLE_COLUMNS;
 module.exports.escapeLike = escapeLike;
 module.exports.toApiRow = toApiRow;
 module.exports.buildFilter = buildFilter;
-module.exports.chooseBucket = chooseBucket;
-module.exports.BREAKDOWN_COLUMNS = BREAKDOWN_COLUMNS;
-module.exports.BUCKET_EXPRESSION = BUCKET_EXPRESSION;
+module.exports.chooseBucket = analysis.chooseBucket;
+module.exports.BREAKDOWN_COLUMNS = analysis.BREAKDOWN_COLUMNS;
+module.exports.BUCKET_EXPRESSION = analysis.BUCKET_EXPRESSION;

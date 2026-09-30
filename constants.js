@@ -204,6 +204,7 @@ const ADMIN = {
  * a number of days. `all` has no lower bound. Only these values reach SQL.
  */
 const ADMIN_RANGE = {
+    DAY: '24h',
     WEEK: '7d',
     MONTH: '30d',
     QUARTER: '90d',
@@ -212,6 +213,7 @@ const ADMIN_RANGE = {
 };
 
 const ADMIN_RANGE_DAYS = {
+    [ADMIN_RANGE.DAY]: 1,
     [ADMIN_RANGE.WEEK]: 7,
     [ADMIN_RANGE.MONTH]: 30,
     [ADMIN_RANGE.QUARTER]: 90,
@@ -224,6 +226,7 @@ const ADMIN_RANGE_DAYS = {
  * actually in the filtered set, so a chart never has thousands of points.
  */
 const TREND_BUCKET = {
+    HOUR: 'hour',
     DAY: 'day',
     WEEK: 'week',
     MONTH: 'month',
@@ -231,12 +234,34 @@ const TREND_BUCKET = {
 
 /** Largest span, in days, charted per day and per week. */
 const TREND_BUCKET_MAX_DAYS = {
+    [TREND_BUCKET.HOUR]: 2,
     [TREND_BUCKET.DAY]: 92,
     [TREND_BUCKET.WEEK]: 731,
 };
 
 /** Rows per breakdown returned by the admin analysis; the rest is "other". */
-const ANALYSIS_TOP_N = 8;
+const ANALYSIS_TOP_N = 10;
+
+/** Bounds of the admin analysis beyond the breakdowns. */
+const ANALYSIS = {
+    /**
+     * A visit ends after this long without a page view, the common 30-minute
+     * convention. Visits are read from the rotating visitor hash, so they
+     * never link a visitor across days.
+     */
+    VISIT_GAP_SECONDS: 30 * 60,
+    /** Page-to-page steps listed in the page flow. */
+    TRANSITIONS_TOP_N: 15,
+    /** The time-of-day heatmap reads at most the last year of the range. */
+    HEATMAP_MAX_DAYS: 365,
+    /** Most recent custom events whose properties are tallied. */
+    EVENT_PROPERTIES_SAMPLE: 5000,
+    /** Property values listed across all custom events. */
+    EVENT_PROPERTIES_TOP_N: 30,
+    /** "Right now" means the last few minutes; the live chart covers half an hour. */
+    REALTIME_VISITOR_MINUTES: 5,
+    REALTIME_CHART_MINUTES: 30,
+};
 
 /** Which rows an admin listing returns. */
 const VIEW_STATUS = {
@@ -491,6 +516,7 @@ module.exports = {
     TREND_BUCKET,
     TREND_BUCKET_MAX_DAYS,
     ANALYSIS_TOP_N,
+    ANALYSIS,
     MODIFIED_FILTER,
     SORT_ORDER,
     ADMIN_SORT_COLUMNS,

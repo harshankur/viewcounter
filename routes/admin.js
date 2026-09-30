@@ -53,6 +53,7 @@ const {
     validateLogin,
     validateViewListing,
     validateAnalysis,
+    validateRealtime,
     validateEdit,
     validateNote,
     validateBatch,
@@ -380,6 +381,24 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo
             return res.json({ apps, ...query, ...result });
         } catch (error) {
             return adminError(req, res, error, 'analyse all views');
+        }
+    });
+
+    // Right now: visitors in the last few minutes and views per minute.
+    api.get('/apps/:appId/realtime', requireSession, validateRealtime(allowed), handleAdminValidation, async (req, res) => {
+        try {
+            return res.json({ apps: [req.params.appId], ...await adminRepo.realtime([req.params.appId]) });
+        } catch (error) {
+            return adminError(req, res, error, 'read realtime');
+        }
+    });
+
+    api.get('/realtime', requireSession, async (req, res) => {
+        try {
+            const apps = await adminRepo.existingTables(allowed.appId);
+            return res.json({ apps, ...await adminRepo.realtime(apps) });
+        } catch (error) {
+            return adminError(req, res, error, 'read realtime');
         }
     });
 

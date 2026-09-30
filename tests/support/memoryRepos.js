@@ -14,38 +14,14 @@ const crypto = require('crypto');
 const {
     ADMIN_RANGE_DAYS,
     ADMIN_SORT_COLUMNS,
-    ANALYSIS_TOP_N,
+    ANALYSIS,
     MODIFIED_FILTER,
     SORT_ORDER,
     VIEW_STATUS,
 } = require('../../constants');
-const { chooseBucket, BREAKDOWN_COLUMNS } = require('../../db/AdminRepository');
+const { memoryAnalysis, memoryRealtime } = require('./memoryAnalysis');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-/** YYYY-MM-DD of a date, in UTC. */
-const isoDay = (date) => date.toISOString().slice(0, 10);
-
-/** The start of the trend bucket a timestamp falls in, as the SQL labels it. */
-function bucketStart(date, bucket) {
-    const day = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-    if (bucket === 'week') {
-        const weekday = (day.getUTCDay() + 6) % 7;
-        return isoDay(new Date(day.getTime() - weekday * DAY_MS));
-    }
-    if (bucket === 'month') return `${isoDay(day).slice(0, 8)}01`;
-    return isoDay(day);
-}
-
-/** Row field for each analysis breakdown, mirroring BREAKDOWN_COLUMNS. */
-const BREAKDOWN_FIELD = {
-    source: 'sourceType',
-    deviceSize: 'deviceSize',
-    browser: 'browser',
-    os: 'os',
-    eventType: 'eventType',
-    app: 'appId',
-};
 
 /** Column name -> API field, for applying an edit's column values. */
 const COLUMN_TO_FIELD = {
@@ -94,6 +70,17 @@ function makeView(overrides = {}) {
         eventType: 'pageview',
         eventData: null,
         isUnique: true,
+        hostname: null,
+        language: null,
+        utmSource: null,
+        utmMedium: null,
+        utmCampaign: null,
+        utmTerm: null,
+        utmContent: null,
+        region: null,
+        city: null,
+        engagedMs: null,
+        scrollDepth: null,
         note: null,
         adminModifiedAt: null,
         deletedAt: null,
@@ -127,15 +114,18 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
     const isDeleted = (row) => row.deletedAt !== null;
 
     /** Rows of these apps matching a listing query, each tagged with its app. */
-    const filtered = (appIds, { status, modified, search, range, eventType } = {}) => {
+    const filtered = (appIds, { status, modified, search, range, eventType } = {}, window) => {
         const days = ADMIN_RANGE_DAYS[range];
-        const cutoff = days ? now().getTime() - days * DAY_MS : null;
+        // 'previous' is the period of the same length just before the range.
+        const cutoff = days ? now().getTime() - days * DAY_MS * (window === 'previous' ? 2 : 1) : null;
+        const until = days && window === 'previous' ? now().getTime() - days * DAY_MS : null;
         return appIds.flatMap((appId) => rowsOf(appId).map((row) => Object.assign(row, { appId }))).filter((row) => {
             if ((status || VIEW_STATUS.ACTIVE) === VIEW_STATUS.ACTIVE && isDeleted(row)) return false;
             if (status === VIEW_STATUS.DELETED && !isDeleted(row)) return false;
             if (modified === MODIFIED_FILTER.MODIFIED && row.adminModifiedAt === null) return false;
             if (modified === MODIFIED_FILTER.UNMODIFIED && row.adminModifiedAt !== null) return false;
             if (cutoff !== null && row.timestamp.getTime() < cutoff) return false;
+            if (until !== null && row.timestamp.getTime() >= until) return false;
             if (eventType && row.eventType !== eventType) return false;
             if (search) {
                 const needle = search.toLowerCase();
@@ -185,60 +175,16 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
 
         async analyze(appIds, query) {
             const rows = filtered(appIds, query);
-            const views = rows.length;
-            const times = rows.map((row) => row.timestamp.getTime());
-            const totals = {
-                views,
-                uniqueViews: rows.filter((row) => row.isUnique).length,
-                visitors: new Set(rows.map((row) => row.visitorHash ?? row.sessionId ?? row.id)).size,
-                countries: new Set(rows.map((row) => row.country).filter(Boolean)).size,
-                modified: rows.filter((row) => row.adminModifiedAt !== null).length,
-                firstAt: views ? new Date(Math.min(...times)) : null,
-                lastAt: views ? new Date(Math.max(...times)) : null,
-            };
-            const breakdowns = Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []]));
+            const previous = ADMIN_RANGE_DAYS[query.range] ? filtered(appIds, query, 'previous') : null;
             const eventTypes = [...new Set(filtered(appIds, { status: query.status })
                 .map((row) => row.eventType).filter((type) => type !== null && type !== undefined))].sort();
-            if (views === 0) return { totals, bucket: 'day', trend: [], breakdowns, countries: [], eventTypes };
+            return { ...memoryAnalysis(rows, previous), eventTypes };
+        },
 
-            const bucket = chooseBucket(totals.firstAt, totals.lastAt);
-            const trend = new Map();
-            for (const row of rows) {
-                const period = bucketStart(row.timestamp, bucket);
-                const entry = trend.get(period) || { period, views: 0, uniqueViews: 0 };
-                entry.views += 1;
-                if (row.isUnique) entry.uniqueViews += 1;
-                trend.set(period, entry);
-            }
-
-            for (const [dim, field] of Object.entries(BREAKDOWN_FIELD)) {
-                const counts = new Map();
-                for (const row of rows) counts.set(row[field] ?? null, (counts.get(row[field] ?? null) || 0) + 1);
-                breakdowns[dim] = [...counts.entries()]
-                    .map(([value, count]) => ({ value, views: count }))
-                    .sort((a, b) => b.views - a.views || String(a.value).localeCompare(String(b.value)))
-                    .slice(0, ANALYSIS_TOP_N);
-            }
-
-            const types = new Set(breakdowns.eventType.map((entry) => entry.value).filter((value) => value !== null));
-            const byCountry = new Map();
-            for (const row of rows) {
-                if (!row.country) continue;
-                const eventType = types.has(row.eventType) ? row.eventType : null;
-                const key = `${row.country}|${eventType}`;
-                const entry = byCountry.get(key) || { country: row.country, eventType, views: 0 };
-                entry.views += 1;
-                byCountry.set(key, entry);
-            }
-
-            return {
-                totals,
-                bucket,
-                trend: [...trend.values()].sort((a, b) => a.period.localeCompare(b.period)),
-                breakdowns,
-                countries: [...byCountry.values()].sort((a, b) => a.country.localeCompare(b.country)),
-                eventTypes,
-            };
+        async realtime(appIds) {
+            const since = now().getTime() - ANALYSIS.REALTIME_CHART_MINUTES * 60 * 1000;
+            const live = filtered(appIds, { status: VIEW_STATUS.ACTIVE }).filter((row) => row.timestamp.getTime() >= since);
+            return memoryRealtime(live, now());
         },
 
         async updateContent(appId, ids, columnValues) {
