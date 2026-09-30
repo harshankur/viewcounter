@@ -99,6 +99,9 @@ class Config {
         this.auth = this.loadAuthConfig();
         this.privacy = this.loadPrivacyConfig();
         this.admin = this.loadAdminConfig();
+        // Optional: an .mmdb city database (DB-IP City Lite or GeoLite2 City)
+        // for each view's region and city. Without it, country only.
+        this.geo = { cityDatabase: this.env.GEOIP_CITY_DB || null };
     }
 
     /**

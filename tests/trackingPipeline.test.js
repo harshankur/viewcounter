@@ -139,3 +139,56 @@ describe('createRejectionCounter', () => {
         expect(write).not.toHaveBeenCalled();
     });
 });
+
+describe('optional city database', () => {
+    const { createCityLookup, openCityLookup, attributions, COUNTRY_ATTRIBUTION } = require('../utils/geoCity');
+    const reader = (databaseType, records = {}) => ({ metadata: { databaseType }, get: (ip) => records[ip] ?? null });
+    const MUNICH = {
+        city: { names: { en: 'Munich', de: 'München' } },
+        subdivisions: [{ names: { en: 'Bavaria' } }, { names: { en: 'Upper Bavaria' } }],
+        location: { latitude: 48.1, longitude: 11.6 },
+    };
+
+    test('reads the English region and city, and nothing else', () => {
+        const city = createCityLookup(reader('DBIP-City-Lite', { '203.0.113.5': MUNICH }));
+        expect(city.lookup('203.0.113.5')).toEqual({ region: 'Bavaria', city: 'Munich' });
+    });
+
+    test.each([
+        ['an address it does not know', '198.51.100.1'],
+        ['a record without names', '192.0.2.1'],
+    ])('%s gives nothing', (_label, ip) => {
+        const city = createCityLookup(reader('GeoLite2-City', { '192.0.2.1': { city: {}, subdivisions: [{}] } }));
+        expect(city.lookup(ip)).toEqual({ region: null, city: null });
+    });
+
+    test('a reader that throws gives nothing rather than failing the view', () => {
+        const city = createCityLookup({ metadata: { databaseType: 'DBIP-City-Lite' }, get: () => { throw new TypeError('bad address'); } });
+        expect(city.lookup('not-an-ip')).toEqual({ region: null, city: null });
+    });
+
+    test.each([
+        ['DBIP-City-Lite', 'IP geolocation by DB-IP'],
+        ['dbip-city-lite', 'IP geolocation by DB-IP'],
+        ['GeoLite2-City', 'This product includes GeoLite2 data created by MaxMind'],
+        ['Somebody-Else', 'Location data: Somebody-Else'],
+    ])('a %s database carries the credit %j', (type, text) => {
+        expect(createCityLookup(reader(type)).attribution.text).toBe(text);
+    });
+
+    test('the credits list names each source once, country data first', () => {
+        expect(attributions(null)).toEqual([COUNTRY_ATTRIBUTION]);
+        expect(attributions(createCityLookup(reader('GeoLite2-City')))).toEqual([COUNTRY_ATTRIBUTION]);
+        expect(attributions(createCityLookup(reader('DBIP-City-Lite'))).map((c) => c.text))
+            .toEqual([COUNTRY_ATTRIBUTION.text, 'IP geolocation by DB-IP']);
+    });
+
+    test('with no database configured there is no lookup', async () => {
+        expect(await openCityLookup(undefined)).toBeNull();
+        expect(await openCityLookup('')).toBeNull();
+    });
+
+    test('a configured file that cannot be opened is an error, not a silent country-only run', async () => {
+        await expect(openCityLookup('/nonexistent/city.mmdb')).rejects.toThrow();
+    });
+});

@@ -14,7 +14,7 @@ const VIEW_ID = '11111111-1111-4111-8111-111111111111';
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
-function build({ perAppMax = 0, registerEvent } = {}) {
+function build({ perAppMax = 0, registerEvent, city = null } = {}) {
     const dbManager = {
         healthCheck: async () => ({ healthy: true }),
         registerEvent: jest.fn(registerEvent || (async () => ({ duplicate: false, insertId: 7, publicId: VIEW_ID, isUnique: true }))),
@@ -31,7 +31,7 @@ function build({ perAppMax = 0, registerEvent } = {}) {
         privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
         server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax } },
     };
-    const router = createAnalyticsRouter({ config, dbManager });
+    const router = createAnalyticsRouter({ config, dbManager, geo: { city } });
     const app = express();
     app.use(express.json());
     app.use(router);
@@ -149,6 +149,25 @@ describe('GET /registerView', () => {
         const { app, counted } = build();
         await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
         expect(await counted()).toEqual([]);
+    });
+});
+
+describe('region and city', () => {
+    const city = { lookup: jest.fn(() => ({ region: 'Bavaria', city: 'Munich' })) };
+
+    test('come from the city database when one is configured, for views and events', async () => {
+        const { app, dbManager } = build({ city });
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager)).toMatchObject({ region: 'Bavaria', city: 'Munich' });
+        await request(app).post('/event').set('User-Agent', CHROME).send({ appId: 'blog', eventType: 'x' }).expect(200);
+        expect(stored(dbManager)).toMatchObject({ region: 'Bavaria', city: 'Munich' });
+        expect(city.lookup).toHaveBeenCalledWith('127.0.0.1');
+    });
+
+    test('are empty without one', async () => {
+        const { app, dbManager } = build();
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager)).toMatchObject({ region: null, city: null });
     });
 });
 

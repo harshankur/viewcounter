@@ -186,10 +186,12 @@ function handleRouteError(req, res, error, operation) {
 }
 
 /**
- * @param {{ config: object, dbManager: object, isReady: () => boolean }} deps
+ * @param {{ config: object, dbManager: object, isReady: () => boolean,
+ *   geo?: { city: { lookup: (ip: string) => { region: string|null, city: string|null } }|null } }} deps
+ *   `geo.city` is read on every view, so it can be opened after the router is built
  * @returns {import('express').Router}
  */
-function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
+function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = { city: null } }) {
     const router = express.Router();
     // Authentication and authorization are separate steps: `requireKey` proves
     // the caller holds a key we issued, `requireScope` proves that key is
@@ -268,6 +270,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                 }
 
                 const ipInfo = geoip.lookup(ip);
+                const place = geo.city ? geo.city.lookup(ip) : { region: null, city: null };
                 const userAgent = req.get('user-agent') || '';
                 const uaData = UserAgentParser.parse(userAgent);
 
@@ -294,6 +297,8 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     hostname: hostnameOf(requestOrigin(req)),
                     language: primaryLanguage(req.get('accept-language')),
                     ...utm,
+                    region: place.region,
+                    city: place.city,
                     browser: uaData.browser,
                     browserVersion: uaData.browserVersion,
                     os: uaData.os,
@@ -351,6 +356,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                 }
 
                 const ipInfo = geoip.lookup(ip);
+                const place = geo.city ? geo.city.lookup(ip) : { region: null, city: null };
                 const userAgent = req.get('user-agent') || '';
                 const uaData = UserAgentParser.parse(userAgent);
 
@@ -370,6 +376,8 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     eventData,
                     hostname: hostnameOf(requestOrigin(req)),
                     language: primaryLanguage(req.get('accept-language')),
+                    region: place.region,
+                    city: place.city,
                     userAgent,
                     visitorSecret: config.privacy.visitorSecret,
                     // Custom events are never deduplicated.

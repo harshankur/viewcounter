@@ -12,6 +12,7 @@ const { createAnalyticsRouter, trackingSourceFor } = require('./routes/analytics
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 const { createDbSessionStore } = require('./db/adminSessionStore');
+const { openCityLookup } = require('./utils/geoCity');
 
 logger.configure({ level: config.server.logLevel });
 
@@ -20,6 +21,8 @@ let isServerReady = false;
 let httpServer = null;
 let stopRetention = () => {};
 let analyticsRouter = null;
+/** The optional city database, opened at startup; both routers read it per request. */
+const geo = { city: null };
 
 /**
  * Build the Express application.
@@ -52,6 +55,7 @@ function createApp() {
                 absoluteMs: config.admin.sessionMaxAgeMs,
             }),
             isReady: () => isServerReady,
+            geo,
         }));
     }
 
@@ -65,6 +69,7 @@ function createApp() {
         config,
         dbManager,
         isReady: () => isServerReady,
+        geo,
     });
     analyticsRouter = router;
 
@@ -135,6 +140,14 @@ async function mergeRegisteredApps() {
 const initializeServer = async () => {
     try {
         config.validate();
+
+        // A configured city database that cannot be opened stops startup: the
+        // operator asked for it, and running without it would hide that.
+        if (config.geo?.cityDatabase) {
+            geo.city = await openCityLookup(config.geo.cityDatabase);
+            logger.info(`City database loaded (${geo.city.databaseType})`);
+        }
+
         await dbManager.initialize(config.allowed.appId);
 
         // Merge dynamically registered tenants into the live allowlist, so

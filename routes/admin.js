@@ -62,6 +62,7 @@ const {
     handleAdminValidation,
 } = require('../middleware/adminValidation');
 const { logContext, withRequestId } = require('./analytics');
+const { attributions } = require('../utils/geoCity');
 
 /** The UI's static files, shipped in the package. */
 const ADMIN_UI_DIR = path.join(__dirname, '..', 'admin');
@@ -113,7 +114,9 @@ function adminError(req, res, error, operation) {
 
 /**
  * @param {{ config: object, adminRepo: object, logRepo: object,
- *   sessionStore?: object, isReady?: () => boolean, uiDir?: string }} deps
+ *   sessionStore?: object, isReady?: () => boolean, uiDir?: string,
+ *   geo?: { city: object|null } }} deps
+ *   `geo.city` is the optional city database, whose credit the UI shows
  * @returns {import('express').Router}
  */
 function createAdminRouter({
@@ -123,6 +126,7 @@ function createAdminRouter({
     sessionStore = createSessionStore({ idleMs: config.admin.sessionIdleMs, absoluteMs: config.admin.sessionMaxAgeMs }),
     isReady = () => true,
     uiDir = ADMIN_UI_DIR,
+    geo = { city: null },
 }) {
     // The standalone server checks this when it loads its config; an app
     // embedding the router gets the same floor, not a weaker admin surface.
@@ -157,7 +161,7 @@ function createAdminRouter({
         handler: (req, res) => res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({ code: ADMIN_ERROR_CODE.RATE_LIMITED }),
     }));
 
-    router.use(ADMIN.API_PATH, createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }));
+    router.use(ADMIN.API_PATH, createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo }));
 
     // Relative asset URLs in the UI only resolve under a trailing slash.
     router.get('/', (req, res, next) => {
@@ -173,7 +177,7 @@ function createAdminRouter({
 /**
  * The JSON API behind the UI.
  */
-function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
+function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo }) {
     const api = express.Router();
     const allowed = config.allowed;
 
@@ -301,6 +305,9 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             searchMaxLength: ADMIN.SEARCH_MAX_LENGTH,
             trashRetentionDays: config.admin.trashRetentionDays,
             reauthWindowMs: ADMIN.REAUTH_WINDOW_MS,
+            // Credits the location data's licences ask for, shown in the UI.
+            attributions: attributions(geo.city),
+            hasCityData: Boolean(geo.city),
             viewLogRetentionDays: config.admin.viewLogRetentionDays,
             maxLength: {
                 note: FIELD_MAX_LENGTH.NOTE,

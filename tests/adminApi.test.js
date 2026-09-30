@@ -324,6 +324,9 @@ describe('Admin API', () => {
             expect(res.body.editableFields).not.toContain('maskedIp');
             expect(res.body.actions).toContain(ADMIN_ACTION.VIEWS_PURGED);
             expect(res.body.sources).toEqual(Object.values(VIEW_LOG_SOURCE));
+            // Country data is GeoLite2 (bundled by geoip-country), whose licence asks for a credit.
+            expect(res.body.attributions).toEqual([{ text: 'This product includes GeoLite2 data created by MaxMind', url: 'https://www.maxmind.com' }]);
+            expect(res.body.hasCityData).toBe(false);
         });
 
         test('apps lists every configured app with counts', async () => {
