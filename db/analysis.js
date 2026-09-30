@@ -38,17 +38,29 @@ const ANALYSIS_COLUMNS = [
 ];
 
 /**
+ * A time column as UTC wall-clock time, whatever the database session's time
+ * zone. Rows are written with NOW() in that zone, so UNIX_TIMESTAMP() recovers
+ * the instant, and adding it to the epoch gives the UTC date and hour the UI
+ * and every other bucket assume.
+ * @param {string} column a fixed column name
+ */
+const utc = (column) => `DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(UNIX_TIMESTAMP(${column})) SECOND)`;
+
+/**
  * Time-series bucket expressions over a time column, keyed by TREND_BUCKET.
- * Each bucket is labelled by the moment it starts (YYYY-MM-DD, or
+ * Each bucket is labelled by the moment it starts, in UTC (YYYY-MM-DD, or
  * YYYY-MM-DD HH:00 by hour).
  * @param {string} column a fixed column name
  */
-const bucketExpressions = (column) => ({
-    [TREND_BUCKET.HOUR]: `DATE_FORMAT(${column}, '%Y-%m-%d %H:00')`,
-    [TREND_BUCKET.DAY]: `DATE_FORMAT(${column}, '%Y-%m-%d')`,
-    [TREND_BUCKET.WEEK]: `DATE_FORMAT(DATE_SUB(DATE(${column}), INTERVAL WEEKDAY(${column}) DAY), '%Y-%m-%d')`,
-    [TREND_BUCKET.MONTH]: `DATE_FORMAT(${column}, '%Y-%m-01')`,
-});
+const bucketExpressions = (column) => {
+    const at = utc(column);
+    return {
+        [TREND_BUCKET.HOUR]: `DATE_FORMAT(${at}, '%Y-%m-%d %H:00')`,
+        [TREND_BUCKET.DAY]: `DATE_FORMAT(${at}, '%Y-%m-%d')`,
+        [TREND_BUCKET.WEEK]: `DATE_FORMAT(DATE_SUB(DATE(${at}), INTERVAL WEEKDAY(${at}) DAY), '%Y-%m-%d')`,
+        [TREND_BUCKET.MONTH]: `DATE_FORMAT(${at}, '%Y-%m-01')`,
+    };
+};
 
 /** Buckets of a view's own time. */
 const BUCKET_EXPRESSION = bucketExpressions('timestamp');
@@ -299,7 +311,7 @@ async function runAnalysis(pool, table, appIds, filter, { hasPrevious, spanDays 
 
     const transitions = await run(undefined, `${VISITS_CTE}
          SELECT app_id, page_path AS from_page, next_page AS to_page, COUNT(*) AS steps
-         FROM t WHERE next_page IS NOT NULL AND next_page <> page_path
+         FROM t WHERE next_page IS NOT NULL AND NOT (next_page <=> page_path)
          GROUP BY app_id, page_path, next_page
          ORDER BY steps DESC, from_page, to_page LIMIT ?`, [ANALYSIS.TRANSITIONS_TOP_N]);
 

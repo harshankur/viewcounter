@@ -299,8 +299,23 @@ describe('AdminRepository.analyze', () => {
         await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
         const [visitTrend] = pool.matching('FROM visits GROUP BY period');
         expect(visitTrend.sql).toContain('MIN(timestamp) AS started_at');
+        const startedUtc = "DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(UNIX_TIMESTAMP(started_at)) SECOND)";
         expect(visitTrend.sql).toContain(
-            "DATE_FORMAT(DATE_SUB(DATE(started_at), INTERVAL WEEKDAY(started_at) DAY), '%Y-%m-%d') AS period");
+            `DATE_FORMAT(DATE_SUB(DATE(${startedUtc}), INTERVAL WEEKDAY(${startedUtc}) DAY), '%Y-%m-%d') AS period`);
+    });
+
+    test('periods are UTC dates and hours, whatever the database session\'s time zone', () => {
+        for (const expression of Object.values(AdminRepository.BUCKET_EXPRESSION)) {
+            expect(expression).toContain('UNIX_TIMESTAMP(timestamp)');
+            expect(expression).not.toMatch(/DATE_FORMAT\(timestamp/);
+        }
+    });
+
+    test('page flow counts a step from a page with no path, like the mirror', async () => {
+        const pool = analysisPool();
+        await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
+        const [flow] = pool.matching('next_page AS to_page');
+        expect(flow.sql).toContain('WHERE next_page IS NOT NULL AND NOT (next_page <=> page_path)');
     });
 
     test('breakdowns keep the top N per dimension, with visitors, in one window query', async () => {
