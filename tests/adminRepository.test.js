@@ -125,6 +125,17 @@ describe('AdminRepository', () => {
                 expect(pool.queries).toHaveLength(0);
             });
 
+        test('a referrer edit decides internal per row, from each row\'s own site, in one statement', async () => {
+            const { repo, pool } = withMatches([ID_A, ID_B]);
+            await repo.updateContent('blog', [ID_A, ID_B], {
+                referrer: 'https://www.blog.example/x', referrer_domain: 'www.blog.example', source_type: 'referral',
+            });
+            const [update] = pool.matching('UPDATE');
+            expect(update.sql).toContain('`source_type` = CASE WHEN LOWER(hostname) IN (?, ?) THEN ? ELSE ? END');
+            expect(update.params).toEqual(['https://www.blog.example/x', 'www.blog.example',
+                'blog.example', 'www.blog.example', 'internal', 'referral', [ID_A, ID_B]]);
+        });
+
         test('updateContent issues no UPDATE when nothing matches', async () => {
             const { pool, repo } = withMatches([]);
             expect(await repo.updateContent('blog', [ID_A], { page_title: 'T' })).toEqual([]);

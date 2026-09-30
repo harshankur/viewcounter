@@ -18,6 +18,23 @@ describe('ReferrerParser', () => {
             expect(result.sourceType).toBe('social');
         });
 
+        test('keeps only the origin and path: a query or fragment can carry tokens and emails', () => {
+            const result = ReferrerParser.parse('https://site.example/reset-password?token=SECRET&email=a%40b.c#step-2', 'site.example');
+            expect(result.referrer).toBe('https://site.example/reset-password');
+            expect(result.sourceType).toBe('internal');
+            expect(JSON.stringify(result)).not.toMatch(/SECRET|a%40b|step-2/);
+        });
+
+        test('reads the source from the whole URL before stripping it', () => {
+            const result = ReferrerParser.parse('https://example.com/page?utm_source=newsletter');
+            expect(result.sourceType).toBe('campaign');
+            expect(result.referrer).toBe('https://example.com/page');
+        });
+
+        test('strips an unparseable referrer too', () => {
+            expect(ReferrerParser.withoutQuery('not a url?secret=1#x')).toBe('not a url');
+        });
+
         test('should parse direct traffic (no referrer)', () => {
             const result = ReferrerParser.parse('');
 

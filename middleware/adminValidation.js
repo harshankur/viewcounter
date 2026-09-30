@@ -214,7 +214,9 @@ function checkField(field, value, deviceSizes) {
  *
  * Only EDITABLE_FIELDS may appear. A change to `referrer` also re-derives
  * `referrer_domain` and `source_type` with the same parser the write path
- * uses, so the three can never disagree.
+ * uses, and stores the referrer the same way (origin and path only). Whether
+ * it is on the row's own site, and so internal, depends on each row's site,
+ * which the repository applies per row (AdminRepository.updateContent).
  *
  * @param {unknown} changes
  * @param {string[]} deviceSizes

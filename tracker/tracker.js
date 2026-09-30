@@ -6,6 +6,7 @@
  * Records a view of each page (including page changes in single-page apps),
  * how long it was visible and how far it was scrolled, clicks on links to
  * other sites and on downloads, and the campaign tags of the landing URL.
+ * The page before is sent as its origin and path only.
  *
  * It stores nothing on the visitor's device (no cookie, no localStorage, no
  * sessionStorage), so it needs no consent banner, and it sends no identifier:
@@ -48,8 +49,18 @@
         return height <= 0 ? 100 : Math.min(100, Math.round(((scrollY + innerHeight) / height) * 100));
     };
 
+    /** A URL's origin and path: its query and fragment can carry tokens or emails. */
+    const originAndPath = (url) => {
+        try {
+            const parsed = new URL(url);
+            return `${parsed.origin}${parsed.pathname}`;
+        } catch {
+            return '';
+        }
+    };
+
     let view = null;
-    let referrer = document.referrer;
+    let referrer = document.referrer ? originAndPath(document.referrer) : '';
     let path = location.pathname;
 
     /** Tell the server how long the current page was visible and how far it was scrolled. */

@@ -446,7 +446,21 @@ describe('Admin API', () => {
                 .set(ADMIN.CSRF_HEADER, csrf)
                 .send({ ids: [views[0].id], changes: { referrer: 'https://www.google.com/search?q=x' } })
                 .expect(200);
-            expect(views[0]).toMatchObject({ referrerDomain: 'www.google.com', sourceType: 'search' });
+            expect(views[0]).toMatchObject({
+                referrer: 'https://www.google.com/search', referrerDomain: 'www.google.com', sourceType: 'search',
+            });
+        });
+
+        test('a referrer edit on the row\'s own site is internal, judged per row', async () => {
+            views[0].hostname = 'blog.example';
+            views[1].hostname = 'shop.example';
+            const { agent, csrf } = await login(app);
+            await agent.patch(`${API}/apps/${APP}/views`)
+                .set(ADMIN.CSRF_HEADER, csrf)
+                .send({ ids: [views[0].id, views[1].id], changes: { referrer: 'https://www.blog.example/other?token=x' } })
+                .expect(200);
+            expect(views[0]).toMatchObject({ referrer: 'https://www.blog.example/other', sourceType: 'internal' });
+            expect(views[1]).toMatchObject({ referrer: 'https://www.blog.example/other', sourceType: 'referral' });
         });
 
         test.each([

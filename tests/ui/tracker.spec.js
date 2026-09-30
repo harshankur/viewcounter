@@ -54,6 +54,15 @@ test('a page view carries the app, page, title, size, and only the campaign tags
     expect(sent.views[0].href).not.toMatch(/secret|a%40b|email=a/);
 });
 
+test('the page before is sent as its origin and path, never its query or fragment', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start', { referer: 'https://elsewhere.example/reset-password?token=SECRET&email=a%40b.c#step' });
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('referrer')).toBe('https://elsewhere.example/reset-password');
+    expect(sent.views[0].href).not.toMatch(/SECRET|a%2540b|step/);
+});
+
 test('when the page is hidden, it reports how long it was visible and how far it was scrolled', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

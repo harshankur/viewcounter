@@ -8,8 +8,20 @@ const { truncate } = require('./stringUtils');
  */
 class ReferrerParser {
     /**
+     * A referrer as it may be stored: without its query string or fragment,
+     * which can carry tokens, email addresses, or IDs from the page before
+     * (a password-reset link, say). The source is read from the whole URL,
+     * in memory, before this.
+     * @param {string} referrer
+     * @returns {string}
+     */
+    static withoutQuery(referrer) {
+        return String(referrer).split(/[?#]/, 1)[0];
+    }
+
+    /**
      * Parse referrer URL
-     * @param {string} referrer - Referrer URL from request headers
+     * @param {string} referrer - the referrer the page reported (never the request's Referer header)
      * @param {string|null} [siteHostname] - the hostname of the page viewed; a
      *   referrer on the same site (www. or not) is internal navigation, which
      *   would otherwise count every click within a site as a referral from it
@@ -33,13 +45,13 @@ class ReferrerParser {
                 : this.getSourceType(domain, referrer);
 
             return {
-                referrer: truncate(referrer, FIELD_MAX_LENGTH.REFERRER),
+                referrer: truncate(this.withoutQuery(referrer), FIELD_MAX_LENGTH.REFERRER),
                 referrerDomain: truncate(domain, FIELD_MAX_LENGTH.REFERRER_DOMAIN),
                 sourceType
             };
         } catch (error) {
             return {
-                referrer: truncate(referrer, FIELD_MAX_LENGTH.REFERRER),
+                referrer: truncate(this.withoutQuery(referrer), FIELD_MAX_LENGTH.REFERRER),
                 referrerDomain: null,
                 sourceType: SOURCE_TYPE.UNKNOWN
             };

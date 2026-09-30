@@ -13,6 +13,7 @@ const {
     EDITABLE_FIELDS,
     MODIFIED_FILTER,
     SORT_ORDER,
+    SOURCE_TYPE,
     VIEW_STATUS,
 } = require('../constants');
 const analysis = require('./analysis');
@@ -377,11 +378,24 @@ class AdminRepository {
         const matched = await this.matchIds(appId, ids, STATE.ACTIVE);
         if (matched.length === 0 || columns.length === 0) return [];
 
-        const assignments = columns.map((column) => `\`${column}\` = ?`).join(', ');
+        const assignments = [];
+        const params = [];
+        for (const column of columns) {
+            if (column === 'source_type' && columnValues.referrer_domain) {
+                // A referrer on the row's own site is internal, as on the write
+                // path; each row is judged by its own site, in the same statement.
+                const site = String(columnValues.referrer_domain).toLowerCase().replace(/^www\./, '');
+                assignments.push('`source_type` = CASE WHEN LOWER(hostname) IN (?, ?) THEN ? ELSE ? END');
+                params.push(site, `www.${site}`, SOURCE_TYPE.INTERNAL, columnValues.source_type);
+            } else {
+                assignments.push(`\`${column}\` = ?`);
+                params.push(columnValues[column]);
+            }
+        }
         await this.pool.query(
-            `UPDATE ${this.table(appId)} SET ${assignments}, admin_modified_at = NOW()
+            `UPDATE ${this.table(appId)} SET ${assignments.join(', ')}, admin_modified_at = NOW()
              WHERE public_id IN (?) AND ${STATE.ACTIVE}`,
-            [...columns.map((column) => columnValues[column]), matched]
+            [...params, matched]
         );
         return matched;
     }

@@ -21,6 +21,7 @@ const {
 } = require('../../constants');
 const { memoryAnalysis, memoryRealtime, BREAKDOWN_VALUE } = require('./memoryAnalysis');
 const { FILTER_COLUMNS } = require('../../db/analysis');
+const ReferrerParser = require('../../utils/referrerParser');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -208,6 +209,10 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
                 for (const [column, value] of Object.entries(columnValues)) {
                     const field = COLUMN_TO_FIELD[column];
                     row[field] = column === 'event_data' && typeof value === 'string' ? JSON.parse(value) : value;
+                }
+                // Same site as the row's own: internal, as the SQL decides per row.
+                if (Object.hasOwn(columnValues, 'referrer')) {
+                    row.sourceType = ReferrerParser.parse(columnValues.referrer, row.hostname).sourceType;
                 }
                 row.adminModifiedAt = now();
             }
