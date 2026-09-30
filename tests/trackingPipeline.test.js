@@ -122,15 +122,43 @@ describe('createRejectionCounter', () => {
         expect(written[2].detail).toBe(`page${'z'.repeat(60)}`);
     });
 
-    test('once the key cap is reached, new keys keep only their reason, and the count stays exact', async () => {
-        const c = counter({ maxKeys: 2 });
+    test('once the minute\'s budget is spent, new keys keep only their reason, and the count stays exact', async () => {
+        const c = counter({ maxKeysPerMinute: 2 });
         c.count({ source: 'registerView', reason: 'unknown_app', appId: 'a1' });
         c.count({ source: 'registerView', reason: 'unknown_app', appId: 'a2' });
         for (let i = 3; i <= 50; i++) c.count({ source: 'registerView', reason: 'unknown_app', appId: `a${i}`, hostname: `h${i}.example` });
+        // A key kept before stays whole.
+        c.count({ source: 'registerView', reason: 'unknown_app', appId: 'a1' });
         expect(c.pendingKeys).toBe(3);
         await c.flush();
-        expect(written.reduce((sum, row) => sum + row.requests, 0)).toBe(50);
+        expect(written.reduce((sum, row) => sum + row.requests, 0)).toBe(51);
+        expect(written.find((row) => row.appId === 'a1').requests).toBe(2);
         expect(written.at(-1)).toMatchObject({ appId: '', hostname: '', detail: '', requests: 48 });
+    });
+
+    test('writing the counts does not renew the budget: a flood a minute long stays within it', async () => {
+        const c = counter({ maxKeysPerMinute: 5 });
+        for (let flushes = 0; flushes < 4; flushes++) {
+            for (let i = 0; i < 600; i++) c.count({ source: 'registerView', reason: 'rate_limited', appId: `x${flushes}_${i}` });
+            await c.flush();
+        }
+        const minuteRows = new Set(written.map((row) => `${row.appId}|${row.hostname}|${row.detail}`));
+        expect(minuteRows.size).toBe(6);
+        expect(written.reduce((sum, row) => sum + row.requests, 0)).toBe(2400);
+    });
+
+    test('the hour\'s budget holds across minutes, and a new hour starts a new one', async () => {
+        const c = counter({ maxKeysPerMinute: 10, maxKeysPerHour: 15 });
+        for (let minute = 0; minute < 3; minute++) {
+            for (let i = 0; i < 10; i++) c.count({ source: 'event', reason: 'bot', detail: `bot${minute}_${i}` });
+            clock += MINUTE;
+        }
+        await c.flush();
+        expect(written.filter((row) => row.detail).length).toBe(15);
+        clock = Date.parse('2026-09-30T11:00:00Z');
+        c.count({ source: 'event', reason: 'bot', detail: 'fresh' });
+        await c.flush();
+        expect(written.at(-1)).toMatchObject({ detail: 'fresh', requests: 1 });
     });
 
     test('flushing with nothing pending writes nothing', async () => {

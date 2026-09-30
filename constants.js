@@ -376,11 +376,14 @@ const TRACKING = {
     /** How often counted rejections are written to the database. */
     REJECTION_FLUSH_MS: 15_000,
     /**
-     * Distinct rejection keys held between flushes. Beyond it, new keys lose
-     * their app, detail, and hostname, so a flood of made-up values cannot
-     * grow memory or the table.
+     * Distinct rejection keys kept with their app, detail, and hostname, per
+     * minute and per hour, however often the counts are written. Beyond these,
+     * a request is still counted, by minute, endpoint, and reason alone, so a
+     * flood of made-up values cannot grow memory or the table: at most a few
+     * thousand rows an hour, whatever arrives.
      */
-    REJECTION_MAX_KEYS: 500,
+    REJECTION_MAX_KEYS_PER_MINUTE: 100,
+    REJECTION_MAX_KEYS_PER_HOUR: 1000,
     /** Rejections are only ever stored as per-minute counts. */
     REJECTION_BUCKET_MS: 60 * 1000,
 };

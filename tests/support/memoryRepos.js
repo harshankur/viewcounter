@@ -307,7 +307,7 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             const entries = [...accepted, ...refused]
                 .filter((entry) => (!appId || entry.appId === appId) && (!source || entry.source === source)
                     && (!outcome || entry.outcome === outcome))
-                .sort((a, b) => b.at - a.at || String(a.id).localeCompare(String(b.id)));
+                .sort((a, b) => b.at - a.at || String(b.id).localeCompare(String(a.id)));
             const start = (page - 1) * pageSize;
             return { entries: entries.slice(start, start + pageSize), total: entries.length };
         },

@@ -183,10 +183,13 @@ class LogRepository {
             await this.pool.query(
                 `INSERT INTO \`${TRACKING_REJECTIONS_TABLE}\`
                     (minute, source, reason, app_id, detail, hostname, requests)
-                 VALUES ${rows.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ')}
+                 VALUES ${rows.map(() => '(FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?)').join(', ')}
                  ON DUPLICATE KEY UPDATE requests = requests + VALUES(requests)`,
+                // The minute as seconds since the epoch, placed in the database's
+                // own time zone like every NOW() it is compared with, whatever
+                // zone this process runs in.
                 rows.flatMap((row) => [
-                    row.minute, row.source, row.reason,
+                    Math.floor(new Date(row.minute).getTime() / 1000), row.source, row.reason,
                     row.appId || '', row.detail || '', row.hostname || '', row.requests,
                 ])
             );
@@ -258,15 +261,23 @@ class LogRepository {
         const wantRejected = !outcome || outcome === TRACKING_OUTCOME.BOT || outcome === TRACKING_OUTCOME.REJECTED;
         const clause = (branch) => (branch.where.length ? ` WHERE ${branch.where.join(' AND ')}` : '');
 
+        // Each table gives at most the rows the page could need, in the same
+        // order as the whole, so a page never sorts either table in full; the
+        // view log reads its created_at index backwards to do it.
+        const offset = (page - 1) * pageSize;
+        const ORDER = 'ORDER BY at DESC, entry_id DESC';
         const branches = [];
         const params = [];
-        if (wantAccepted) { branches.push(ACCEPTED_BRANCH + clause(accepted)); params.push(...accepted.params); }
-        if (wantRejected) { branches.push(REJECTED_BRANCH + clause(rejected)); params.push(...rejected.params); }
+        for (const [want, branch, sql] of [[wantAccepted, accepted, ACCEPTED_BRANCH], [wantRejected, rejected, REJECTED_BRANCH]]) {
+            if (!want) continue;
+            branches.push(`(${sql}${clause(branch)} ${ORDER} LIMIT ?)`);
+            params.push(...branch.params, offset + pageSize);
+        }
 
         const [rows] = await this.pool.query(
             `SELECT * FROM (${branches.join(' UNION ALL ')}) AS entries
-             ORDER BY at DESC, entry_id ASC LIMIT ? OFFSET ?`,
-            [...params, pageSize, (page - 1) * pageSize]
+             ${ORDER} LIMIT ? OFFSET ?`,
+            [...params, pageSize, offset]
         );
 
         let total = 0;

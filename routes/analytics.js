@@ -623,6 +623,21 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     router.countRejection = reject;
     router.flushRejections = () => rejections.flush();
 
+    /**
+     * For the app that mounts this router, after its body parser: a body that
+     * is malformed JSON or over the size limit never reaches the router, so it
+     * is counted here, as an invalid request to the endpoint it was sent to.
+     * @type {import('express').ErrorRequestHandler}
+     */
+    // eslint-disable-next-line no-unused-vars
+    router.bodyErrorHandler = (err, req, res, next) => {
+        const status = err.status || err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
+        logger.warn(`Request rejected: ${err.message}`, { requestId: req.id });
+        reject(req, REJECTION_REASON.INVALID_REQUEST, { detail: 'body' });
+        res.status(status === HTTP_STATUS.INTERNAL_SERVER_ERROR ? HTTP_STATUS.BAD_REQUEST : status)
+            .json({ message: 'Malformed or oversized request' });
+    };
+
     return router;
 }
 

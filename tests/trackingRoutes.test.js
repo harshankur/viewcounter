@@ -33,8 +33,9 @@ function build({ perAppMax = 0, registerEvent, city = null } = {}) {
     };
     const router = createAnalyticsRouter({ config, dbManager, geo: { city } });
     const app = express();
-    app.use(express.json());
+    app.use(express.json({ limit: '1kb' }));
     app.use(router);
+    app.use(router.bodyErrorHandler);
     /** Everything counted so far, as written to the tracking log. */
     const counted = async () => {
         await router.flushRejections();
@@ -44,6 +45,23 @@ function build({ perAppMax = 0, registerEvent, city = null } = {}) {
 }
 
 const stored = (dbManager) => dbManager.registerEvent.mock.calls.at(-1)[1];
+
+describe('a body the parser refuses', () => {
+    test.each([
+        ['malformed JSON', '{"appId": "blog", '],
+        ['an oversized body', JSON.stringify({ appId: 'blog', eventType: 'x', eventData: { big: 'y'.repeat(4096) } })],
+    ])('%s to /event is answered 4xx and counted as an invalid request', async (_label, body) => {
+        const { app, counted } = build();
+        const res = await request(app).post('/event').set('Content-Type', 'application/json')
+            .set('Origin', 'https://blog.example.com').send(body);
+        expect(res.status).toBeGreaterThanOrEqual(400);
+        expect(res.status).toBeLessThan(500);
+        expect(res.body).toEqual({ message: 'Malformed or oversized request' });
+        expect(await counted()).toEqual([expect.objectContaining({
+            source: VIEW_LOG_SOURCE.EVENT, reason: REJECTION_REASON.INVALID_REQUEST, detail: 'body', hostname: 'blog.example.com', requests: 1,
+        })]);
+    });
+});
 
 describe('GET /registerView', () => {
     test('stores the site visited, the language, and the campaign tags, and returns the view ID', async () => {

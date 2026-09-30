@@ -3,11 +3,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { ADMIN, APP_NAME, HTTP_STATUS, PAYLOAD_LIMITS, REJECTION_REASON, SERVER } = require('./constants');
+const { ADMIN, APP_NAME, PAYLOAD_LIMITS, REJECTION_REASON, SERVER } = require('./constants');
 const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
-const { buildCorsOptions } = require('./middleware/security');
+const { buildCorsOptions, countRefusedPreflights } = require('./middleware/security');
 const { createAnalyticsRouter, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
@@ -59,12 +59,6 @@ function createApp() {
         }));
     }
 
-    app.use(cors(buildCorsOptions(config.server.corsOrigins)));
-
-    // Bounded well below body-parser's 100kb default; /event is the only
-    // endpoint taking a body and its payload is small.
-    app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
-
     const router = createAnalyticsRouter({
         config,
         dbManager,
@@ -72,6 +66,18 @@ function createApp() {
         geo,
     });
     analyticsRouter = router;
+
+    // A site missing from CORS_ORIGINS is refused at the browser's preflight;
+    // counted, so the tracking log shows it.
+    app.use(countRefusedPreflights(config.server.corsOrigins, {
+        isTrackingPath: (path) => Boolean(trackingSourceFor(path)),
+        onRefused: (req) => router.countRejection(req, REJECTION_REASON.ORIGIN_NOT_ALLOWED, { detail: 'CORS_ORIGINS' }),
+    }));
+    app.use(cors(buildCorsOptions(config.server.corsOrigins)));
+
+    // Bounded well below body-parser's 100kb default; /event is the only
+    // endpoint taking a body and its payload is small.
+    app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
 
     app.use(rateLimit({
         windowMs: config.server.rateLimit.windowMs,
@@ -91,14 +97,9 @@ function createApp() {
 
     app.use(router);
 
-    // Malformed JSON and payloads over the limit surface here.
-    // eslint-disable-next-line no-unused-vars
-    app.use((err, req, res, next) => {
-        const status = err.status || err.statusCode || HTTP_STATUS.INTERNAL_SERVER_ERROR;
-        logger.warn(`Request rejected: ${err.message}`, { requestId: req.id });
-        res.status(status === HTTP_STATUS.INTERNAL_SERVER_ERROR ? HTTP_STATUS.BAD_REQUEST : status)
-            .json({ message: 'Malformed or oversized request' });
-    });
+    // Malformed JSON and payloads over the limit surface here, and are
+    // counted in the tracking log when they were sent to a tracking endpoint.
+    app.use(router.bodyErrorHandler);
 
     return app;
 }

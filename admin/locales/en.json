@@ -408,7 +408,7 @@
     "rejectionReasons": {
         "bot": "automated client",
         "unknown_app": "unknown app",
-        "origin_not_allowed": "site not registered for the app",
+        "origin_not_allowed": "site not allowed",
         "invalid_request": "invalid request",
         "invalid_ip": "unreadable IP address",
         "rate_limited": "rate limited",

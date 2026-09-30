@@ -332,9 +332,12 @@ describe('LogRepository', () => {
         const [insert] = pool.queries;
         expect(insert.sql).toContain(`INSERT INTO \`${TRACKING_REJECTIONS_TABLE}\``);
         expect(insert.sql).toContain('ON DUPLICATE KEY UPDATE requests = requests + VALUES(requests)');
+        // Epoch seconds, placed in the database's own zone, whatever zone Node runs in.
+        expect(insert.sql).toContain('(FROM_UNIXTIME(?), ?, ?, ?, ?, ?, ?)');
+        const seconds = minute.getTime() / 1000;
         expect(insert.params).toEqual([
-            minute, 'registerView', 'bot', '', 'Googlebot', '', 4,
-            minute, 'event', 'unknown_app', 'blgo', '', 'blog.example.com', 1,
+            seconds, 'registerView', 'bot', '', 'Googlebot', '', 4,
+            seconds, 'event', 'unknown_app', 'blgo', '', 'blog.example.com', 1,
         ]);
     });
 
@@ -364,8 +367,10 @@ describe('LogRepository', () => {
         const result = await new LogRepository(dbWith(pool)).listTrackingLog({ page: 2, pageSize: 25, appId: 'blog' });
         const [list] = pool.queries;
         expect(list.sql).toContain('UNION ALL');
-        expect(list.sql).toContain('ORDER BY at DESC, entry_id ASC LIMIT ? OFFSET ?');
-        expect(list.params).toEqual(['blog', 'blog', 25, 25]);
+        // Each table gives at most offset + page size rows, in the page's order.
+        expect(list.sql.match(/ORDER BY at DESC, entry_id DESC LIMIT \?\)/g)).toHaveLength(2);
+        expect(list.sql).toContain(') AS entries\n             ORDER BY at DESC, entry_id DESC LIMIT ? OFFSET ?');
+        expect(list.params).toEqual(['blog', 50, 'blog', 50, 25, 25]);
         expect(result.total).toBe(7);
         expect(result.entries).toEqual([
             { id: 'v1', at: 't2', appId: 'blog', source: 'registerView', outcome: 'recorded', reason: null, detail: null,

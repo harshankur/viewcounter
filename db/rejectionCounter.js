@@ -8,10 +8,13 @@
  * minute, endpoint, reason, app, detail, and hostname, and one upsert every
  * TRACKING.REJECTION_FLUSH_MS adds them to what is stored.
  *
- * The key space is bounded as well. App IDs, details, and hostnames can be
- * made up by whoever sends the request, so once TRACKING.REJECTION_MAX_KEYS
- * keys are pending, a new key keeps only its minute, endpoint, and reason.
- * The count stays exact; the made-up values are dropped.
+ * The key space is bounded as well, and so are the rows written. App IDs,
+ * details, and hostnames can be made up by whoever sends the request, so only
+ * TRACKING.REJECTION_MAX_KEYS_PER_MINUTE distinct keys a minute, and
+ * TRACKING.REJECTION_MAX_KEYS_PER_HOUR an hour, keep them. The budgets hold
+ * across flushes: writing the counts does not start a new allowance. Beyond
+ * them a key keeps only its minute, endpoint, and reason. The count stays
+ * exact; the made-up values are dropped.
  */
 
 const { TRACKING } = require('../constants');
@@ -25,18 +28,41 @@ const cleanAppId = (value) => (typeof value === 'string' && APP_ID_SHAPE.test(va
 const cleanDetail = (value) => (typeof value === 'string' ? value.replace(/[^\x20-\x7e]/g, '').slice(0, DETAIL_MAX) : '');
 const cleanHostname = (value) => (typeof value === 'string' ? value : '');
 
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * @param {{ write: (rows: object[]) => Promise<unknown>, now?: () => number,
- *   flushMs?: number, maxKeys?: number }} options
+ *   flushMs?: number, maxKeysPerMinute?: number, maxKeysPerHour?: number }} options
  */
 function createRejectionCounter({
     write,
     now = Date.now,
     flushMs = TRACKING.REJECTION_FLUSH_MS,
-    maxKeys = TRACKING.REJECTION_MAX_KEYS,
+    maxKeysPerMinute = TRACKING.REJECTION_MAX_KEYS_PER_MINUTE,
+    maxKeysPerHour = TRACKING.REJECTION_MAX_KEYS_PER_HOUR,
 }) {
     const pending = new Map();
+    /** Keys already kept whole, by minute: this minute's and the one before. */
+    const keptByMinute = new Map();
+    /** How many keys were kept whole, by hour: this hour's. */
+    const keptByHour = new Map();
     let timer = null;
+
+    /** Whether a key may keep its app, detail, and hostname, spending the budgets if new. */
+    function keepWhole(minute, key) {
+        for (const old of keptByMinute.keys()) if (old < minute - TRACKING.REJECTION_BUCKET_MS) keptByMinute.delete(old);
+        const hour = Math.floor(minute / HOUR_MS) * HOUR_MS;
+        for (const old of keptByHour.keys()) if (old < hour) keptByHour.delete(old);
+
+        const kept = keptByMinute.get(minute) || new Set();
+        keptByMinute.set(minute, kept);
+        if (kept.has(key)) return true;
+        const hourCount = keptByHour.get(hour) || 0;
+        if (kept.size >= maxKeysPerMinute || hourCount >= maxKeysPerHour) return false;
+        kept.add(key);
+        keptByHour.set(hour, hourCount + 1);
+        return true;
+    }
 
     function schedule() {
         if (timer) return;
@@ -55,7 +81,8 @@ function createRejectionCounter({
         const minute = Math.floor(now() / TRACKING.REJECTION_BUCKET_MS) * TRACKING.REJECTION_BUCKET_MS;
         let entry = { source, reason, appId: cleanAppId(appId), detail: cleanDetail(detail), hostname: cleanHostname(hostname) };
         let key = [minute, entry.source, entry.reason, entry.appId, entry.detail, entry.hostname].join('\u0000');
-        if (!pending.has(key) && pending.size >= maxKeys) {
+        const plain = !entry.appId && !entry.detail && !entry.hostname;
+        if (!plain && !keepWhole(minute, key)) {
             entry = { source, reason, appId: '', detail: '', hostname: '' };
             key = [minute, source, reason, '', '', ''].join('\u0000');
         }

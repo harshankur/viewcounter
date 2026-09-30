@@ -33,6 +33,26 @@ function buildCorsOptions(allowedOrigins) {
 }
 
 /**
+ * Before a browser sends JSON to another site, it asks (a CORS preflight). A
+ * site missing from CORS_ORIGINS is refused there, and the request itself
+ * never arrives, so nothing else could count it. This counts the refusal, for
+ * the tracking-log paths `isTrackingPath` names, so a misconfigured
+ * CORS_ORIGINS shows up in the tracking log. Place it before `cors()`.
+ *
+ * @param {string[]} allowedOrigins as given to buildCorsOptions
+ * @param {{ isTrackingPath: (path: string) => boolean, onRefused: (req: import('express').Request) => void }} hooks
+ * @returns {import('express').RequestHandler}
+ */
+function countRefusedPreflights(allowedOrigins, { isTrackingPath, onRefused }) {
+    const allowlist = new Set(allowedOrigins);
+    return (req, res, next) => {
+        const origin = req.get('origin');
+        if (req.method === 'OPTIONS' && origin && !allowlist.has(origin) && isTrackingPath(req.path)) onRefused(req);
+        next();
+    };
+}
+
+/**
  * Extract the requesting origin, falling back to the referrer's origin.
  * @returns {string|null}
  */
@@ -106,6 +126,7 @@ function noStore(req, res, next) {
 
 module.exports = {
     buildCorsOptions,
+    countRefusedPreflights,
     requireRegisteredOrigin,
     requestOrigin,
     noStore,

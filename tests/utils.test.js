@@ -17,7 +17,7 @@ const {
     ERROR_MESSAGES,
     WARNING_MESSAGES,
 } = require('../utils/errorUtils');
-const { buildCorsOptions, requestOrigin, noStore } = require('../middleware/security');
+const { buildCorsOptions, countRefusedPreflights, requestOrigin, noStore } = require('../middleware/security');
 const { PRIVACY, SOURCE_TYPE, DEVICE_TYPE } = require('../constants');
 
 describe('stringUtils', () => {
@@ -360,6 +360,33 @@ describe('secretStore', () => {
 });
 
 describe('security middleware', () => {
+    describe('countRefusedPreflights()', () => {
+        const run = (req) => {
+            const refused = [];
+            const middleware = countRefusedPreflights(['https://a.example'], {
+                isTrackingPath: (path) => path === '/event',
+                onRefused: (request) => refused.push(request.path),
+            });
+            const next = jest.fn();
+            middleware({ method: 'OPTIONS', path: '/event', get: () => 'https://evil.example', ...req }, {}, next);
+            expect(next).toHaveBeenCalledTimes(1);
+            return refused;
+        };
+
+        test('counts a preflight from a site missing from the allowlist, on a tracking path', () => {
+            expect(run({})).toEqual(['/event']);
+        });
+
+        test.each([
+            ['a listed site', { get: () => 'https://a.example' }],
+            ['no Origin', { get: () => undefined }],
+            ['another path', { path: '/stats/blog' }],
+            ['a request that is not a preflight', { method: 'POST' }],
+        ])('never counts %s', (_label, req) => {
+            expect(run(req)).toEqual([]);
+        });
+    });
+
     describe('buildCorsOptions()', () => {
         const invoke = (allowlist, origin) => new Promise((resolve) => {
             buildCorsOptions(allowlist).origin(origin, (_err, allowed) => resolve(allowed));
