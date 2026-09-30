@@ -14,9 +14,10 @@ Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for de
 
 ## 🛡️ GDPR Compliant & Privacy-First
 **100% GDPR Compliant By Design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
-- **Zero Cookies**: No cookies, no local storage, and no consent banners required for visitors. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
+- **Nothing on the visitor's device**: no cookie, no localStorage, no sessionStorage, and no identifier sent with a view, so the tracker needs no consent banner under the ePrivacy rules on device storage. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
 - **Data Sovereignty**: You own your data. Analytics never leave your private infrastructure.
-- **Minimal Collection**: Tracks only what is necessary (Country, Browser, OS, Page Path).
+- **Minimal Collection**: records what analytics needs, each in a form that does not identify a person. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string are never stored.
+- **Bots left out**: crawlers, link previewers, and automated browsers are recognised and never stored, only counted per minute by name.
 
 ### 🔄 Data Privacy Lifecycle
 ```mermaid
@@ -51,17 +52,21 @@ We believe in total transparency regarding your visitors' data:
 - 🧑‍💼 **Admin UI**: Browse, search, edit, annotate, and soft-delete recorded views, with batch actions, a trash, and audit logs ([details](#admin-ui))
 
 ### Advanced Tracking
-- 📍 **Page Tracking**: Track specific pages/paths, not just app-level
-- 🔗 **Referrer Analysis**: Automatic source categorization (search, social, email, campaign, referral, direct)
-- 🖥️ **User Agent Parsing**: Browser, OS, and device type detection
-- 👤 **Session Tracking**: Group views by user session
-- 🎯 **Custom Events**: Track button clicks, form submissions, etc.
-- 📊 **Time-Based Analytics**: Hourly, daily, and weekly trends
+- 🧩 **Tracker script**: one `<script>` tag, served by your ViewCounter server ([details](#client-side-integration)): page views, including page changes in single-page apps; how long each page was visible and how far it was scrolled; clicks on links to other sites and on downloads; campaign tags. It stores nothing on the device.
+- 📍 **Pages and sites**: the page path, its title, and which of your sites (hostname) it was on
+- 🔗 **Referrer Analysis**: automatic source categorization (search, social, email, campaign, referral, internal, direct)
+- 🏷️ **Campaigns**: the five `utm_*` tags of the landing URL, and nothing else from it
+- 🌍 **Location**: country built in; region and city with an optional [city database](#location-data)
+- 🗣️ **Language**: the visitor's preferred language (its primary subtag only, such as `de`)
+- 🖥️ **User Agent Parsing**: browser, OS, and device type, with their versions
+- ⏱️ **Engagement**: time on page and scroll depth, measured by the tracker script
+- 🎯 **Custom Events**: track button clicks, form submissions, etc., with properties
+- 📊 **Analysis**: visitors, visits, bounce rate, visit duration, entry and exit pages, page flow, a weekday-by-hour heatmap, and comparisons with the period before, in the [admin UI](#admin-ui)
 
 ## Quick Start
 
 **Requires Node 24 or newer** and a reachable MySQL 8 (or MariaDB 11) instance.
-Only the current Node LTS is supported — no matrix of older runtimes to
+Only the current Node LTS is supported, with no matrix of older runtimes to
 maintain.
 
 ### 1. Install Dependencies
@@ -135,7 +140,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX ON viewcounterdb.* TO
 ### Environment Variables
 See [`.env.example`](.env.example) for the full surface with prose on each one.
 
-**Required in production** — the server refuses to start without these rather
+**Required in production**: the server refuses to start without these rather
 than running on a guessable default:
 - `DB_USER` / `DB_PASSWORD`: refuses to boot while still `root` with an empty password
 - `DB_NAME`: database to write into
@@ -144,13 +149,37 @@ than running on a guessable default:
 
 **Recommended**:
 - `READ_API_KEYS`: comma-separated keys for the analytics read endpoints. Unset means the read API is disabled.
-- `TRUST_PROXY`: hop count or CIDR list. **Never set this to `true`** — trusting every hop lets any caller forge their own IP via `X-Forwarded-For`, which fakes geolocation, inflates unique-visitor counts, and bypasses rate limiting. `true` and `*` are downgraded to one hop with a warning. Your proxy must set `X-Forwarded-For`; `X-Real-IP` alone is not read.
+- `TRUST_PROXY`: hop count or CIDR list. **Never set this to `true`**: trusting every hop lets any caller forge their own IP via `X-Forwarded-For`, which fakes geolocation, inflates unique-visitor counts, and bypasses rate limiting. `true` and `*` are downgraded to one hop with a warning. Your proxy must set `X-Forwarded-For`; `X-Real-IP` alone is not read.
 - `VISITOR_SECRET_PATH` / `VISITOR_SECRET`: where the visitor-hash secret lives, or the value itself.
 - `ADMIN_PASSWORD`: turns on the [admin UI](#admin-ui) at `/admin`. At least 16 characters. Unset means the admin UI does not exist.
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
 `RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
-`TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`.
+`TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`, `ADMIN_SESSION_IDLE_TIMEOUT`,
+`ADMIN_SESSION_MAX_AGE`, `GEOIP_CITY_DB`.
+
+### Location data
+
+**Country** comes from the GeoLite2 country database bundled in the
+`geoip-country` package: nothing to configure. MaxMind updates it monthly and
+the package follows, so update the package (or rebuild your image) now and
+then. GeoLite2's licence asks for credit, which the admin UI shows: *This
+product includes GeoLite2 data created by MaxMind, available from
+https://www.maxmind.com.*
+
+**Region and city** need a city database. Set `GEOIP_CITY_DB` to a
+MaxMind-format `.mmdb` file:
+
+- [DB-IP IP to City Lite](https://db-ip.com/db/download/ip-to-city-lite),
+  free under CC BY 4.0 and updated monthly; the admin UI credits it as
+  *IP geolocation by DB-IP*, as its licence asks;
+- or MaxMind GeoLite2 City, which needs a free MaxMind account.
+
+The file is read again whenever it changes, so a monthly job that downloads a
+new one over it needs no restart. Without one, region and city stay empty and
+everything else works. A configured path that cannot be opened stops the
+server from starting, rather than running silently without cities. The IP is
+looked up in memory only, like the country, and is never stored.
 
 ## Admin UI
 
@@ -161,8 +190,10 @@ there, with no separate deployment and no build step.
 ```bash
 # .env (or the environment of your container)
 ADMIN_PASSWORD=<at least 16 characters, e.g. from: openssl rand -base64 24>
-TRASH_RETENTION_DAYS=30      # optional; 0 keeps trash until emptied by hand
-VIEW_LOG_RETENTION_DAYS=90   # optional; 0 keeps the view log forever
+TRASH_RETENTION_DAYS=30          # optional; 0 keeps trash until emptied by hand
+VIEW_LOG_RETENTION_DAYS=90       # optional; 0 keeps the tracking log forever
+ADMIN_SESSION_IDLE_TIMEOUT=7d    # optional; a session ends after this long unused
+ADMIN_SESSION_MAX_AGE=30d        # optional; and this long after signing in
 ```
 
 Then open `https://<your-server>/admin/` and sign in.
@@ -173,30 +204,57 @@ at http://localhost:4173/admin/ over several thousand fake views (password
 
 ### What you can do
 
-- **Browse** one app's views, or every app's together under **All apps**:
-  filter by date range (7, 30, or 90 days, a year, or all time), event type,
-  and whether an admin changed them; search by page, title, source, note,
-  event, or session; sort by any column; page through them. Under **All apps**
-  each row names its app. On narrower screens the table drops its least useful
-  columns first, and on a phone each view becomes a card.
-- **See the insights** above the table, for exactly the rows its filters
-  select: views, visitors, unique share, countries, and admin edits; views over
-  time (with a table view); a **world map** of where views come from, with the
-  split by event type on hover and a ranked country list beside it; and
-  breakdowns by source, device, browser, OS, event type, and app.
-- **Select several views**, across pages and across apps, and act on all of
-  them at once.
-- **Edit content fields**: page path, page title, referrer (the source is
-  recalculated from it), device size, event type, and event data. What was
-  *observed* about the visitor (time, masked IP, country, browser, OS, device
-  type) is never editable, so an edit can correct what was viewed but never
-  fabricate who viewed it or when.
-- **Add a note** to any view, as a private annotation.
-- **Move views to the trash**. Trashed views stop counting in every statistic
-  at once and come back if restored.
-- **Erase views permanently** from the trash.
-- **Read two logs**: the *admin log* of every sign-in and every change, and the
-  *view log* of every view the server accepted.
+The admin has five sections. Every one but the two logs shows one app, or
+every app together under **All apps**; the choice follows you between them.
+
+- **Overview** (where it opens) is the analysis, for a period (24 hours, 7,
+  30, or 90 days, a year, or all time) and an event type:
+  - nine headline numbers (visitors, visits, page views, views and events,
+    bounce rate, visit duration, pages per visit, time on page, scroll depth),
+    each against the period before, with a sparkline; choose one to chart it
+    over time, or read every number per period as a table;
+  - **Right now**: visitors in the last few minutes, views per minute over
+    the last half hour, and the pages open, refreshed while you look;
+  - where visits come from (channels, referrers, referring pages, and every
+    campaign tag), pages (top, entry with bounce rate, exit, titles, sites),
+    locations (a world map, countries, regions, cities, languages), devices,
+    browsers and systems with their versions, custom events and their
+    properties, time-on-page and scroll-depth distributions, page flow (which
+    page led to which), and a weekday-by-hour heatmap in your time zone;
+  - click any row to narrow everything to it (a chip above takes it off
+    again), and **Show these views** to open exactly those rows in Views.
+  "How these numbers are counted", at the bottom, defines each number.
+- **Views** is the data itself: every view and event recorded, one row each,
+  the rows every Overview number is computed from. Filter by period, event
+  type, and whether an admin changed a row; search by page, title, site,
+  source, campaign, note, event, or view ID; sort by any column. On narrower
+  screens the table drops its least useful columns first, and on a phone each
+  view becomes a card. From here you can:
+  - **select several views**, across pages and apps, and act on all at once;
+  - **edit content fields**: page path, page title, referrer (the source is
+    recalculated from it), device size, event type, and event data. What was
+    *observed* about the visitor (time, masked IP, location, language,
+    browser, OS, device type, engagement) is never editable, so an edit can
+    correct what was viewed but never fabricate who viewed it or when;
+  - **add a note** to any view, as a private annotation;
+  - **see every stored field** of a view, grouped, in its details;
+  - **move views to the trash**, where they stop counting in every statistic
+    at once.
+- **Trash** holds what was moved there, to **restore** or **erase
+  permanently**.
+- **Tracking log** lists every tracking request that reached the server and
+  what became of it: recorded, a repeat visit, a bot, or refused (and why:
+  an unregistered site, an unknown app, a malformed request, a rate limit).
+  Views holds only what was recorded; this log also shows what never was, so
+  it is where to check that a site is sending views, or find out why some are
+  not counted. It sums up the last day, filters by app, request type, and
+  outcome, can refresh itself, and opens any entry's view in Views. It is not
+  a statistic, and editing or deleting a view never changes it.
+- **Admin log** lists every sign-in and every change made here.
+
+The header links to this project's website and names the running version; the
+footer links to the documentation, changelog, source, and package, and credits
+the location data.
 
 ### How the data is kept
 
@@ -207,15 +265,23 @@ at http://localhost:4173/admin/ over several thousand fake views (password
 | `note` | The admin's annotation, if any. |
 | `deleted_at` | Empty for live rows; set when the row went to the trash. |
 
-These columns, and the `_admin_log` and `_view_log` tables, are added
-automatically when the server starts, in both database modes, whether or not
+These columns, the tracking columns in [What Gets Tracked?](#what-gets-tracked),
+and the `_admin_log`, `_view_log`, `_tracking_rejections`, and
+`_admin_sessions` tables are added automatically when the server starts, in both database modes, whether or not
 the admin UI is enabled. The upgrade is additive: nothing is dropped, and
 existing rows get their `public_id` on the first start, in batches that each
 resume where the last stopped, so a large table is read once. The database user
 therefore needs `CREATE`, `ALTER`, and `INDEX` as well as the usual privileges
 (see [Database Modes](#database-modes)).
 
-The view log gains one row per accepted view, so entries older than
+| Table | Holds |
+|---|---|
+| `_view_log` | The tracking log's accepted half: one row per view or event recorded, with its app, site, request type, view ID, and whether it was unique. |
+| `_tracking_rejections` | The tracking log's other half: per minute, how many requests were bots or refused, by app, request type, reason, site, and a short detail (a bot's name, the invalid field). Nothing about who sent them. |
+| `_admin_log` | Every sign-in and every change made in the admin. |
+| `_admin_sessions` | Signed-in admin sessions: a SHA-256 of the session token (never the token), when it was created and last used, and when the password was last entered. |
+
+The tracking log grows with traffic, so entries older than
 `VIEW_LOG_RETENTION_DAYS` (default 90) are removed hourly, in batches, and each
 run that removes anything is recorded in the admin log. It holds no personal
 data, so this only bounds its size; the views themselves are untouched. The
@@ -234,8 +300,9 @@ Neither log copies personal data, so erasing a row really erases it:
 
 - the admin log records who acted (a session ID and a masked IP), what they did,
   when, to which view IDs, and *which* fields changed, but never the values;
-- the view log records that a view was accepted, when, for which app, and
-  through which endpoint, with no IP, visitor hash, or user agent.
+- the tracking log records that a view was accepted, when, for which app and
+  site, and through which endpoint, with no IP, visitor hash, or user agent;
+  refused requests and bots are only counted, per minute.
 
 ### Security
 
@@ -244,8 +311,15 @@ Neither log copies personal data, so erasing a row really erases it:
   and the server warns if you reuse an API key as the password.
 - Signing in issues an `HttpOnly`, `SameSite=Strict` session cookie scoped to
   the admin path (`/admin`, or wherever an embedding app mounts it), marked `Secure` whenever the request arrived over HTTPS (through
-  `TRUST_PROXY` behind a proxy). Sessions end after 30 idle minutes or 12
-  hours, and on restart.
+  `TRUST_PROXY` behind a proxy).
+- Sessions are kept in the database as a hash of their token, so a restart
+  does not sign anyone out. One ends after 7 days without use or 30 days after
+  signing in (`ADMIN_SESSION_IDLE_TIMEOUT`, `ADMIN_SESSION_MAX_AGE`). Using the
+  UI keeps it alive, reading included. If it ends mid-use, a sign-in dialog
+  opens over the page and whatever you were doing carries on after it.
+- Erasing permanently asks for the password again unless it was entered in the
+  last 15 minutes, whatever the session's age; a wrong one counts toward the
+  sign-in limit.
 - Every change also needs a per-session CSRF token and a matching `Origin`.
 - Wrong passwords are rate limited per IP (5 per 15 minutes) and recorded in
   the admin log. Requests refused before the password is checked, such as a
@@ -274,20 +348,51 @@ GET /registerView?appId=blog&deviceSize=medium
 # Enhanced with page tracking
 GET /registerView?appId=blog&deviceSize=medium&page=/blog/my-post&title=My%20Post
 
-# With referrer and session
-GET /registerView?appId=blog&deviceSize=medium&page=/blog/my-post&referrer=https://google.com&sessionId=abc123
+# With referrer and campaign tags
+GET /registerView?appId=blog&deviceSize=medium&page=/blog/my-post&referrer=https://google.com&utm_source=newsletter&utm_campaign=launch
 ```
 
-**Automatic tracking:**
-- ✅ IP address and geolocation
-- ✅ Browser, OS, device type (from User-Agent)
-- ✅ Referrer domain and source type
+`utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, and `utm_content` are
+the only parts of a URL's query that are kept (100 characters each); a landing
+that carries one counts as a `campaign`. `sessionId` is optional and yours to
+define; the tracker script never sends one.
+
+**Recorded by the server:**
+- ✅ Country (and region and city with a [city database](#location-data)), from the IP, which is then masked
+- ✅ Browser, OS, device type, and their versions (from the User-Agent, which is not kept)
+- ✅ The site visited (the hostname of the request's `Origin`) and the visitor's language (the primary subtag of `Accept-Language`)
+- ✅ Referrer domain and source type; a referrer on the same site is `internal`
 - ✅ Duplicate prevention (configurable window)
+- ✅ Bots are answered but never stored
 
-**Response**: 
+**Response**:
 ```json
-{"message": "Success!", "duplicate": false}
+{"message": "Success!", "duplicate": false, "recorded": true, "id": "0b8c3c1e-3b1c-4f2c-9d4e-1a2b3c4d5e6f"}
 ```
+`id` is the view's public ID, which `/engage` takes. A bot gets
+`{"recorded": false}` and a `200`, so it has no reason to retry.
+
+#### Report Engagement
+```bash
+POST /engage
+Content-Type: text/plain   # or application/json
+
+{"appId": "blog", "id": "<the id /registerView returned>", "ms": 42000, "scroll": 80}
+```
+How long the page was visible (`ms`, up to 6 hours) and how much of it had been
+on screen (`scroll`, 0 to 100). A later report can only raise either. A report
+for a view that is unknown, trashed, or older than a day changes nothing and is
+counted in the tracking log as refused. `text/plain` is accepted so
+`navigator.sendBeacon` can deliver it as the page closes, without a CORS
+preflight. Answers `204`.
+
+#### The Tracker Script
+```bash
+GET /tracker.js
+```
+The script in [Client-Side Integration](#client-side-integration), served by
+the server it reports to, so the two never drift apart. Other sites may load
+it (`Cross-Origin-Resource-Policy: cross-origin`), and it is cached for an hour.
 
 #### Track Custom Event
 ```bash
@@ -298,17 +403,20 @@ Content-Type: application/json
   "appId": "blog",
   "eventType": "button_click",
   "eventData": {"button": "subscribe", "location": "header"},
-  "sessionId": "abc123",
-  "page": "/blog/my-post"
+  "page": "/blog/my-post",
+  "title": "My post"
 }
 ```
+**Response**: `{"message": "Event tracked successfully", "recorded": true, "id": "<public ID>", "insertId": 42}`.
+`insertId`, the internal row number, is deprecated and will be removed in 4.0;
+use `id`. Custom events are never deduplicated.
 
 ### 📈 Analytics
 
 > **These endpoints require authentication.** They return your analytics data,
 > so every one of them expects a valid key in the `x-api-key` header. Configure
 > keys via `READ_API_KEYS` (comma-separated, minimum 32 characters each). With
-> none configured the read API returns `503` — it fails closed rather than
+> none configured the read API returns `503`: it fails closed rather than
 > serving your data to anyone who asks.
 >
 > ```bash
@@ -489,59 +597,73 @@ Set `NODE_ENV=production` to hide error details in API responses.
 
 ## What Gets Tracked?
 
-For each view/event, the system automatically captures:
+Every field of a view, where it comes from, and the form it is stored in.
+Nothing here identifies a person: the one pseudonymous value, the visitor
+hash, changes every `UNIQUE_VISITOR_WINDOW_HOURS` and is never shown or
+returned by any API.
 
-| Field | Source | Description |
-|-------|--------|-------------|
-| **IP Address** | Request | Visitor IP |
-| **Country** | GeoIP lookup | 2-letter country code |
-| **Timestamp** | Server | When the event occurred |
-| **Device Size** | Query param | small, medium, large |
-| **Page Path** | Query param (optional) | e.g., `/blog/my-post` |
-| **Page Title** | Query param (optional) | e.g., "My Blog Post" |
-| **Referrer** | Query param (optional) | Full referrer URL, normally `document.referrer`; absent or empty means direct |
-| **Referrer Domain** | Parsed | e.g., `google.com` |
-| **Source Type** | Parsed | search, social, email, campaign, referral, direct |
-| **Browser** | User-Agent | e.g., Chrome, Safari, Firefox |
-| **Browser Version** | User-Agent | e.g., 120.0 |
-| **OS** | User-Agent | e.g., Windows, Mac OS, Linux |
-| **OS Version** | User-Agent | e.g., 10, 14.2 |
-| **Device Type** | User-Agent | desktop, mobile, tablet, tv, console |
-| **Session ID** | Query param (optional) | Group events by session |
-| **Event Type** | Query param/body | pageview, click, submit, etc. |
-| **Event Data** | Body (optional) | Custom JSON data |
+| Field | Comes from | Stored as | Why |
+|-------|-----------|-----------|-----|
+| **Timestamp** | Server | When the view was recorded | Everything over time |
+| **Masked IP** | Request | IPv4 with the last octet zeroed, IPv6 with the interface identifier zeroed | Abuse investigation at network level, never a person |
+| **Visitor hash** | IP and User-Agent, with a secret | HMAC-SHA-256, keyed with a server secret, rotating every window | Unique views, visitors, and visits; never returned |
+| **Country** | IP, looked up in memory | Two-letter code | Where visitors are |
+| **Region, City** | IP, with an optional [city database](#location-data) | Names, such as Bavaria and Munich | Where visitors are, more finely |
+| **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list) | Which languages to write in |
+| **Site** | `Origin` of the request | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
+| **Page Path** | `page` | Path only, such as `/blog/my-post` (the tracker never sends a query string) | Which pages are read |
+| **Page Title** | `title` | Text, up to 200 characters | Readable page names |
+| **Referrer** | `referrer` (the page's `document.referrer`) | The URL as sent; absent or empty means direct | Where visits come from |
+| **Referrer Domain, Source Type** | Derived from the referrer | Hostname; search, social, email, campaign, referral, internal, or direct | Grouping sources |
+| **Campaign** | `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | Up to 100 characters each; no other query key is ever kept | Which campaigns work |
+| **Device Size** | `deviceSize` | small, medium, large | Layout decisions |
+| **Browser, OS, and versions** | User-Agent, parsed in memory | Names and versions, such as Chrome 140 on macOS 15 | Compatibility |
+| **Device Type** | User-Agent | desktop, mobile, tablet, tv, console, wearable | Compatibility |
+| **Time on page, Scroll depth** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen | Whether pages are read |
+| **Event Type, Event Data** | `/event` | Type name; JSON up to 4 kB, as your site sends it | Custom events |
+| **Session ID** | `sessionId` (optional) | As your site sends it | Your own grouping; the tracker never sends one |
+
+**Never stored**: the raw IP address, the User-Agent string, cookies or any
+other identifier from the device, the query string apart from the campaign
+tags, and anything about bots or refused requests beyond a per-minute count.
+
+**Visits** are read from the visitor hash the way privacy-first analytics does
+it: a visitor's page views belong to one visit until they pause for 30
+minutes. Because the hash rotates, the same person on two days is two
+visitors, and nothing links them.
+
+Your site's privacy notice should still say that you measure visits this way,
+and why (legitimate interest in understanding how the site is used). What you
+send in `eventData` and `sessionId` is yours to keep free of personal data.
 
 ## Understanding `UNIQUE_VISITOR_WINDOW_HOURS`
 
 This setting prevents counting the same visitor multiple times within a time window.
 
 **How it works:**
-- When a view is registered, the system checks if the same IP has visited within the last X hours
-- If yes: Returns `{duplicate: true}` (doesn't count again)
-- If no: Inserts new view
+- When a view is registered, the system checks whether the same visitor hash
+  (the same IP and browser, within the current window) already viewed the app
+- If yes: the view is stored as a repeat (`{duplicate: true}`), which counts as
+  a view but not as a unique view
+- If no: it is stored as a unique view
+
+The window is also how often the visitor hash rotates, so it bounds how long
+the same person counts as one visitor.
 
 **Examples:**
-- `24` (default): Same IP counts as 1 view per day
-- `0`: Disable duplicate prevention (count every request)
-- `168`: Same IP counts as 1 view per week
+- `24` (default): the same visitor counts once per day
+- `0`: disable duplicate prevention (the hash still rotates hourly)
+- `168`: the same visitor counts once per week
 
 **Note:** Only applies to `pageview` events, not custom events.
 
 ### 🛡️ Privacy Guardrails (Fail-Safe)
-To guarantee that raw IPs never leak into the database, we've implemented an automated **Privacy Guard** suite ([privacyFailSafe.test.js](file:///Users/harshankur/Desktop/codes/viewcounter/tests/privacyFailSafe.test.js)):
+To guarantee that raw IPs never leak into the database, we've implemented an automated **Privacy Guard** suite ([privacyFailSafe.test.js](tests/privacyFailSafe.test.js)):
 - **Query Interception**: Every single SQL `INSERT` is intercepted during tests.
 - **Regex Scanning**: We scan all query parameters against raw IP patterns (IPv4 and IPv6).
 - **Hard Enforcement**: If the system ever attempts to save an unmasked IP, the test suite immediately fails, preventing accidental privacy regressions.
 
 This makes ViewCounter not just "Privacy-First" by design, but **Privacy-Guaranteed** by automation.
-
-- [x] Implement IP masking utility
-- [x] Implement transient hashing for uniqueness
-- [x] Update `DatabaseManager` to use hashes/masked IPs
-- [x] Update `db/schema.sql` (column renaming/clarification)
-- [x] Remove "IP Address" references from docs/README
-- [x] Update documentation with "How it works" privacy section
-- [x] Update and verify tests
 
 ## Security Features
 
@@ -549,19 +671,19 @@ This makes ViewCounter not just "Privacy-First" by design, but **Privacy-Guarant
 because a browser on your site must be able to reach them. Everything that
 *reads* analytics is authenticated.
 
-- ✅ **Authenticated, scoped read API** — every analytics endpoint requires `x-api-key`, compared in constant time, and each key is authorized against the specific `appId` requested. Fails closed when unconfigured.
-- ✅ **Separate admin tier** — provisioning apps uses its own credential; a read key cannot provision and an admin key cannot read.
-- ✅ **Per-tenant rate limits** — an `appId`-keyed budget alongside the per-IP limit.
-- ✅ **Keyed visitor hashing** — HMAC-SHA-256 with a persisted 32-byte server secret, rotating per window, so stored hashes are not reversible to an IP.
-- ✅ **SQL injection prevention** — every value is a bound parameter; the only interpolated identifier is `appId`, gated by the allowlist.
-- ✅ **Explicit CORS allowlist** — no wildcard, and writes can be bound to registered origins per app.
-- ✅ **Proxy-aware IP derivation** — client-supplied forwarding headers are not trusted unless `TRUST_PROXY` says so.
-- ✅ **Bounded input** — length caps matching every column width, integer ranges on `limit`/`days`/`offset`, a 16 kB body cap and a 4 kB `eventData` cap.
-- ✅ **Resource guards** — finite pool queue, per-statement timeout, rate limiting.
-- ✅ **No error leakage** — failures return a request id; the detail goes only to the server log.
+- ✅ **Authenticated, scoped read API**: every analytics endpoint requires `x-api-key`, compared in constant time, and each key is authorized against the specific `appId` requested. Fails closed when unconfigured.
+- ✅ **Separate admin tier**: provisioning apps uses its own credential; a read key cannot provision and an admin key cannot read.
+- ✅ **Per-tenant rate limits**: an `appId`-keyed budget alongside the per-IP limit.
+- ✅ **Keyed visitor hashing**: HMAC-SHA-256 with a persisted 32-byte server secret, rotating per window, so stored hashes are not reversible to an IP.
+- ✅ **SQL injection prevention**: every value is a bound parameter; the only interpolated identifier is `appId`, gated by the allowlist.
+- ✅ **Explicit CORS allowlist**: no wildcard, and writes can be bound to registered origins per app.
+- ✅ **Proxy-aware IP derivation**: client-supplied forwarding headers are not trusted unless `TRUST_PROXY` says so.
+- ✅ **Bounded input**: length caps matching every column width, integer ranges on `limit`/`days`/`offset`, a 16 kB body cap and a 4 kB `eventData` cap.
+- ✅ **Resource guards**: finite pool queue, per-statement timeout, rate limiting.
+- ✅ **No error leakage**: failures return a request id; the detail goes only to the server log.
 - ✅ **Security headers** (Helmet.js) and `Cache-Control: no-store` on all analytics responses.
-- ✅ **Fail-fast config validation** — insecure defaults stop the boot rather than being silently accepted.
-- ✅ **Adversarial regression suite** — [`tests/security.test.js`](tests/security.test.js) covers header spoofing, auth bypass, injection-shaped input, oversized payloads, and prototype pollution.
+- ✅ **Fail-fast config validation**: insecure defaults stop the boot rather than being silently accepted.
+- ✅ **Adversarial regression suite**: [`tests/security.test.js`](tests/security.test.js) covers header spoofing, auth bypass, injection-shaped input, oversized payloads, and prototype pollution.
 
 Report a vulnerability through [private advisory reporting](https://github.com/harshankur/viewcounter/security/advisories/new), not a public issue. See [SECURITY.md](SECURITY.md).
 
@@ -617,7 +739,7 @@ router.afterEach(() => track());        // Vue / Nuxt
 useEffect(() => track(), [pathname]);   // Next.js app router
 ```
 
-Run one instance for all your sites — one `appId` each, each with its own table
+Run one instance for all your sites: one `appId` each, each with its own table
 and its own origin list.
 
 ## Multi-Tenancy
@@ -658,7 +780,7 @@ out-of-scope one, for the same reason.
 ### Provisioning a tenant at runtime
 
 `POST /apps` creates the app's table, records it, and adds it to the live
-allowlist — no restart, no config edit. It requires an **admin** key
+allowlist, with no restart and no config edit. It requires an **admin** key
 (`ADMIN_API_KEYS`), which is a separate tier: a read key cannot provision, and
 an admin key cannot read analytics.
 
@@ -680,15 +802,15 @@ of letters, digits, underscore, and hyphen, and may not start with an underscore
 
 Two independent limits apply to writes:
 
-- `RATE_LIMIT_MAX` — per client IP. The single-abuser backstop.
-- `APP_RATE_LIMIT_MAX` — per `appId`. Stops one tenant consuming the budget
+- `RATE_LIMIT_MAX`: per client IP. The single-abuser backstop.
+- `APP_RATE_LIMIT_MAX`: per `appId`. Stops one tenant consuming the budget
   everyone else on the instance depends on. Keyed on `appId` alone, so it cannot
   be bypassed by rotating addresses. Set `0` to disable for single-tenant use.
 
 ### What is still yours to build
 
 Tenancy here is data isolation and quota, not a billing system. There is no
-usage metering, no plan enforcement, and no self-serve signup flow — `POST /apps`
+usage metering, no plan enforcement, and no self-serve signup flow: `POST /apps`
 is an admin action you would call from your own onboarding code.
 
 ## Deployment Modes
@@ -746,12 +868,12 @@ app.use('/analytics', createAnalyticsRouter({
 }));
 ```
 
-Endpoints then live under the prefix — `POST /analytics/event`,
+Endpoints then live under the prefix: `POST /analytics/event`,
 `GET /analytics/stats/blog`, and so on.
 
 Two things the host application owns in this mode, because the router does not
 install them itself: `helmet()` and the CORS allowlist, and `trust proxy`. Set
-`app.set('trust proxy', <hop count>)` — never `true`, or callers can forge
+`app.set('trust proxy', <hop count>)`, never `true`, or callers can forge
 their own IP through `X-Forwarded-For`.
 
 #### Adding the admin UI
@@ -790,38 +912,71 @@ const stopRetention = startRetention({
 
 ### 3. Browser client
 
-There is no published client package yet; the snippets below are the
-integration surface. See [Client-Side Integration](#client-side-integration).
+The server serves its own tracker script at `/tracker.js`. See
+[Client-Side Integration](#client-side-integration).
 
 ## Client-Side Integration
 
-### Basic Tracking
+### The tracker script
+
+One tag, anywhere in the page:
+
 ```html
-<script>
-  // Track page view
-  fetch('https://your-server.com/registerView?appId=blog&deviceSize=medium');
-</script>
+<script defer src="https://your-server.com/tracker.js" data-app="blog"
+        data-hosts="blog.example.com"></script>
 ```
 
-### Enhanced Tracking
-```javascript
-// Generate a session ID (store in sessionStorage).
-// Use crypto.randomUUID(), not Math.random(): Math.random() is not a CSPRNG,
-// its output is short and predictable, and collisions merge two visitors'
-// sessions into one.
-const sessionId = sessionStorage.getItem('sessionId') || crypto.randomUUID();
-sessionStorage.setItem('sessionId', sessionId);
+It records a view of each page, including page changes in single-page apps
+(`history.pushState`, `replaceState`, and the back button, each referred by
+the page it left); how long each page was visible and how far it was
+scrolled; clicks on links to other sites (the other site's hostname only);
+clicks on downloads (the file name only); and the landing URL's campaign tags.
+It stores nothing on the device and sends no identifier, and it skips
+automated browsers.
 
-// Track page view with full context
-fetch(`https://your-server.com/registerView?` + new URLSearchParams({
+| Attribute | Default | Meaning |
+|---|---|---|
+| `data-app` | required | The app ID the views belong to |
+| `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
+| `data-spa` | `true` | Treat history changes as page views |
+| `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
+| `data-downloads` | `true` | Record clicks on downloads (pdf, zip, dmg, docx, and so on), as `download` events |
+| `data-respect-dnt` | `false` | Send nothing when the browser's Do Not Track is on |
+
+Custom events: `window.viewcounter.track('signup', { plan: 'pro' })`.
+
+For it to reach the server:
+
+- the site's origin is in `CORS_ORIGINS`, and, if the app is bound to its
+  sites, registered for the app;
+- with a Content Security Policy on the site, `script-src` and `connect-src`
+  allow the ViewCounter server.
+
+Check the admin's **Tracking log** after adding it: every request shows up
+there, recorded or not, with the reason when it was refused.
+
+### Without the script
+
+The same requests by hand. Keep it this way round: nothing stored on the
+device, no identifier generated in the browser.
+
+```javascript
+const params = new URLSearchParams({
   appId: 'blog',
-  deviceSize: window.innerWidth < 768 ? 'small' : 
-               window.innerWidth < 1200 ? 'medium' : 'large',
-  page: window.location.pathname,
+  deviceSize: innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large',
+  page: location.pathname,
   title: document.title,
   referrer: document.referrer,
-  sessionId: sessionId
-}));
+});
+// Only the campaign tags from the query string.
+for (const key of ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']) {
+  const value = new URLSearchParams(location.search).get(key);
+  if (value) params.set(key, value);
+}
+const { id } = await fetch(`https://your-server.com/registerView?${params}`).then((r) => r.json());
+// Later, when the page is hidden: how long it was visible, and how far scrolled.
+navigator.sendBeacon('https://your-server.com/engage',
+  new Blob([JSON.stringify({ appId: 'blog', id, ms: 42000, scroll: 80 })], { type: 'text/plain' }));
 ```
 
 ### Track Custom Events
@@ -834,7 +989,6 @@ async function trackEvent(eventType, eventData) {
       appId: 'blog',
       eventType,
       eventData,
-      sessionId: sessionStorage.getItem('sessionId'),
       page: window.location.pathname
     })
   });
@@ -940,7 +1094,7 @@ All endpoints are tested with:
 
 ## Releasing
 
-Publishing to npm is a manual, deliberate step — an npm version number can never
+Publishing to npm is a manual, deliberate step: an npm version number can never
 be reused, so it is not wired to run on merge.
 
 ```bash

@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ViewCounter — Privacy-First Analytics</title>
+    <title>ViewCounter: Privacy-First Analytics</title>
     <meta name="description"
-        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design. Open source Node.js + MySQL middleware.">
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and keyed hashing: GDPR compliant by design. Open source Node.js + MySQL middleware.">
 
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="alternate icon" sizes="16x16 32x32 48x48" href="favicon.ico">
@@ -15,14 +15,14 @@
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://viewcounter.harshankur.com/">
-    <meta property="og:title" content="ViewCounter — Privacy-First Analytics">
+    <meta property="og:title" content="ViewCounter: Privacy-First Analytics">
     <meta property="og:description"
-        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design.">
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and keyed hashing: GDPR compliant by design.">
     <meta property="og:image" content="https://viewcounter.harshankur.com/og-image.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="ViewCounter — Privacy-First Analytics">
+    <meta name="twitter:title" content="ViewCounter: Privacy-First Analytics">
     <meta name="twitter:description"
-        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and salted hashing — GDPR compliant by design.">
+        content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and keyed hashing: GDPR compliant by design.">
     <meta name="twitter:image" content="https://viewcounter.harshankur.com/og-image.png">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -665,6 +665,10 @@
             margin-top: 0.4rem;
         }
 
+        .code-line .code-comment {
+            color: var(--text-muted);
+        }
+
         .code-line .prompt-char {
             color: var(--primary);
             font-weight: 700;
@@ -771,7 +775,7 @@
     <div class="crt-overlay"></div>
 
     <nav>
-        <a href="#" class="logo" aria-label="ViewCounter — back to top">
+        <a href="#" class="logo" aria-label="ViewCounter, back to top">
             <svg class="logo-mark" viewBox="0 0 96 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
                 <polyline points="3,6 15,16 3,26" fill="none" stroke="currentColor" stroke-width="5"
                     stroke-linecap="round" stroke-linejoin="round" />
@@ -819,14 +823,14 @@
                 <div class="hero-output" id="hero-output">
                     <div class="json-line">{ "message": "Success!", "duplicate": false }</div>
                     <div class="counter-line">▸ views_logged .... <span class="num" id="hero-counter">0</span></div>
-                    <span class="hint">// sample output — self-hosted, so it's really your data</span>
+                    <span class="hint">// sample output: self-hosted, so it's really your data</span>
                 </div>
             </div>
         </div>
 
         <div class="status-line">
             <span class="status-pass">PASS</span>
-            100% GDPR compliant — zero cookies, zero tracking IDs
+            100% GDPR compliant: zero cookies, zero tracking IDs
         </div>
 
         <span class="eyebrow"><span class="prompt-char">#</span> self-hosted analytics middleware</span>
@@ -958,8 +962,9 @@
                     </div>
                     <div class="term-body">
                         <h3>🍪 Zero Cookies</h3>
-                        <p>No <code>Set-Cookie</code> on any tracking request, no <code>localStorage</code>, and no
-                            "Cookie Consent" banners needed.</p>
+                        <p>No <code>Set-Cookie</code> on any tracking request, no <code>localStorage</code> or
+                            <code>sessionStorage</code>, nothing stored on the device at all, and no "Cookie Consent"
+                            banners needed.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -1030,8 +1035,8 @@
             <div class="section-title">
                 <span class="eyebrow"><span class="prompt-char">$</span>open /admin</span>
                 <h2>Admin UI</h2>
-                <p>Browse, correct, and erase what you have recorded, from a browser. Built in, and off until you set a
-                    password.</p>
+                <p>Analyse, browse, correct, and erase what you have recorded, from a browser. Built in, and off until
+                    you set a password.</p>
             </div>
             <figure class="shot term-window">
                 <div class="term-titlebar">
@@ -1042,11 +1047,11 @@
                     </div>
                     <span class="term-title">views.example.com/admin</span>
                 </div>
-                <img class="for-dark" src="admin-dark-top.webp" width="1920" height="1412" loading="lazy"
-                    alt="The admin UI showing every app together: app tabs, date and event filters, totals, views over time, and a world map of where views come from.">
-                <img class="for-light" src="admin-light-top.webp" width="1920" height="1412" loading="lazy"
-                    alt="The admin UI showing every app together: app tabs, date and event filters, totals, views over time, and a world map of where views come from.">
-                <figcaption>Insights for exactly the rows the filters select, here every app at once. Sample data.</figcaption>
+                <img class="for-dark" src="admin-dark-overview.webp" width="1920" height="1412" loading="lazy"
+                    alt="The Overview for every app over 30 days: nine headline numbers with their change against the 30 days before and a sparkline each, visitors over time, and who is on the sites right now.">
+                <img class="for-light" src="admin-light-overview.webp" width="1920" height="1412" loading="lazy"
+                    alt="The Overview for every app over 30 days: nine headline numbers with their change against the 30 days before and a sparkline each, visitors over time, and who is on the sites right now.">
+                <figcaption>The Overview: every headline number against the period before, any of them over time, and right now. Sample data.</figcaption>
             </figure>
             <figure class="shot term-window">
                 <div class="term-titlebar">
@@ -1057,11 +1062,26 @@
                     </div>
                     <span class="term-title">views.example.com/admin</span>
                 </div>
-                <img class="for-dark" src="admin-dark-table.webp" width="1920" height="840" loading="lazy"
-                    alt="Three views from different apps selected, with a bar offering to edit fields, set a note, move to trash, or restore them.">
-                <img class="for-light" src="admin-light-table.webp" width="1920" height="840" loading="lazy"
-                    alt="Three views from different apps selected, with a bar offering to edit fields, set a note, move to trash, or restore them.">
-                <figcaption>Select across pages and apps, then act on all of them at once. Sample data.</figcaption>
+                <img class="for-dark" src="admin-dark-breakdowns.webp" width="1920" height="1180" loading="lazy"
+                    alt="Breakdown cards: channels with visitors, page views, and share; top pages with time on page and scroll depth; and a world map with countries in order.">
+                <img class="for-light" src="admin-light-breakdowns.webp" width="1920" height="1180" loading="lazy"
+                    alt="Breakdown cards: channels with visitors, page views, and share; top pages with time on page and scroll depth; and a world map with countries in order.">
+                <figcaption>Click any row to narrow everything to it, then open exactly those rows in Views. Sample data.</figcaption>
+            </figure>
+            <figure class="shot term-window">
+                <div class="term-titlebar">
+                    <div class="term-dots">
+                        <span class="term-dot red"></span>
+                        <span class="term-dot amber"></span>
+                        <span class="term-dot green"></span>
+                    </div>
+                    <span class="term-title">views.example.com/admin</span>
+                </div>
+                <img class="for-dark" src="admin-dark-tracking.webp" width="1920" height="1000" loading="lazy"
+                    alt="The tracking log: what it is for, the last day summed up as recorded, repeat visits, bots, and refused requests, and every request with its outcome.">
+                <img class="for-light" src="admin-light-tracking.webp" width="1920" height="1000" loading="lazy"
+                    alt="The tracking log: what it is for, the last day summed up as recorded, repeat visits, bots, and refused requests, and every request with its outcome.">
+                <figcaption>The tracking log shows every request and what became of it, including the ones never stored. Sample data.</figcaption>
             </figure>
             <div class="feature-grid">
                 <div class="card term-window">
@@ -1071,11 +1091,11 @@
                             <span class="term-dot amber"></span>
                             <span class="term-dot green"></span>
                         </div>
-                        <span class="term-title">browse.log</span>
+                        <span class="term-title">overview.log</span>
                     </div>
                     <div class="term-body">
-                        <h3>🗂️ Browse &amp; Filter</h3>
-                        <p>One app, or every app together. Filter by date range, event type, and admin changes; search by page, title, source, or note; sort any column.</p>
+                        <h3>📊 Overview</h3>
+                        <p>Visitors, visits, bounce rate, visit duration, time on page, and scroll depth, each against the period before. Sources, campaigns, pages, entry and exit pages, page flow, locations, devices, browsers, events, and a weekday-by-hour heatmap.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -1085,11 +1105,11 @@
                             <span class="term-dot amber"></span>
                             <span class="term-dot green"></span>
                         </div>
-                        <span class="term-title">insights.log</span>
+                        <span class="term-title">views.log</span>
                     </div>
                     <div class="term-body">
-                        <h3>🌍 Insights</h3>
-                        <p>Totals, views over time, a world map of where views come from, and breakdowns by source, device, browser, OS, and event type.</p>
+                        <h3>🗂️ Views, Honestly Edited</h3>
+                        <p>Every recorded view, one row each: filter, search, and sort. Correct what was viewed (path, title, referrer, event), never who viewed it or when; edited rows are marked <b>modified by admin</b>.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -1099,11 +1119,11 @@
                             <span class="term-dot amber"></span>
                             <span class="term-dot green"></span>
                         </div>
-                        <span class="term-title">edits.log</span>
+                        <span class="term-title">tracking.log</span>
                     </div>
                     <div class="term-body">
-                        <h3>✏️ Honest Edits</h3>
-                        <p>Correct what was viewed (path, title, referrer, event), never who viewed it or when. Every edited row is marked <b>modified by admin</b>.</p>
+                        <h3>🛰️ Tracking Log</h3>
+                        <p>Every tracking request and its outcome: recorded, a repeat visit, a bot, or refused, with the reason. Where to check a new site is sending views, and why some are not counted.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -1130,7 +1150,7 @@
                         <span class="term-title">audit.log</span>
                     </div>
                     <div class="term-body">
-                        <h3>📜 Audit Logs</h3>
+                        <h3>📜 Admin Log</h3>
                         <p>Every sign-in and change is logged with <em>which</em> fields changed, never their values, so erasing a row really erases it.</p>
                     </div>
                 </div>
@@ -1145,7 +1165,7 @@
                     </div>
                     <div class="term-body">
                         <h3>🔐 Its Own Key</h3>
-                        <p>A separate <code>ADMIN_PASSWORD</code>, never an API key. <code>HttpOnly</code> session, CSRF tokens, a login rate limit, and a strict CSP.</p>
+                        <p>A separate <code>ADMIN_PASSWORD</code>, never an API key. Sessions that last a month and survive restarts, CSRF tokens, the password again before erasing, and a strict CSP.</p>
                     </div>
                 </div>
             </div>
@@ -1218,6 +1238,22 @@
                         <div class="code-line"><span class="prompt-char">❯</span><span>npm start</span></div>
                     </div>
                 </div>
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">4. your-site.html</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span>&lt;script defer src="https://your-server/tracker.js"</span></div>
+                        <div class="code-line"><span>&nbsp;&nbsp;data-app="blog" data-hosts="blog.example.com"&gt;&lt;/script&gt;</span></div>
+                        <div class="code-line"><span class="code-comment">// page views, SPA navigation, time on page, scroll depth,</span></div>
+                        <div class="code-line"><span class="code-comment">// outbound links, downloads, campaign tags. Nothing stored on the device.</span></div>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -1261,8 +1297,9 @@
                         503, check your database credentials in <code>dbInfo.json</code>.</p>
                     <br>
                     <h3>Testing with Mocks</h3>
-                    <p>Run <code>npm test</code> for lint, 700+ unit and integration tests on our custom database
-                        mocks, and the admin UI's browser tests. No real database required!</p>
+                    <p>Run <code>npm test</code> for lint, 900+ unit and integration tests on our custom database
+                        mocks, and 100+ browser tests of the admin UI and the tracker script. No real database
+                        required!</p>
                     <br>
                     <h3>View Persistent Data</h3>
                     <p>Run <code>PERSIST_TEST_DB=true npm test</code> to keep the test database for inspection.</p>
@@ -1455,23 +1492,14 @@
         (() => {
             if (location.hostname !== 'viewcounter.harshankur.com') return;
 
-            let sessionId;
-            try {
-                sessionId = sessionStorage.getItem('vc-session') || crypto.randomUUID();
-                sessionStorage.setItem('vc-session', sessionId);
-            } catch {
-                // Storage can be blocked (private mode, strict settings); a
-                // per-load ID still records the view.
-                sessionId = crypto.randomUUID();
-            }
-
+            // Nothing is stored on the visitor's device, and no identifier is
+            // sent: the server tells repeat visits apart on its own.
             fetch('https://views.harshankur.com/registerView?' + new URLSearchParams({
                 appId: 'viewcounter',
                 deviceSize: innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large',
                 page: location.pathname,
                 title: document.title.slice(0, 200),
                 referrer: document.referrer,
-                sessionId,
             }), {
                 keepalive: true,
                 // ViewCounter 3.0.1 and earlier fall back to the Referer header

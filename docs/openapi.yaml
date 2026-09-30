@@ -6,13 +6,13 @@ info:
     
     ### Key Features:
     - **Self-managed**: Auto-creates database and tables if needed.
-    - **Privacy-First**: No cookies, lightweight tracking.
+    - **Privacy-First**: nothing stored on the visitor's device, no raw IP or user agent stored, bots left out.
     - **Secure**: Helmet, rate-limiting, and SQL injection protection.
     - **Rich Analytics**: Page tracking, referrer analysis, user agent parsing.
 
     ### Authentication
-    The tracking endpoints (`/registerView`, `/event`) are public — a browser on
-    your site must be able to reach them. Every **analytics read** endpoint
+    The tracking endpoints (`/registerView`, `/event`, `/engage`) are public: a
+    browser on your site must be able to reach them. Every **analytics read** endpoint
     requires an API key in the `x-api-key` header. Configure keys via the
     `READ_API_KEYS` environment variable; with none set the read API returns
     503 rather than serving data unauthenticated.
@@ -24,7 +24,7 @@ info:
     Provisioning (`POST /apps`) uses a separate **admin** credential
     (`ADMIN_API_KEYS`): a read key cannot provision, and an admin key cannot
     read analytics.
-  version: 3.0.0
+  version: 3.2.0
   contact:
     name: Harsh Ankur
     url: https://github.com/harshankur/viewcounter
@@ -78,14 +78,25 @@ paths:
             Where the visitor came from, normally `document.referrer`. Absent or
             empty records a direct visit. The request's own Referer header is
             never used, since from a browser it names the tracked page itself.
+        - name: utm_source
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+          description: >-
+            Campaign tag of the landing URL. `utm_medium`, `utm_campaign`,
+            `utm_term`, and `utm_content` are accepted the same way; they are the
+            only query keys ever kept, and a view carrying one is a `campaign`.
         - name: sessionId
           in: query
           schema:
             type: string
-          description: Unique identifier for the user session.
+          description: Optional grouping of your own. The tracker script never sends one.
       responses:
         '200':
-          description: Success
+          description: >-
+            Recorded, or answered without recording (a bot gets `recorded: false`
+            and no reason to retry).
           content:
             application/json:
               schema:
@@ -97,6 +108,14 @@ paths:
                   duplicate:
                     type: boolean
                     example: false
+                    description: A repeat view by the same visitor within the unique-visitor window.
+                  recorded:
+                    type: boolean
+                    example: true
+                  id:
+                    type: string
+                    format: uuid
+                    description: The view's public ID, which `/engage` takes.
         '400':
           description: Invalid Parameters
         '422':
@@ -123,14 +142,90 @@ paths:
                   example: button_click
                 eventData:
                   type: object
-                  description: Custom JSON metadata for the event.
+                  description: Custom JSON metadata for the event, up to 4 kB.
+                page:
+                  type: string
+                title:
+                  type: string
                 sessionId:
                   type: string
       responses:
         '200':
           description: Event tracked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recorded:
+                    type: boolean
+                  id:
+                    type: string
+                    format: uuid
+                  insertId:
+                    type: integer
+                    deprecated: true
+                    description: The internal row number. Use `id`; removed in 4.0.
         '400':
           description: Invalid appId
+
+  /engage:
+    post:
+      summary: Report engagement with a page view
+      description: >-
+        How long the page was visible and how much of it had been on screen. A
+        later report can only raise either value. `text/plain` is accepted so
+        `navigator.sendBeacon` can deliver it as the page closes, without a CORS
+        preflight. A report for a view that is unknown, trashed, or older than a
+        day changes nothing and is counted in the tracking log as refused.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              example: '{"appId":"blog","id":"0b8c3c1e-3b1c-4f2c-9d4e-1a2b3c4d5e6f","ms":42000,"scroll":80}'
+          application/json:
+            schema:
+              type: object
+              required: [appId, id]
+              properties:
+                appId:
+                  type: string
+                id:
+                  type: string
+                  format: uuid
+                  description: The `id` that `/registerView` returned.
+                ms:
+                  type: integer
+                  minimum: 0
+                  maximum: 21600000
+                scroll:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+      responses:
+        '204':
+          description: Accepted
+        '422':
+          description: Validation Failed
+
+  /tracker.js:
+    get:
+      summary: The tracker script
+      description: >-
+        Load it with `<script defer src="https://your-server/tracker.js"
+        data-app="blog"></script>`. Records page views (including single-page
+        app navigation), time on page, scroll depth, links out, downloads, and
+        campaign tags, and stores nothing on the device. Other sites may load
+        it, and it is cached for an hour.
+      responses:
+        '200':
+          description: The script
+          content:
+            text/javascript:
+              schema:
+                type: string
 
   /stats/{appId}:
     get:
