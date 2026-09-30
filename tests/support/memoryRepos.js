@@ -19,7 +19,8 @@ const {
     SORT_ORDER,
     VIEW_STATUS,
 } = require('../../constants');
-const { memoryAnalysis, memoryRealtime } = require('./memoryAnalysis');
+const { memoryAnalysis, memoryRealtime, BREAKDOWN_VALUE } = require('./memoryAnalysis');
+const { FILTER_COLUMNS } = require('../../db/analysis');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -114,7 +115,7 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
     const isDeleted = (row) => row.deletedAt !== null;
 
     /** Rows of these apps matching a listing query, each tagged with its app. */
-    const filtered = (appIds, { status, modified, search, range, eventType } = {}, window) => {
+    const filtered = (appIds, { status, modified, search, range, eventType, where = {} } = {}, window) => {
         const days = ADMIN_RANGE_DAYS[range];
         // 'previous' is the period of the same length just before the range.
         const cutoff = days ? now().getTime() - days * DAY_MS * (window === 'previous' ? 2 : 1) : null;
@@ -127,9 +128,13 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             if (cutoff !== null && row.timestamp.getTime() < cutoff) return false;
             if (until !== null && row.timestamp.getTime() >= until) return false;
             if (eventType && row.eventType !== eventType) return false;
+            for (const [dim, value] of Object.entries(where)) {
+                if (Object.hasOwn(FILTER_COLUMNS, dim) && (BREAKDOWN_VALUE[dim](row) ?? null) !== value) return false;
+            }
             if (search) {
                 const needle = search.toLowerCase();
-                const haystack = [row.pagePath, row.pageTitle, row.referrerDomain, row.note, row.eventType, row.sessionId];
+                const haystack = [row.pagePath, row.pageTitle, row.referrerDomain, row.hostname, row.utmCampaign,
+                    row.note, row.eventType, row.sessionId];
                 const hit = row.id === search || haystack.some((value) => String(value ?? '').toLowerCase().includes(needle));
                 if (!hit) return false;
             }
@@ -155,9 +160,9 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             return appIds.filter((appId) => tables.has(appId));
         },
 
-        async listViews(apps, { status, modified, search, range, eventType, sort, order, page, pageSize }) {
+        async listViews(apps, { status, modified, search, range, eventType, where, sort, order, page, pageSize }) {
             const appIds = Array.isArray(apps) ? apps : [apps];
-            let rows = filtered(appIds, { status, modified, search, range, eventType });
+            let rows = filtered(appIds, { status, modified, search, range, eventType, where });
 
             const field = SORT_FIELD[sort] || 'timestamp';
             const direction = order === SORT_ORDER.ASC ? 1 : -1;
@@ -170,15 +175,25 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             });
 
             const start = (page - 1) * pageSize;
-            return { views: rows.slice(start, start + pageSize).map((row) => ({ ...row })), total: rows.length };
+            // Like the SQL, never the visitor hash.
+            const views = rows.slice(start, start + pageSize).map((row) => {
+                const view = { ...row };
+                delete view.visitorHash;
+                return view;
+            });
+            return { views, total: rows.length };
         },
 
         async analyze(appIds, query) {
             const rows = filtered(appIds, query);
             const previous = ADMIN_RANGE_DAYS[query.range] ? filtered(appIds, query, 'previous') : null;
-            const eventTypes = [...new Set(filtered(appIds, { status: query.status })
+            const analysis = memoryAnalysis(rows, previous, { spanDays: ADMIN_RANGE_DAYS[query.range], now: now() });
+            return { ...analysis, eventTypes: await adminRepo.eventTypes(appIds, query.status) };
+        },
+
+        async eventTypes(appIds, status) {
+            return [...new Set(filtered(appIds, { status })
                 .map((row) => row.eventType).filter((type) => type !== null && type !== undefined))].sort();
-            return { ...memoryAnalysis(rows, previous), eventTypes };
         },
 
         async realtime(appIds) {

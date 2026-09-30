@@ -25,6 +25,7 @@ const {
     ADMIN_ERROR_CODE,
     ADMIN_RANGE,
     ADMIN_SORT_COLUMNS,
+    ANALYSIS,
     EDITABLE_FIELDS,
     FIELD_MAX_LENGTH,
     HTTP_STATUS,
@@ -50,9 +51,11 @@ const {
     readToken,
 } = require('../middleware/adminAuth');
 const {
+    parseWhere,
     validateLogin,
     validateViewListing,
     validateAnalysis,
+    validateEventTypes,
     validateRealtime,
     validateEdit,
     validateNote,
@@ -64,9 +67,12 @@ const {
 } = require('../middleware/adminValidation');
 const { logContext, withRequestId } = require('./analytics');
 const { attributions } = require('../utils/geoCity');
+const { ACQUISITION_DIMENSIONS } = require('../db/analysis');
 
 /** The UI's static files, shipped in the package. */
 const ADMIN_UI_DIR = path.join(__dirname, '..', 'admin');
+/** Shown in the UI's header and footer, so an admin knows what they are running. */
+const PACKAGE_VERSION = require('../package.json').version;
 
 /**
  * Content Security Policy for the admin surface. Stricter than helmet's
@@ -101,6 +107,8 @@ function filterQuery(req) {
         range: req.query.range || ADMIN_RANGE.ALL,
         search: req.query.search || '',
         eventType: req.query.eventType || '',
+        // Validated already; parsed again here since Express 5 recomputes req.query.
+        where: parseWhere(req.query.where),
     };
 }
 
@@ -290,6 +298,7 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo
 
     api.get('/meta', requireSession, (req, res) => {
         res.json({
+            version: PACKAGE_VERSION,
             deviceSizes: allowed.deviceSize,
             editableFields: Object.keys(EDITABLE_FIELDS),
             sortFields: Object.keys(ADMIN_SORT_COLUMNS),
@@ -306,6 +315,10 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo
             searchMaxLength: ADMIN.SEARCH_MAX_LENGTH,
             trashRetentionDays: config.admin.trashRetentionDays,
             reauthWindowMs: ADMIN.REAUTH_WINDOW_MS,
+            // "Right now" counts visitors seen within this many minutes.
+            realtimeVisitorMinutes: ANALYSIS.REALTIME_VISITOR_MINUTES,
+            // Breakdowns of how visits arrived, which count page views only.
+            acquisitionDimensions: [...ACQUISITION_DIMENSIONS],
             // Credits the location data's licences ask for, shown in the UI.
             attributions: attributions(geo.city),
             hasCityData: Boolean(geo.city),
@@ -381,6 +394,28 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady, geo
             return res.json({ apps, ...query, ...result });
         } catch (error) {
             return adminError(req, res, error, 'analyse all views');
+        }
+    });
+
+    // Every event type the apps hold in a status, whatever other filter is
+    // set, for the event-type filter above a listing.
+    api.get('/apps/:appId/event-types', requireSession, validateEventTypes(allowed), handleAdminValidation,
+        async (req, res) => {
+            try {
+                const status = req.query.status || VIEW_STATUS.ACTIVE;
+                return res.json({ eventTypes: await adminRepo.eventTypes([req.params.appId], status) });
+            } catch (error) {
+                return adminError(req, res, error, 'list event types');
+            }
+        });
+
+    api.get('/event-types', requireSession, validateEventTypes(), handleAdminValidation, async (req, res) => {
+        try {
+            const apps = await adminRepo.existingTables(allowed.appId);
+            const status = req.query.status || VIEW_STATUS.ACTIVE;
+            return res.json({ eventTypes: apps.length ? await adminRepo.eventTypes(apps, status) : [] });
+        } catch (error) {
+            return adminError(req, res, error, 'list all event types');
         }
     });
 

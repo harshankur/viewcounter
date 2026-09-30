@@ -37,9 +37,36 @@ describe('buildFilter', () => {
         expect(params).toEqual(["click' OR 1=1"]);
     });
 
-    test('filters combine in a fixed order: event type, range, then search', () => {
-        const { params } = buildFilter({ eventType: 'click', range: '7d', search: 'x' });
-        expect(params.slice(0, 3)).toEqual(['click', 7, 'x']);
+    test('filters combine in a fixed order: event type, range, breakdown values, then search', () => {
+        const { params } = buildFilter({ eventType: 'click', range: '7d', where: { country: 'DE' }, search: 'x' });
+        expect(params.slice(0, 4)).toEqual(['click', 7, 'DE', 'x']);
+    });
+
+    test('a breakdown value narrows by the same expression the breakdown groups by, bound', () => {
+        const { clause, params } = buildFilter({ where: { page: "/a' OR 1=1", city: 'Munich, DE', browserVersion: 'Chrome 140' } });
+        expect(clause).toContain('(page_path) <=> ?');
+        expect(clause).toContain(`(${AdminRepository.FILTER_COLUMNS.city}) <=> ?`);
+        expect(clause).toContain(`(${AdminRepository.FILTER_COLUMNS.browserVersion}) <=> ?`);
+        expect(clause).not.toContain('OR 1=1');
+        expect(params).toEqual(["/a' OR 1=1", 'Munich, DE', 'Chrome 140']);
+    });
+
+    test('"Unknown" is a filter too: null matches rows with no value', () => {
+        const { clause, params } = buildFilter({ where: { referrer: null } });
+        expect(clause).toContain('(referrer_domain) <=> ?');
+        expect(params).toEqual([null]);
+    });
+
+    test('a dimension outside the allowlist is never interpolated', () => {
+        const { clause, params } = buildFilter({ where: { app: 'blog', 'x) OR (1': 'y', ['__proto__']: 'z' } });
+        expect(clause).toBe('deleted_at IS NULL');
+        expect(params).toEqual([]);
+    });
+
+    test('search also finds the site hostname and the campaign', () => {
+        const { clause } = buildFilter({ search: 'spring' });
+        expect(clause).toContain('hostname LIKE ?');
+        expect(clause).toContain('utm_campaign LIKE ?');
     });
 });
 
@@ -138,11 +165,16 @@ describe('AdminRepository.analyze', () => {
     function analysisPool({ first = '2026-09-01T00:00:00Z', last = '2026-09-20T00:00:00Z', views = 10 } = {}) {
         return createScriptedPool((sql) => {
             // Before the totals: the visits query also reads MIN(timestamp).
+            if (sql.includes('FROM visits GROUP BY period')) {
+                return [[{ period: '2026-09-01', visits: 3, bounces: 1, avg_visit_ms: 60000, pages_per_visit: 2 }]];
+            }
             if (sql.includes('AVG(pages) AS pages_per_visit')) return [[{ visits: 4, bounces: 1, avg_visit_ms: 90000, pages_per_visit: 2 }]];
             if (sql.includes('MIN(timestamp) AS first_at')) {
                 return [[{ ...TOTALS, views, first_at: new Date(first), last_at: new Date(last) }]];
             }
-            if (sql.includes('AS period')) return [[{ period: '2026-09-01', views: 4, unique_views: 3, visitors: 2 }]];
+            if (sql.includes('AS period')) {
+                return [[{ period: '2026-09-01', views: 4, pageviews: 3, unique_views: 3, visitors: 2, avg_engaged_ms: 30000, avg_scroll: 50 }]];
+            }
             if (sql.includes('PARTITION BY dim')) {
                 return [[
                     { dim: 'eventType', value: 'pageview', views: 8, visitors: 5 },
@@ -205,7 +237,10 @@ describe('AdminRepository.analyze', () => {
             avgEngagedMs: 42000, avgScroll: 61.5, engagedViews: 4,
         });
         expect(result.bucket).toBe(TREND_BUCKET.DAY);
-        expect(result.trend).toEqual([{ period: '2026-09-01', views: 4, uniqueViews: 3, visitors: 2 }]);
+        expect(result.trend).toEqual([{
+            period: '2026-09-01', views: 4, pageviews: 3, uniqueViews: 3, visitors: 2,
+            visits: 3, bounceRate: 1 / 3, avgVisitMs: 60000, pagesPerVisit: 2, avgEngagedMs: 30000, avgScroll: 50,
+        }]);
         expect(result.breakdowns.eventType).toEqual([{ value: 'pageview', views: 8, visitors: 5 }, { value: 'click', views: 2, visitors: 1 }]);
         expect(result.breakdowns.city).toEqual([{ value: 'Munich, DE', views: 3, visitors: 2 }]);
         expect(result.breakdowns.app).toEqual([]);
@@ -252,14 +287,48 @@ describe('AdminRepository.analyze', () => {
         expect(pool.matching('AS period')[0].sql).toContain(AdminRepository.BUCKET_EXPRESSION[TREND_BUCKET.WEEK]);
     });
 
+    test.each([['24h', TREND_BUCKET.HOUR], ['7d', TREND_BUCKET.DAY], ['90d', TREND_BUCKET.DAY], ['1y', TREND_BUCKET.WEEK]])(
+        'a bounded range %s is charted per %s, however short the span of its data', async (range, bucket) => {
+            const pool = analysisPool({ first: '2026-09-01T10:00:00Z', last: '2026-09-01T11:00:00Z' });
+            const result = await new AdminRepository(dbWith(pool)).analyze(['blog'], { range });
+            expect(result.bucket).toBe(bucket);
+        });
+
+    test('visits count in the period they began, by the same buckets', async () => {
+        const pool = analysisPool({ first: '2025-01-01T00:00:00Z', last: '2026-09-01T00:00:00Z' });
+        await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
+        const [visitTrend] = pool.matching('FROM visits GROUP BY period');
+        expect(visitTrend.sql).toContain('MIN(timestamp) AS started_at');
+        expect(visitTrend.sql).toContain(
+            "DATE_FORMAT(DATE_SUB(DATE(started_at), INTERVAL WEEKDAY(started_at) DAY), '%Y-%m-%d') AS period");
+    });
+
     test('breakdowns keep the top N per dimension, with visitors, in one window query', async () => {
         const pool = analysisPool();
         await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
         const [query] = pool.matching('PARTITION BY dim');
         expect(query.sql).toContain('PARTITION BY dim ORDER BY views DESC, value');
-        expect(query.sql).toContain('COUNT(DISTINCT visitor_hash) AS visitors FROM v GROUP BY value');
         expect(query.params.at(-1)).toBe(ANALYSIS_TOP_N);
-        for (const dim of Object.keys(AdminRepository.BREAKDOWN_COLUMNS)) expect(query.sql).toContain(`'${dim}' AS dim`);
+        const branches = query.sql.split('UNION ALL');
+        for (const dim of Object.keys(AdminRepository.BREAKDOWN_COLUMNS)) {
+            const branch = branches.find((sql) => sql.includes(`'${dim}' AS dim`));
+            expect(branch).toMatch(/COUNT\(DISTINCT visitor_hash\) AS visitors FROM v\s+(WHERE event_type = 'pageview' )?GROUP BY value/);
+        }
+    });
+
+    test('how visits arrived counts page views only; everything else counts every view', async () => {
+        const pool = analysisPool();
+        const result = await new AdminRepository(dbWith(pool)).analyze(['blog'], {});
+        const branches = pool.matching('PARTITION BY dim')[0].sql.split('UNION ALL');
+        const pageviewsOnly = (dim) => /WHERE event_type = 'pageview'\s+GROUP BY value/.test(branches.find((sql) => sql.includes(`'${dim}' AS dim`)));
+        for (const dim of ['source', 'referrer', 'referrerUrl', 'utmSource', 'utmMedium', 'utmCampaign', 'utmTerm', 'utmContent']) {
+            expect([dim, pageviewsOnly(dim)]).toEqual([dim, true]);
+            expect(result.breakdownTotals[dim]).toBe(result.totals.pageviews);
+        }
+        for (const dim of ['page', 'country', 'browser', 'eventType', 'app']) {
+            expect([dim, pageviewsOnly(dim)]).toEqual([dim, false]);
+            expect(result.breakdownTotals[dim]).toBe(result.totals.views);
+        }
     });
 
     test('the heatmap reads at most the last year, from the last view on', async () => {
@@ -401,6 +470,18 @@ describe('every-app and analysis routes', () => {
         expect(all.body.eventTypes).toEqual(['checkout', ...types]);
     });
 
+    test('the event types of one app or of all, in a status, whatever else is filtered', async () => {
+        const views = seed();
+        views.shop.push(makeView({ eventType: 'checkout', deletedAt: new Date(now.getTime() - DAY) }));
+        const agent = await login(buildApp(views));
+        expect((await agent.get(`${API}/event-types`).expect(200)).body.eventTypes).toEqual(['click', 'pageview']);
+        expect((await agent.get(`${API}/event-types?status=all`).expect(200)).body.eventTypes).toEqual(['checkout', 'click', 'pageview']);
+        expect((await agent.get(`${API}/apps/shop/event-types?status=deleted`).expect(200)).body.eventTypes).toEqual(['checkout']);
+        await agent.get(`${API}/apps/nope/event-types`).expect(422);
+        await agent.get(`${API}/event-types?status=everything`).expect(422);
+        await request(buildApp(seed())).get(`${API}/event-types`).expect(401);
+    });
+
     test('the range and event-type filters narrow the listing', async () => {
         const agent = await login(buildApp(seed()));
         expect((await agent.get(`${API}/views?range=30d`).expect(200)).body.total).toBe(2);
@@ -426,9 +507,42 @@ describe('every-app and analysis routes', () => {
         expect(res.body).toMatchObject({ range: '30d', eventType: 'pageview' });
     });
 
-    test('meta lists the date ranges', async () => {
+    test('breakdown filters narrow the analysis and the listing alike, and are echoed back', async () => {
         const agent = await login(buildApp(seed()));
-        expect((await agent.get(`${API}/meta`).expect(200)).body.ranges).toEqual(['24h', '7d', '30d', '90d', '1y', 'all']);
+        const where = JSON.stringify({ country: 'DE' });
+        const analysis = await agent.get(`${API}/analytics`).query({ where }).expect(200);
+        expect(analysis.body.totals.views).toBe(2);
+        expect(analysis.body.where).toEqual({ country: 'DE' });
+        const listing = await agent.get(`${API}/views`).query({ where }).expect(200);
+        expect(listing.body.views.map((v) => v.pagePath)).toEqual(['/a', '/cart']);
+        const both = await agent.get(`${API}/apps/blog/views`).query({ where: JSON.stringify({ country: 'DE', page: '/a' }) }).expect(200);
+        expect(both.body.total).toBe(1);
+        const unknown = await agent.get(`${API}/views`).query({ where: JSON.stringify({ referrer: null }) }).expect(200);
+        expect(unknown.body.total).toBe(3);
+    });
+
+    test('a listing returns everything stored about a view, except the visitor hash', async () => {
+        const views = {
+            blog: [makeView({
+                timestamp: new Date(now.getTime() - DAY), visitorHash: 'f'.repeat(64), hostname: 'example.com', language: 'de',
+                utmSource: 'newsletter', utmMedium: 'email', utmCampaign: 'spring', utmTerm: 'privacy', utmContent: 'footer',
+                region: 'Bavaria', city: 'Munich', engagedMs: 42000, scrollDepth: 80,
+            })],
+        };
+        const agent = await login(buildApp(views));
+        const [view] = (await agent.get(`${API}/apps/blog/views`).expect(200)).body.views;
+        expect(view).toMatchObject({
+            hostname: 'example.com', language: 'de', utmSource: 'newsletter', utmMedium: 'email', utmCampaign: 'spring',
+            utmTerm: 'privacy', utmContent: 'footer', region: 'Bavaria', city: 'Munich', engagedMs: 42000, scrollDepth: 80,
+        });
+        expect(view).not.toHaveProperty('visitorHash');
+    });
+
+    test('meta lists the date ranges and the running version', async () => {
+        const agent = await login(buildApp(seed()));
+        const meta = (await agent.get(`${API}/meta`).expect(200)).body;
+        expect(meta.ranges).toEqual(['24h', '7d', '30d', '90d', '1y', 'all']);
+        expect(meta.version).toBe(require('../package.json').version);
     });
 
     test.each([
@@ -438,6 +552,15 @@ describe('every-app and analysis routes', () => {
         ['/analytics?range=10y'],
         ['/analytics?status=everything'],
         ['/apps/nope/analytics'],
+        ['/analytics?where=' + encodeURIComponent('{"app":"blog"}')],
+        ['/analytics?where=' + encodeURIComponent('{"visitor_hash":"x"}')],
+        ['/analytics?where=' + encodeURIComponent('{"__proto__":"x"}')],
+        ['/analytics?where=' + encodeURIComponent('["country"]')],
+        ['/analytics?where=' + encodeURIComponent('{"country":1}')],
+        ['/analytics?where=' + encodeURIComponent(`{"page":"${'a'.repeat(501)}"}`)],
+        ['/analytics?where=not-json'],
+        ['/views?where=' + encodeURIComponent('{"country":{"$ne":null}}')],
+        ['/views?where=a&where=b'],
     ])('rejects %s', async (path) => {
         const agent = await login(buildApp(seed()));
         const res = await agent.get(`${API}${path}`).expect(422);

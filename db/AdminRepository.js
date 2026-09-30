@@ -30,6 +30,8 @@ const ADMIN_VIEW_COLUMNS = [
     'page_path', 'page_title', 'referrer', 'referrer_domain', 'source_type',
     'browser', 'browser_version', 'os', 'os_version', 'device_type',
     'session_id', 'event_type', 'event_data', 'is_unique',
+    'hostname', 'language', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+    'region', 'city', 'engaged_ms', 'scroll_depth',
     'note', 'admin_modified_at', 'deleted_at',
 ].join(', ');
 
@@ -80,40 +82,51 @@ function escapeLike(text) {
  * With `window` 'previous', the range moves back by its own length, for
  * comparing with the period before: last 7 days against the 7 days before.
  *
+ * `where` narrows to breakdown values, such as one country or one page, as
+ * the analysis groups them; null matches the rows with no value ("Unknown").
+ *
  * @param {{ status?: string, modified?: string, search?: string, range?: string,
- *   eventType?: string }} query
+ *   eventType?: string, where?: Record<string, string|null> }} query
  * @param {'previous'} [window]
  * @returns {{ clause: string, params: unknown[] }}
  */
-function buildFilter({ status, modified, search, range, eventType } = {}, window) {
-    const where = [STATUS_CONDITION[status] || STATE.ACTIVE];
+function buildFilter({ status, modified, search, range, eventType, where = {} } = {}, window) {
+    const conditions = [STATUS_CONDITION[status] || STATE.ACTIVE];
     const params = [];
 
     const modifiedCondition = MODIFIED_CONDITION[modified];
-    if (modifiedCondition) where.push(modifiedCondition);
+    if (modifiedCondition) conditions.push(modifiedCondition);
 
     if (eventType) {
-        where.push('event_type = ?');
+        conditions.push('event_type = ?');
         params.push(eventType);
     }
 
     const days = ADMIN_RANGE_DAYS[range];
     if (days && window === 'previous') {
-        where.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY) AND timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)');
+        conditions.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY) AND timestamp < DATE_SUB(NOW(), INTERVAL ? DAY)');
         params.push(days * 2, days);
     } else if (days) {
-        where.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)');
+        conditions.push('timestamp >= DATE_SUB(NOW(), INTERVAL ? DAY)');
         params.push(days);
+    }
+
+    for (const [dim, value] of Object.entries(where)) {
+        // The expression is a fixed literal, looked up by a validated name;
+        // <=> is equality that also matches NULL to NULL.
+        if (!Object.hasOwn(analysis.FILTER_COLUMNS, dim)) continue;
+        conditions.push(`(${analysis.FILTER_COLUMNS[dim]}) <=> ?`);
+        params.push(value);
     }
 
     if (search) {
         const pattern = `%${escapeLike(search)}%`;
-        where.push(`(public_id = ? OR page_path LIKE ? OR page_title LIKE ? OR referrer_domain LIKE ?
-            OR note LIKE ? OR event_type LIKE ? OR session_id LIKE ?)`);
-        params.push(search, pattern, pattern, pattern, pattern, pattern, pattern);
+        conditions.push(`(public_id = ? OR page_path LIKE ? OR page_title LIKE ? OR referrer_domain LIKE ?
+            OR hostname LIKE ? OR utm_campaign LIKE ? OR note LIKE ? OR event_type LIKE ? OR session_id LIKE ?)`);
+        params.push(search, pattern, pattern, pattern, pattern, pattern, pattern, pattern, pattern);
     }
 
-    return { clause: where.join(' AND '), params };
+    return { clause: conditions.join(' AND '), params };
 }
 
 /** Shape one row for the API: camelCase, public ID, parsed JSON. */
@@ -139,6 +152,17 @@ function toApiRow(row, appId = row.app_id) {
         eventType: row.event_type,
         eventData: parseJson(row.event_data),
         isUnique: row.is_unique === 1 || row.is_unique === true,
+        hostname: row.hostname ?? null,
+        language: row.language ?? null,
+        utmSource: row.utm_source ?? null,
+        utmMedium: row.utm_medium ?? null,
+        utmCampaign: row.utm_campaign ?? null,
+        utmTerm: row.utm_term ?? null,
+        utmContent: row.utm_content ?? null,
+        region: row.region ?? null,
+        city: row.city ?? null,
+        engagedMs: row.engaged_ms ?? null,
+        scrollDepth: row.scroll_depth ?? null,
         note: row.note,
         adminModifiedAt: row.admin_modified_at,
         deletedAt: row.deleted_at,
@@ -279,10 +303,11 @@ class AdminRepository {
      */
     async analyze(appIds, query) {
         if (appIds.length === 0) {
-            return { totals: null, previous: null, ...analysis.emptySections(), eventTypes: [] };
+            return { totals: null, previous: null, window: null, ...analysis.emptySections(), eventTypes: [] };
         }
         const result = await analysis.runAnalysis(this.pool, (appId) => this.table(appId), appIds,
-            (window) => buildFilter(query, window), { hasPrevious: Boolean(ADMIN_RANGE_DAYS[query.range]) });
+            (window) => buildFilter(query, window),
+            { hasPrevious: Boolean(ADMIN_RANGE_DAYS[query.range]), spanDays: ADMIN_RANGE_DAYS[query.range] });
         // After the analysis: when the filters match nothing is exactly when
         // the admin needs every type on offer to pick another.
         return { ...result, eventTypes: await this.eventTypes(appIds, query.status) };
@@ -445,4 +470,5 @@ module.exports.toApiRow = toApiRow;
 module.exports.buildFilter = buildFilter;
 module.exports.chooseBucket = analysis.chooseBucket;
 module.exports.BREAKDOWN_COLUMNS = analysis.BREAKDOWN_COLUMNS;
+module.exports.FILTER_COLUMNS = analysis.FILTER_COLUMNS;
 module.exports.BUCKET_EXPRESSION = analysis.BUCKET_EXPRESSION;

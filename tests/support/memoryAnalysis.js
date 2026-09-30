@@ -8,7 +8,9 @@
  */
 
 const { ANALYSIS, ANALYSIS_TOP_N, TREND_BUCKET } = require('../../constants');
-const { BREAKDOWN_COLUMNS, chooseBucket, emptySections, tallyEventProperties } = require('../../db/analysis');
+const {
+    ACQUISITION_DIMENSIONS, BREAKDOWN_COLUMNS, breakdownTotals, chooseBucket, emptySections, tallyEventProperties,
+} = require('../../db/analysis');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -125,27 +127,30 @@ function totalsOf(rows) {
 /**
  * @param {object[]} rows the rows a listing with the query would return
  * @param {object[]|null} previousRows the same for the period before, when the range is bounded
+ * @param {{ spanDays?: number, now?: Date }} [options] a bounded range's length, which sets the bucket
  */
-function memoryAnalysis(rows, previousRows) {
+function memoryAnalysis(rows, previousRows, { spanDays, now = new Date() } = {}) {
     const totals = totalsOf(rows);
     const previous = previousRows ? totalsOf(previousRows) : null;
-    if (rows.length === 0) return { totals, previous, ...emptySections() };
+    const window = spanDays ? { from: new Date(now.getTime() - spanDays * DAY_MS), to: now } : null;
+    if (rows.length === 0) return { totals, previous, window, ...emptySections(totals) };
 
-    const bucket = chooseBucket(totals.firstAt, totals.lastAt);
+    const bucket = window ? chooseBucket(window.from, window.to) : chooseBucket(totals.firstAt, totals.lastAt);
     const trend = new Map();
     for (const row of rows) {
         const period = bucketStart(row.timestamp, bucket);
-        const entry = trend.get(period) || { period, views: 0, uniqueViews: 0, visitors: new Set() };
-        entry.views += 1;
-        if (row.isUnique) entry.uniqueViews += 1;
-        entry.visitors.add(visitorOf(row));
+        const entry = trend.get(period) || { period, rows: [], visits: [] };
+        entry.rows.push(row);
         trend.set(period, entry);
     }
+    // A visit counts in the period it began.
+    for (const visit of visitsOf(rows)) trend.get(bucketStart(visit[0].timestamp, bucket)).visits.push(visit);
 
     const breakdowns = {};
     for (const dim of Object.keys(BREAKDOWN_COLUMNS)) {
         const groups = new Map();
         for (const row of rows) {
+            if (ACQUISITION_DIMENSIONS.has(dim) && row.eventType !== PAGEVIEW) continue;
             const value = BREAKDOWN_VALUE[dim](row) ?? null;
             const group = groups.get(value) || { value, views: 0, visitors: new Set() };
             group.views += 1;
@@ -240,10 +245,26 @@ function memoryAnalysis(rows, previousRows) {
     return {
         totals,
         previous,
+        window,
         bucket,
-        trend: [...trend.values()].sort((a, b) => a.period.localeCompare(b.period))
-            .map((entry) => ({ period: entry.period, views: entry.views, uniqueViews: entry.uniqueViews, visitors: entry.visitors.size })),
+        trend: [...trend.values()].sort((a, b) => a.period.localeCompare(b.period)).map(({ period, rows: inPeriod, visits: started }) => {
+            const periodPageviews = inPeriod.filter((row) => row.eventType === PAGEVIEW);
+            return {
+                period,
+                views: inPeriod.length,
+                pageviews: periodPageviews.length,
+                uniqueViews: inPeriod.filter((row) => row.isUnique).length,
+                visitors: new Set(inPeriod.map(visitorOf)).size,
+                visits: started.length,
+                bounceRate: started.length ? started.filter((visit) => visit.length === 1).length / started.length : null,
+                avgVisitMs: average(started.map(visitDuration)),
+                pagesPerVisit: average(started.map((visit) => visit.length)),
+                avgEngagedMs: average(periodPageviews.map((row) => row.engagedMs)),
+                avgScroll: average(periodPageviews.map((row) => row.scrollDepth)),
+            };
+        }),
         breakdowns,
+        breakdownTotals: breakdownTotals(totals),
         pages,
         entryPages: landing((visit) => visit[0]).map((group) => ({
             appId: group.appId, page: group.page, visits: group.visits, bounceRate: group.visits ? group.bounces / group.visits : null,
@@ -289,4 +310,4 @@ function memoryRealtime(liveRows, now) {
     };
 }
 
-module.exports = { memoryAnalysis, memoryRealtime, bucketStart, visitsOf };
+module.exports = { memoryAnalysis, memoryRealtime, bucketStart, visitsOf, BREAKDOWN_VALUE };

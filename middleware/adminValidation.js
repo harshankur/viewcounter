@@ -27,6 +27,7 @@ const {
     VIEW_STATUS,
 } = require('../constants');
 const ReferrerParser = require('../utils/referrerParser');
+const { FILTER_COLUMNS } = require('../db/analysis');
 const { jsonByteLength } = require('../utils/stringUtils');
 
 const within = (values) => (value) => Object.values(values).includes(value);
@@ -76,6 +77,48 @@ const validateLogin = () => [
         .withMessage('password is required'),
 ];
 
+/** The longest breakdown value a `where` filter can hold: a referrer or page path. */
+const WHERE_VALUE_MAX_LENGTH = Math.max(FIELD_MAX_LENGTH.REFERRER, FIELD_MAX_LENGTH.PAGE_PATH);
+/** Every dimension at its longest, as JSON, with room for escaping. */
+const WHERE_MAX_LENGTH = Object.keys(FILTER_COLUMNS).length * (WHERE_VALUE_MAX_LENGTH + 32) * 2;
+
+/**
+ * Read `where`: breakdown filters as a JSON object of dimension name to
+ * value, with null for rows that have none, such as {"country":"DE"}.
+ * @param {unknown} raw
+ * @returns {{ ok: true, filters: Record<string, string|null> } | { ok: false, error: string }}
+ */
+function readWhere(raw) {
+    if (raw === undefined || raw === '') return { ok: true, filters: {} };
+    if (typeof raw !== 'string' || raw.length > WHERE_MAX_LENGTH) return { ok: false, error: 'where must be a short JSON object' };
+    let parsed;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return { ok: false, error: 'where must be a JSON object' };
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ok: false, error: 'where must be a JSON object' };
+    const filters = {};
+    for (const [dim, value] of Object.entries(parsed)) {
+        if (!Object.hasOwn(FILTER_COLUMNS, dim)) return { ok: false, error: 'where names a dimension that cannot be filtered' };
+        if (value !== null && (typeof value !== 'string' || value.length > WHERE_VALUE_MAX_LENGTH)) {
+            return { ok: false, error: `each where value must be null or a string of at most ${WHERE_VALUE_MAX_LENGTH} characters` };
+        }
+        filters[dim] = value;
+    }
+    return { ok: true, filters };
+}
+
+/**
+ * The breakdown filters of a request that passed validation.
+ * @param {unknown} raw
+ * @returns {Record<string, string|null>}
+ */
+function parseWhere(raw) {
+    const result = readWhere(raw);
+    return result.ok ? result.filters : {};
+}
+
 /** Filters shared by a listing and its analysis, for one app or all. */
 const filterQueries = () => [
     query('status').optional().custom(within(VIEW_STATUS)).withMessage('Invalid status'),
@@ -91,6 +134,10 @@ const filterQueries = () => [
         .isString().withMessage('search must be a string')
         .isLength({ max: ADMIN.SEARCH_MAX_LENGTH })
         .withMessage(`search must be at most ${ADMIN.SEARCH_MAX_LENGTH} characters`),
+    query('where')
+        .optional()
+        .custom((value) => readWhere(value).ok)
+        .withMessage((value) => readWhere(value).error),
 ];
 
 /** A listing of one app (with `allowed`) or of every app (without). */
@@ -107,6 +154,12 @@ const validateViewListing = (allowed) => [
 const validateAnalysis = (allowed) => [
     ...(allowed ? [adminAppIdParam(allowed)] : []),
     ...filterQueries(),
+];
+
+/** The event types of one app (with `allowed`) or of every app, in a status. */
+const validateEventTypes = (allowed) => [
+    ...(allowed ? [adminAppIdParam(allowed)] : []),
+    query('status').optional().custom(within(VIEW_STATUS)).withMessage('Invalid status'),
 ];
 
 /** Right now takes no filters, only the app for the per-app route. */
@@ -246,9 +299,11 @@ function handleAdminValidation(req, res, next) {
 }
 
 module.exports = {
+    parseWhere,
     validateLogin,
     validateViewListing,
     validateAnalysis,
+    validateEventTypes,
     validateRealtime,
     validateEdit,
     validateNote,

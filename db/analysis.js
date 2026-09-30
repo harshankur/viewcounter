@@ -38,15 +38,22 @@ const ANALYSIS_COLUMNS = [
 ];
 
 /**
- * Time-series bucket expressions, keyed by TREND_BUCKET. Each bucket is
- * labelled by the moment it starts (YYYY-MM-DD, or YYYY-MM-DD HH:00 by hour).
+ * Time-series bucket expressions over a time column, keyed by TREND_BUCKET.
+ * Each bucket is labelled by the moment it starts (YYYY-MM-DD, or
+ * YYYY-MM-DD HH:00 by hour).
+ * @param {string} column a fixed column name
  */
-const BUCKET_EXPRESSION = {
-    [TREND_BUCKET.HOUR]: "DATE_FORMAT(timestamp, '%Y-%m-%d %H:00')",
-    [TREND_BUCKET.DAY]: "DATE_FORMAT(timestamp, '%Y-%m-%d')",
-    [TREND_BUCKET.WEEK]: "DATE_FORMAT(DATE_SUB(DATE(timestamp), INTERVAL WEEKDAY(timestamp) DAY), '%Y-%m-%d')",
-    [TREND_BUCKET.MONTH]: "DATE_FORMAT(timestamp, '%Y-%m-01')",
-};
+const bucketExpressions = (column) => ({
+    [TREND_BUCKET.HOUR]: `DATE_FORMAT(${column}, '%Y-%m-%d %H:00')`,
+    [TREND_BUCKET.DAY]: `DATE_FORMAT(${column}, '%Y-%m-%d')`,
+    [TREND_BUCKET.WEEK]: `DATE_FORMAT(DATE_SUB(DATE(${column}), INTERVAL WEEKDAY(${column}) DAY), '%Y-%m-%d')`,
+    [TREND_BUCKET.MONTH]: `DATE_FORMAT(${column}, '%Y-%m-01')`,
+});
+
+/** Buckets of a view's own time. */
+const BUCKET_EXPRESSION = bucketExpressions('timestamp');
+/** Buckets of a visit's start, so a visit counts in the period it began. */
+const VISIT_BUCKET_EXPRESSION = bucketExpressions('started_at');
 
 /** "Bavaria, DE": a region or city name alone is ambiguous across countries. */
 const placeIn = (column) => `CASE WHEN ${column} IS NULL THEN NULL ELSE CONCAT(${column}, ', ', COALESCE(country, '?')) END`;
@@ -80,6 +87,19 @@ const BREAKDOWN_COLUMNS = {
     eventType: 'event_type',
     app: 'app_id',
 };
+
+/**
+ * Breakdowns of how a visit arrived. They count page views only: a custom
+ * event is sent from a page already open and carries no referrer or campaign.
+ */
+const ACQUISITION_DIMENSIONS = new Set(['source', 'referrer', 'referrerUrl', 'utmSource', 'utmMedium', 'utmCampaign', 'utmTerm', 'utmContent']);
+
+/**
+ * The breakdowns the analysis and the listing can be narrowed to, such as one
+ * country or one page. Every one but the app, which is chosen by the route
+ * (and is not a column of an app's table).
+ */
+const FILTER_COLUMNS = Object.fromEntries(Object.entries(BREAKDOWN_COLUMNS).filter(([dim]) => dim !== 'app'));
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -123,7 +143,7 @@ const VISITS_CTE = `,
         FROM s
     ),
     visits AS (
-        SELECT app_id, visitor_hash, visit_no, COUNT(*) AS pages,
+        SELECT app_id, visitor_hash, visit_no, COUNT(*) AS pages, MIN(timestamp) AS started_at,
             TIMESTAMPDIFF(SECOND, MIN(timestamp), MAX(timestamp)) * 1000
                 + COALESCE(MAX(CASE WHEN steps_left = 1 THEN engaged_ms END), 0) AS duration_ms,
             MAX(CASE WHEN step = 1 THEN page_path END) AS entry_page,
@@ -134,12 +154,19 @@ const VISITS_CTE = `,
 const num = (value) => (value === null || value === undefined ? null : Number(value));
 const rate = (part, whole) => (whole > 0 ? Number(part) / whole : null);
 
+/** The rows each breakdown counts: page views for how visits arrived, every view otherwise. */
+function breakdownTotals(totals) {
+    return Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) =>
+        [dim, ACQUISITION_DIMENSIONS.has(dim) ? totals.pageviews : totals.views]));
+}
+
 /** Everything but the totals, for a filter that matches nothing. */
-function emptySections() {
+function emptySections(totals = { views: 0, pageviews: 0 }) {
     return {
         bucket: TREND_BUCKET.DAY,
         trend: [],
         breakdowns: Object.fromEntries(Object.keys(BREAKDOWN_COLUMNS).map((dim) => [dim, []])),
+        breakdownTotals: breakdownTotals(totals),
         pages: [],
         entryPages: [],
         exitPages: [],
@@ -158,9 +185,13 @@ function emptySections() {
  * @param {string[]} appIds
  * @param {(window?: string) => { clause: string, params: unknown[] }} filter the WHERE clause for the
  *   requested rows, or with 'previous' for the period of the same length before them
- * @param {{ hasPrevious: boolean }} options
+ * @param {{ hasPrevious: boolean, spanDays?: number }} options spanDays is the length of a bounded
+ *   range, which sets the trend's bucket; without one, the span of the data does
  */
-async function runAnalysis(pool, table, appIds, filter, { hasPrevious }) {
+async function runAnalysis(pool, table, appIds, filter, { hasPrevious, spanDays }) {
+    // A bounded range ends now; the UI charts all of it, from this window.
+    const now = new Date();
+    const window = spanDays ? { from: new Date(now.getTime() - spanDays * DAY_MS), to: now } : null;
     const cte = (window, columns = ANALYSIS_COLUMNS) => {
         const { clause, params } = filter(window);
         const branches = appIds.map((appId) => `SELECT ? AS app_id, ${columns.join(', ')} FROM ${table(appId)} WHERE ${clause}`);
@@ -212,16 +243,28 @@ async function runAnalysis(pool, table, appIds, filter, { hasPrevious }) {
 
     const totals = await readTotals();
     const previous = hasPrevious ? await readTotals('previous') : null;
-    if (totals.views === 0) return { totals, previous, ...emptySections() };
+    if (totals.views === 0) return { totals, previous, window, ...emptySections(totals) };
 
-    const bucket = chooseBucket(totals.firstAt, totals.lastAt);
+    // A bounded range is charted across all of it, so its bucket follows the
+    // range: "last 7 days" is seven days even when only two had views.
+    const bucket = window ? chooseBucket(window.from, window.to) : chooseBucket(totals.firstAt, totals.lastAt);
     const trend = await run(undefined, `SELECT ${BUCKET_EXPRESSION[bucket]} AS period, COUNT(*) AS views,
-            COALESCE(SUM(is_unique), 0) AS unique_views, COUNT(DISTINCT visitor_hash) AS visitors
+            COALESCE(SUM(event_type = ${PAGEVIEW}), 0) AS pageviews,
+            COALESCE(SUM(is_unique), 0) AS unique_views, COUNT(DISTINCT visitor_hash) AS visitors,
+            AVG(CASE WHEN event_type = ${PAGEVIEW} THEN engaged_ms END) AS avg_engaged_ms,
+            AVG(CASE WHEN event_type = ${PAGEVIEW} THEN scroll_depth END) AS avg_scroll
          FROM v GROUP BY period ORDER BY period`);
+    // Visits by the period they began in, so every headline number has a trend.
+    const visitTrend = await run(undefined, `${VISITS_CTE}
+         SELECT ${VISIT_BUCKET_EXPRESSION[bucket]} AS period, COUNT(*) AS visits, SUM(pages = 1) AS bounces,
+            AVG(duration_ms) AS avg_visit_ms, AVG(pages) AS pages_per_visit
+         FROM visits GROUP BY period ORDER BY period`);
+    const visitsByPeriod = new Map(visitTrend.map((row) => [String(row.period), row]));
 
     const groups = Object.entries(BREAKDOWN_COLUMNS).map(([dim, expression]) =>
         `SELECT '${dim}' AS dim, CAST(${expression} AS CHAR) AS value, COUNT(*) AS views,
-            COUNT(DISTINCT visitor_hash) AS visitors FROM v GROUP BY value`);
+            COUNT(DISTINCT visitor_hash) AS visitors FROM v
+            ${ACQUISITION_DIMENSIONS.has(dim) ? `WHERE event_type = ${PAGEVIEW}` : ''} GROUP BY value`);
     const breakdownRows = await run(undefined, `SELECT dim, value, views, visitors FROM (
             SELECT dim, value, views, visitors,
                 ROW_NUMBER() OVER (PARTITION BY dim ORDER BY views DESC, value) AS rank_in_dim
@@ -295,14 +338,28 @@ async function runAnalysis(pool, table, appIds, filter, { hasPrevious }) {
     return {
         totals,
         previous,
+        window,
         bucket,
-        trend: trend.map((row) => ({
-            period: String(row.period),
-            views: Number(row.views),
-            uniqueViews: Number(row.unique_views),
-            visitors: Number(row.visitors),
-        })),
+        trend: trend.map((row) => {
+            const visit = visitsByPeriod.get(String(row.period)) || {};
+            const visits = Number(visit.visits || 0);
+            return {
+                period: String(row.period),
+                views: Number(row.views),
+                pageviews: Number(row.pageviews),
+                uniqueViews: Number(row.unique_views),
+                visitors: Number(row.visitors),
+                visits,
+                bounceRate: rate(visit.bounces || 0, visits),
+                avgVisitMs: num(visit.avg_visit_ms),
+                pagesPerVisit: num(visit.pages_per_visit),
+                avgEngagedMs: num(row.avg_engaged_ms),
+                avgScroll: num(row.avg_scroll),
+            };
+        }),
         breakdowns,
+        // What each breakdown counted, for its shares and its "everything else".
+        breakdownTotals: breakdownTotals(totals),
         pages: pages.map((row) => ({
             appId: row.app_id,
             page: row.page ?? null,
@@ -395,10 +452,13 @@ async function runRealtime(pool, table, appIds) {
 }
 
 module.exports = {
+    ACQUISITION_DIMENSIONS,
     ANALYSIS_COLUMNS,
     BUCKET_EXPRESSION,
     BREAKDOWN_COLUMNS,
+    FILTER_COLUMNS,
     VISITS_CTE,
+    breakdownTotals,
     chooseBucket,
     emptySections,
     runAnalysis,
