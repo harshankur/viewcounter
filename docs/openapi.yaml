@@ -76,8 +76,10 @@ paths:
             type: string
           description: >-
             Where the visitor came from, normally `document.referrer`. Absent or
-            empty records a direct visit. The request's own Referer header is
-            never used, since from a browser it names the tracked page itself.
+            empty records a direct visit. Only its origin and path are stored:
+            the query string and fragment are dropped. The request's own Referer
+            header is never used, since from a browser it names the tracked page
+            itself.
         - name: utm_source
           in: query
           schema:
@@ -188,7 +190,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [appId, id]
+              required: [appId, id, ms, scroll]
               properties:
                 appId:
                   type: string

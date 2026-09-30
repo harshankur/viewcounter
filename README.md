@@ -158,6 +158,13 @@ than running on a guessable default:
 `TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`, `ADMIN_SESSION_IDLE_TIMEOUT`,
 `ADMIN_SESSION_MAX_AGE`, `GEOIP_CITY_DB`.
 
+### Time zones
+
+Views are timestamped by the database (`NOW()`), and the admin analysis groups
+them into UTC days and hours whatever the database's time zone. Run ViewCounter
+and the database in the same time zone, so times read back unchanged; in
+containers both default to UTC.
+
 ### Location data
 
 **Country** comes from the GeoLite2 country database bundled in the
@@ -613,7 +620,7 @@ returned by any API.
 | **Site** | `Origin` of the request | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
 | **Page Path** | `page` | Path only, such as `/blog/my-post` (the tracker never sends a query string) | Which pages are read |
 | **Page Title** | `title` | Text, up to 200 characters | Readable page names |
-| **Referrer** | `referrer` (the page's `document.referrer`) | The URL as sent; absent or empty means direct | Where visits come from |
+| **Referrer** | `referrer` (the page's `document.referrer`) | Origin and path only: the query string and fragment are dropped (the tracker never sends them); absent or empty means direct | Where visits come from |
 | **Referrer Domain, Source Type** | Derived from the referrer | Hostname; search, social, email, campaign, referral, internal, or direct | Grouping sources |
 | **Campaign** | `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | Up to 100 characters each; no other query key is ever kept | Which campaigns work |
 | **Device Size** | `deviceSize` | small, medium, large | Layout decisions |
@@ -624,8 +631,10 @@ returned by any API.
 | **Session ID** | `sessionId` (optional) | As your site sends it | Your own grouping; the tracker never sends one |
 
 **Never stored**: the raw IP address, the User-Agent string, cookies or any
-other identifier from the device, the query string apart from the campaign
-tags, and anything about bots or refused requests beyond a per-minute count.
+other identifier from the device, any query string or fragment (of the page or
+of its referrer) apart from the page's campaign tags, and anything about bots
+or refused requests beyond a per-minute count. Before 3.2, a referrer was stored
+as sent, query string included; the changelog shows how to strip older rows.
 
 **Visits** are read from the visitor hash the way privacy-first analytics does
 it: a visitor's page views belong to one visit until they pause for 30
@@ -953,7 +962,9 @@ For it to reach the server:
   allow the ViewCounter server.
 
 Check the admin's **Tracking log** after adding it: every request shows up
-there, recorded or not, with the reason when it was refused.
+there, recorded or not, with the reason when it was refused. A site missing
+from `CORS_ORIGINS` shows up as "site not allowed: CORS_ORIGINS", counted from
+the browser's preflight, since the request itself never arrives.
 
 ### Without the script
 
