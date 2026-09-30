@@ -10,6 +10,7 @@ const crypto = require('crypto');
 
 const {
     ADMIN_LOG_TABLE,
+    ADMIN_SESSIONS_TABLE,
     DATABASE,
     FIELD_MAX_LENGTH,
     TRACKING_REJECTIONS_TABLE,
@@ -107,6 +108,26 @@ const VIEW_LOG_DDL = `
         \`hostname\` VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL,
         INDEX \`idx_created_at\` (\`created_at\`),
         INDEX \`idx_app_created\` (\`app_id\`, \`created_at\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+/**
+ * Admin sign-ins, so a restart or deploy does not sign anyone out.
+ *
+ * Holds only the SHA-256 of each session's token (the browser has the token
+ * itself, in an HttpOnly cookie), so reading this table yields no usable
+ * session. The CSRF token is derived from the session token, not stored.
+ * `password_at` is when the password was last entered, for actions that ask
+ * for it again.
+ */
+const ADMIN_SESSIONS_DDL = `
+    CREATE TABLE IF NOT EXISTS \`${ADMIN_SESSIONS_TABLE}\` (
+        \`token_hash\` CHAR(64) PRIMARY KEY,
+        \`id\` CHAR(${FIELD_MAX_LENGTH.UUID}) NOT NULL,
+        \`created_at\` DATETIME(3) NOT NULL,
+        \`last_seen_at\` DATETIME(3) NOT NULL,
+        \`password_at\` DATETIME(3) NOT NULL,
+        INDEX \`idx_last_seen_at\` (\`last_seen_at\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
@@ -272,15 +293,16 @@ async function migrateAppTable(pool, appId) {
 }
 
 /**
- * Create the log tables. Safe in `connect` mode for the same reason the app
- * registry is: they are the service's own bookkeeping, not the operator's
- * schema.
+ * Create the service's own tables: the logs and the admin sessions. Safe in
+ * `connect` mode for the same reason the app registry is: they are the
+ * service's own bookkeeping, not the operator's schema.
  * @param {object} pool
  */
 async function ensureLogTables(pool) {
     await pool.query(ADMIN_LOG_DDL);
     await pool.query(VIEW_LOG_DDL);
     await pool.query(TRACKING_REJECTIONS_DDL);
+    await pool.query(ADMIN_SESSIONS_DDL);
 
     const viewLogColumns = await readColumns(pool, VIEW_LOG_TABLE);
     for (const column of VIEW_LOG_ADDED_COLUMNS) {
@@ -298,6 +320,7 @@ module.exports = {
     VIEW_LOG_DDL,
     VIEW_LOG_ADDED_COLUMNS,
     TRACKING_REJECTIONS_DDL,
+    ADMIN_SESSIONS_DDL,
     NEW_TABLE_ADMIN_COLUMNS,
     NEW_TABLE_ADMIN_INDEXES,
     backfillPublicIds,

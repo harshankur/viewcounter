@@ -720,6 +720,16 @@ async function verifyAdmin(db) {
     check('login succeeds', login.status === 200, `got ${login.status}`);
     check('session cookie is HttpOnly and SameSite=Strict', /HttpOnly/i.test(login.setCookie) && /SameSite=Strict/i.test(login.setCookie));
 
+    // Sessions live in the database (so a restart signs nobody out), as a hash only.
+    const sessionToken = /vc_admin_session=([^;]+)/.exec(login.setCookie || '')?.[1] || '';
+    const [sessions] = await db.query('SELECT * FROM `_admin_sessions`');
+    const sessionHash = require('crypto').createHash('sha256').update(sessionToken).digest('hex');
+    check('the sign-in is stored in _admin_sessions by its hash', sessions.some((s) => s.token_hash === sessionHash));
+    const sessionDump = JSON.stringify(sessions);
+    check('neither the session token nor the CSRF token is stored',
+        sessionToken.length > 20 && !sessionDump.includes(sessionToken) && !sessionDump.includes(login.body?.csrfToken));
+    check('the session cookie lasts 30 days by default', /Max-Age=2592000/i.test(login.setCookie), login.setCookie);
+
     const apps = await admin.call('GET', '/apps');
     check('apps lists every configured app with counts',
         apps.status === 200 && ['tenant_a', 'tenant_b', 'legacy_app'].every(id => apps.body.apps.some(a => a.appId === id && a.available)));

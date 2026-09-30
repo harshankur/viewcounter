@@ -153,10 +153,21 @@ const ADMIN = {
     MAX_PASSWORD_INPUT_LENGTH: 1024,
     SESSION_TOKEN_BYTES: 32,
     CSRF_TOKEN_BYTES: 32,
-    /** Signed out after this long without a request. */
-    SESSION_IDLE_TIMEOUT_MS: 30 * 60 * 1000,
-    /** Signed out after this long regardless of activity. */
-    SESSION_ABSOLUTE_TIMEOUT_MS: 12 * 60 * 60 * 1000,
+    /** Default for ADMIN_SESSION_IDLE_TIMEOUT: signed out after this long unused. */
+    SESSION_IDLE_TIMEOUT_MS: 7 * 24 * 60 * 60 * 1000,
+    /** Default for ADMIN_SESSION_MAX_AGE: signed out after this long regardless. */
+    SESSION_ABSOLUTE_TIMEOUT_MS: 30 * 24 * 60 * 60 * 1000,
+    SESSION_IDLE_MIN_MS: 5 * 60 * 1000,
+    SESSION_IDLE_MAX_MS: 90 * 24 * 60 * 60 * 1000,
+    SESSION_MAX_AGE_MIN_MS: 60 * 60 * 1000,
+    SESSION_MAX_AGE_MAX_MS: 365 * 24 * 60 * 60 * 1000,
+    /**
+     * A session's last-seen time is written at most this often, so an active
+     * admin costs one database write a minute rather than one per request.
+     */
+    SESSION_TOUCH_INTERVAL_MS: 60 * 1000,
+    /** Permanent erasure needs the password to have been entered this recently. */
+    REAUTH_WINDOW_MS: 15 * 60 * 1000,
     /** Oldest sessions are evicted beyond this, bounding memory. */
     MAX_SESSIONS: 50,
     LOGIN_RATE_LIMIT_WINDOW_MS: 15 * 60 * 1000,
@@ -293,6 +304,8 @@ const ADMIN_ACTION = {
     VIEWS_PURGED: 'views_purged',
     TRASH_AUTO_PURGED: 'trash_auto_purged',
     VIEW_LOG_PRUNED: 'view_log_pruned',
+    /** The password entered again to allow a permanent erasure. */
+    PASSWORD_CONFIRMED: 'password_confirmed',
 };
 
 /**
@@ -305,6 +318,8 @@ const ADMIN_ERROR_CODE = {
     TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
     RATE_LIMITED: 'RATE_LIMITED',
     CSRF_REJECTED: 'CSRF_REJECTED',
+    /** The action needs the password entered again (POST /reauth), then a retry. */
+    REAUTH_REQUIRED: 'REAUTH_REQUIRED',
     VALIDATION_FAILED: 'VALIDATION_FAILED',
     NOT_FOUND: 'NOT_FOUND',
     SERVER_ERROR: 'SERVER_ERROR',
@@ -320,6 +335,7 @@ const VIEW_LOG_SOURCE = {
 
 /** Service-owned tables. All carry the reserved `_` prefix. */
 const ADMIN_LOG_TABLE = '_admin_log';
+const ADMIN_SESSIONS_TABLE = '_admin_sessions';
 const VIEW_LOG_TABLE = '_view_log';
 /** Tracking requests that were not stored, counted per minute. */
 const TRACKING_REJECTIONS_TABLE = '_tracking_rejections';
@@ -483,6 +499,7 @@ module.exports = {
     ADMIN_ERROR_CODE,
     VIEW_LOG_SOURCE,
     ADMIN_LOG_TABLE,
+    ADMIN_SESSIONS_TABLE,
     VIEW_LOG_TABLE,
     TRACKING_REJECTIONS_TABLE,
     TRACKING,

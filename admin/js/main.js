@@ -2,7 +2,8 @@
  * Admin UI entry point: session check, login, tabs, and wiring.
  */
 
-import { api, ApiError, onUnauthenticated, setCsrfToken } from './api.js';
+import { api, ApiError, onUnauthenticated, setCsrfToken, setRecovery } from './api.js';
+import { promptPassword } from './passwordPrompt.js';
 import { byId, el, replaceChildren } from './dom.js';
 import { applyTranslations, loadLocale, t } from './i18n.js';
 import { createAdminLogPanel, createViewLogPanel } from './logs.js';
@@ -10,7 +11,7 @@ import { closeModal } from './modal.js';
 import { initTheme } from './theme.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { createViewsPanel, PANEL_MODE } from './views.js';
-import { ALL_APPS, ERROR_CODE, KEY, STORAGE_KEY, TAB, THEME } from './constants.js';
+import { ALL_APPS, ERROR_CODE, KEY, SESSION_PING_INTERVAL_MS, STORAGE_KEY, TAB, THEME } from './constants.js';
 
 const TAB_ORDER = [TAB.VIEWS, TAB.TRASH, TAB.ADMIN_LOG, TAB.VIEW_LOG];
 
@@ -80,6 +81,47 @@ function wireLogin() {
             submit.disabled = false;
         }
     });
+}
+
+// ---- Staying signed in ------------------------------------------------------
+
+/** Sign in again over whatever the admin was doing, then carry on. */
+function reauthenticate() {
+    return promptPassword({
+        title: t('session.endedTitle'),
+        message: t('session.endedMessage'),
+        submitLabel: t('login.submit'),
+        submit: async (password) => {
+            const session = await api.login(password);
+            setCsrfToken(session.csrfToken);
+        },
+    });
+}
+
+/** The password again, before something that cannot be undone. */
+function confirmPassword() {
+    return promptPassword({
+        title: t('session.confirmTitle'),
+        message: t('session.confirmMessage'),
+        submitLabel: t('session.confirmAction'),
+        submit: (password) => api.reauth(password),
+    });
+}
+
+/**
+ * Reading counts as using the UI: clicks, keys, and scrolling extend the
+ * session even when they cause no request, at most once per interval.
+ */
+function keepSessionAlive() {
+    let lastPing = Date.now();
+    const ping = () => {
+        if (document.visibilityState !== 'visible' || Date.now() - lastPing < SESSION_PING_INTERVAL_MS) return;
+        lastPing = Date.now();
+        api.session().catch(() => {});
+    };
+    for (const type of ['pointerdown', 'keydown', 'wheel', 'scroll', 'visibilitychange']) {
+        document.addEventListener(type, ping, { passive: true, capture: true });
+    }
 }
 
 // ---- App shell --------------------------------------------------------------
@@ -212,6 +254,8 @@ async function boot() {
     });
     wireLogin();
     byId('logout-btn').addEventListener('click', logout);
+    setRecovery({ reauthenticate, confirmPassword });
+    keepSessionAlive();
     onUnauthenticated(() => {
         setCsrfToken(null);
         showLogin('errors.UNAUTHENTICATED');

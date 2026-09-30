@@ -16,6 +16,7 @@ const helmet = require('helmet');
 const { ADMIN } = require('../../constants');
 const logger = require('../../utils/logger');
 const { createAdminRouter } = require('../../routes/admin');
+const { createSessionStore } = require('../../middleware/adminAuth');
 const { createMemoryRepos, makeView } = require('../support/memoryRepos');
 const { demoData, APPS: DEMO_APPS } = require('./demoData');
 
@@ -134,13 +135,29 @@ function receiptsFor(views) {
         .sort((a, b) => b.createdAt - a.createdAt);
 }
 
+/**
+ * The session clock runs ahead of real time by this much, so a test can make
+ * the password "old" without waiting. Reset with everything else.
+ */
+let sessionClockOffset = 0;
+/** The seeded data and config the current admin router serves. */
+let current = null;
+
+/** An admin router over the current data, with a new, empty session store. */
+function routerWithNewSessions() {
+    const sessionStore = createSessionStore({ now: () => Date.now() + sessionClockOffset });
+    return createAdminRouter({ config: current.config, adminRepo: current.repos.adminRepo, logRepo: current.repos.logRepo, sessionStore });
+}
+
 /** A fresh admin router over freshly seeded data, with no sessions. */
 function buildAdmin() {
+    sessionClockOffset = 0;
     const now = DEMO ? new Date(Math.floor(Date.now() / MINUTE) * MINUTE) : new Date(BASE);
     const data = DEMO ? demoData(now) : { views: seed() };
     const repos = createMemoryRepos({ views: data.views, now: () => now });
     repos.viewLog.push(...(data.viewLog || receiptsFor(data.views)));
     repos.adminLog.push(...(data.adminLog || []));
+    if (data.rejections) repos.logRepo.recordRejections(data.rejections);
 
     const config = {
         allowed: {
@@ -151,7 +168,8 @@ function buildAdmin() {
         server: { isProduction: false },
         admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30, viewLogRetentionDays: 90 },
     };
-    return createAdminRouter({ config, adminRepo: repos.adminRepo, logRepo: repos.logRepo });
+    current = { repos, config };
+    return routerWithNewSessions();
 }
 
 function start(port = PORT) {
@@ -171,6 +189,22 @@ function start(port = PORT) {
             admin = buildAdmin();
             res.status(204).end();
         });
+    });
+
+    // Test-only: end every session, as a server restart without persistent
+    // sessions, or an idle timeout, would; the data stays as it is.
+    app.post('/__test__/end-sessions', (req, res) => {
+        setImmediate(() => {
+            admin = routerWithNewSessions();
+            res.status(204).end();
+        });
+    });
+
+    // Test-only: make the password entered at sign-in older than the window
+    // in which a permanent erasure may proceed without asking again.
+    app.post('/__test__/age-password', (req, res) => {
+        sessionClockOffset += ADMIN.REAUTH_WINDOW_MS + 60 * 1000;
+        res.status(204).end();
     });
 
     app.use(ADMIN.PATH_PREFIX, (req, res, next) => admin(req, res, next));

@@ -242,6 +242,20 @@ describe('Admin API', () => {
             expect(res.body.code).toBe(ADMIN_ERROR_CODE.TOO_MANY_ATTEMPTS);
         });
 
+        test('the session cookie lasts as long as a session may, so a browser restart keeps it', async () => {
+            const { res } = await login(app);
+            expect(res.headers['set-cookie'][0]).toContain(`Max-Age=${ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS / 1000}`);
+            const custom = buildApp({ repos, sessionStore: createSessionStore({ absoluteMs: 3_600_000 }) });
+            const { res: short } = await login(custom);
+            expect(short.headers['set-cookie'][0]).toContain('Max-Age=3600');
+        });
+
+        test('reloading the page gets the same CSRF token back from /session', async () => {
+            const { agent, csrf } = await login(app);
+            const session = await agent.get(`${API}/session`).expect(200);
+            expect(session.body).toEqual({ authenticated: true, csrfToken: csrf });
+        });
+
         test('an expired session is refused', async () => {
             let clock = 0;
             const sessionStore = createSessionStore({ now: () => clock });
@@ -573,6 +587,50 @@ describe('Admin API', () => {
             const before = repos.adminLog.length;
             await post(agent, csrf, 'restore', [views[0].id]).expect(200);
             expect(repos.adminLog.length).toBe(before);
+        });
+
+        describe('erasing for good asks for the password again after a while', () => {
+            let clock;
+            let appWithClock;
+            beforeEach(() => {
+                clock = Date.parse('2026-09-30T10:00:00Z');
+                appWithClock = buildApp({ repos, sessionStore: createSessionStore({ now: () => clock }) });
+                views[0].deletedAt = new Date();
+            });
+
+            test('right after signing in, no second prompt is needed', async () => {
+                const { agent, csrf } = await login(appWithClock);
+                clock += ADMIN.REAUTH_WINDOW_MS;
+                await post(agent, csrf, 'purge', [views[0].id]).expect(200);
+            });
+
+            test('later, the erase is refused with REAUTH_REQUIRED and nothing is erased', async () => {
+                const { agent, csrf } = await login(appWithClock);
+                clock += ADMIN.REAUTH_WINDOW_MS + 1000;
+                const res = await post(agent, csrf, 'purge', [views[0].id]).expect(403);
+                expect(res.body).toEqual({ code: ADMIN_ERROR_CODE.REAUTH_REQUIRED });
+                expect(repos.tables.get(APP)).toHaveLength(3);
+                // Moving to the trash and restoring can be undone, so they never ask.
+                await post(agent, csrf, 'restore', [views[0].id]).expect(200);
+            });
+
+            test('confirming the password allows it again, and both are logged', async () => {
+                const { agent, csrf } = await login(appWithClock);
+                clock += ADMIN.REAUTH_WINDOW_MS + 1000;
+                const wrong = await agent.post(`${API}/reauth`).set(ADMIN.CSRF_HEADER, csrf).send({ password: 'not it at all!!' });
+                expect(wrong.status).toBe(401);
+                expect(repos.adminLog[0].action).toBe(ADMIN_ACTION.LOGIN_FAILED);
+
+                await agent.post(`${API}/reauth`).set(ADMIN.CSRF_HEADER, csrf).send({ password: PASSWORD }).expect(204);
+                expect(repos.adminLog[0].action).toBe(ADMIN_ACTION.PASSWORD_CONFIRMED);
+                await post(agent, csrf, 'purge', [views[0].id]).expect(200);
+            });
+
+            test('confirming needs a session and the CSRF token like any change', async () => {
+                await request(appWithClock).post(`${API}/reauth`).send({ password: PASSWORD }).expect(401);
+                const { agent } = await login(appWithClock);
+                await agent.post(`${API}/reauth`).send({ password: PASSWORD }).expect(403);
+            });
         });
     });
 

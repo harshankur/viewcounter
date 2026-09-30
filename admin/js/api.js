@@ -11,9 +11,30 @@ import { API_BASE, CSRF_HEADER, ERROR_CODE } from './constants.js';
 const SAFE_METHODS = new Set(['GET', 'HEAD']);
 const HTTP_NO_CONTENT = 204;
 const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
+/** These establish a session; failing them is an answer, not something to recover from. */
+const SESSION_PATHS = new Set(['session', 'login']);
 
 let csrfToken = null;
 const unauthenticatedListeners = new Set();
+
+/**
+ * How a failed request recovers instead of failing, set by main.js:
+ *   reauthenticate()  a sign-in dialog over the page; true once signed in again
+ *   confirmPassword() the password for an action that cannot be undone; true once confirmed
+ */
+const recovery = { reauthenticate: null, confirmPassword: null };
+/** Several requests can find the session gone at once; they share one dialog. */
+let pendingSignIn = null;
+
+export function setRecovery(handlers) {
+    Object.assign(recovery, handlers);
+}
+
+function signInAgain() {
+    pendingSignIn ??= recovery.reauthenticate().finally(() => { pendingSignIn = null; });
+    return pendingSignIn;
+}
 
 export class ApiError {
     /** @param {number} status @param {string} code @param {object} [body] */
@@ -38,7 +59,7 @@ export function setCsrfToken(token) {
  * @param {string} path relative to the API base, no leading slash
  * @param {{ body?: object, query?: Record<string, string|number|undefined> }} [options]
  */
-export async function request(method, path, { body, query } = {}) {
+export async function request(method, path, { body, query } = {}, { retried = false } = {}) {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query || {})) {
         if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
@@ -55,11 +76,15 @@ export async function request(method, path, { body, query } = {}) {
             method,
             headers,
             credentials: 'same-origin',
+            // The API never redirects. A gateway in front of it (Cloudflare
+            // Access, say) does, to its own sign-in page, when its session ends.
+            redirect: 'manual',
             body: body === undefined ? undefined : JSON.stringify(body),
         });
     } catch {
         throw new ApiError(0, ERROR_CODE.NETWORK);
     }
+    if (response.type === 'opaqueredirect') throw new ApiError(0, ERROR_CODE.ACCESS_EXPIRED);
 
     if (response.status === HTTP_NO_CONTENT) return null;
 
@@ -72,8 +97,16 @@ export async function request(method, path, { body, query } = {}) {
 
     if (!response.ok) {
         const code = payload.code || ERROR_CODE.SERVER_ERROR;
+        const retry = () => request(method, path, { body, query }, { retried: true });
+
         if (response.status === HTTP_UNAUTHORIZED && code === ERROR_CODE.UNAUTHENTICATED) {
+            // Sign in again over the page, then carry on with this request.
+            if (!retried && !SESSION_PATHS.has(path) && recovery.reauthenticate && await signInAgain()) return retry();
             for (const listener of unauthenticatedListeners) listener();
+        }
+        if (response.status === HTTP_FORBIDDEN && code === ERROR_CODE.REAUTH_REQUIRED
+            && !retried && recovery.confirmPassword && await recovery.confirmPassword()) {
+            return retry();
         }
         throw new ApiError(response.status, code, payload);
     }
@@ -83,6 +116,7 @@ export async function request(method, path, { body, query } = {}) {
 export const api = {
     session: () => request('GET', 'session'),
     login: (password) => request('POST', 'login', { body: { password } }),
+    reauth: (password) => request('POST', 'reauth', { body: { password } }),
     logout: () => request('POST', 'logout'),
     meta: () => request('GET', 'meta'),
     apps: () => request('GET', 'apps'),

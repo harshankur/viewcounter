@@ -43,6 +43,8 @@ const {
     requireAdminSession,
     requireCsrf,
     verifyPassword,
+    requireRecentPassword,
+    sessionCsrfToken,
     cookieOptions,
     originAllowed,
     readToken,
@@ -118,7 +120,7 @@ function createAdminRouter({
     config,
     adminRepo,
     logRepo,
-    sessionStore = createSessionStore(),
+    sessionStore = createSessionStore({ idleMs: config.admin.sessionIdleMs, absoluteMs: config.admin.sessionMaxAgeMs }),
     isReady = () => true,
     uiDir = ADMIN_UI_DIR,
 }) {
@@ -199,10 +201,15 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
 
     // ---- Session ----------------------------------------------------------
 
-    api.get('/session', (req, res) => {
-        const session = sessionStore.get(readToken(req));
-        if (!session) return res.json({ authenticated: false });
-        return res.json({ authenticated: true, csrfToken: session.csrfToken });
+    api.get('/session', async (req, res) => {
+        try {
+            const token = readToken(req);
+            const session = await sessionStore.get(token);
+            if (!session) return res.json({ authenticated: false });
+            return res.json({ authenticated: true, csrfToken: sessionCsrfToken(token) });
+        } catch (error) {
+            return adminError(req, res, error, 'read session');
+        }
     });
 
     const loginLimiter = rateLimit({
@@ -235,22 +242,38 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
 
             // A fresh token on every login; any previous session in this
             // browser is ended rather than left valid alongside the new one.
-            sessionStore.destroy(readToken(req));
-            const { token, session } = sessionStore.create();
-            res.cookie(ADMIN.SESSION_COOKIE, token, cookieOptions(req));
+            await sessionStore.destroy(readToken(req));
+            const { token, session } = await sessionStore.create();
+            res.cookie(ADMIN.SESSION_COOKIE, token, cookieOptions(req, sessionStore.absoluteMs));
 
             req.adminSession = session;
             await record(req, ADMIN_ACTION.LOGIN_SUCCEEDED);
-            return res.json({ authenticated: true, csrfToken: session.csrfToken });
+            return res.json({ authenticated: true, csrfToken: sessionCsrfToken(token) });
         } catch (error) {
             return adminError(req, res, error, 'login');
+        }
+    });
+
+    // The password again, for actions that cannot be undone. Rate limited
+    // with sign-in, since it is the same guess.
+    api.post('/reauth', authed, loginLimiter, validateLogin(), handleAdminValidation, async (req, res) => {
+        try {
+            if (!verifyPassword(req.body.password, config.admin.password)) {
+                await record(req, ADMIN_ACTION.LOGIN_FAILED);
+                return res.status(HTTP_STATUS.UNAUTHORIZED).json({ code: ADMIN_ERROR_CODE.INVALID_PASSWORD });
+            }
+            await sessionStore.confirmPassword(req.adminToken);
+            await record(req, ADMIN_ACTION.PASSWORD_CONFIRMED);
+            return res.status(HTTP_STATUS.NO_CONTENT).end();
+        } catch (error) {
+            return adminError(req, res, error, 'confirm password');
         }
     });
 
     api.post('/logout', authed, async (req, res) => {
         try {
             await record(req, ADMIN_ACTION.LOGOUT);
-            sessionStore.destroy(req.adminToken);
+            await sessionStore.destroy(req.adminToken);
             res.clearCookie(ADMIN.SESSION_COOKIE, { ...cookieOptions(req), maxAge: undefined });
             return res.status(HTTP_STATUS.NO_CONTENT).end();
         } catch (error) {
@@ -277,6 +300,7 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             pageSizeDefault: ADMIN.PAGE_SIZE_DEFAULT,
             searchMaxLength: ADMIN.SEARCH_MAX_LENGTH,
             trashRetentionDays: config.admin.trashRetentionDays,
+            reauthWindowMs: ADMIN.REAUTH_WINDOW_MS,
             viewLogRetentionDays: config.admin.viewLogRetentionDays,
             maxLength: {
                 note: FIELD_MAX_LENGTH.NOTE,
@@ -378,8 +402,8 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
     });
 
     /** delete / restore / purge share one shape: IDs in, changed IDs out. */
-    const batchRoute = (suffix, operation, action) => {
-        api.post(`/apps/:appId/views/${suffix}`, authed, validateBatch(allowed), handleAdminValidation,
+    const batchRoute = (suffix, operation, action, guards = []) => {
+        api.post(`/apps/:appId/views/${suffix}`, authed, ...guards, validateBatch(allowed), handleAdminValidation,
             async (req, res) => {
                 try {
                     const { appId } = req.params;
@@ -394,7 +418,9 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
 
     batchRoute('delete', 'softDelete', ADMIN_ACTION.VIEWS_DELETED);
     batchRoute('restore', 'restore', ADMIN_ACTION.VIEWS_RESTORED);
-    batchRoute('purge', 'purge', ADMIN_ACTION.VIEWS_PURGED);
+    // Erasing for good cannot be undone, so it wants the password from the
+    // last few minutes, not just a session that may be weeks old.
+    batchRoute('purge', 'purge', ADMIN_ACTION.VIEWS_PURGED, [requireRecentPassword()]);
 
     // ---- Logs -------------------------------------------------------------
 
@@ -444,8 +470,13 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
     // Malformed or oversized JSON bodies, in the admin error shape.
     // eslint-disable-next-line no-unused-vars
     api.use((err, req, res, next) => {
-        logger.warn(`admin request rejected: ${err.message}`, logContext(req));
-        return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: ADMIN_ERROR_CODE.VALIDATION_FAILED });
+        const status = err.status || err.statusCode;
+        if (status >= 400 && status < 500) {
+            logger.warn(`admin request rejected: ${err.message}`, logContext(req));
+            return res.status(HTTP_STATUS.BAD_REQUEST).json({ code: ADMIN_ERROR_CODE.VALIDATION_FAILED });
+        }
+        // Anything else is ours (a session store that cannot be read, say).
+        return adminError(req, res, err, 'handle request');
     });
 
     return api;

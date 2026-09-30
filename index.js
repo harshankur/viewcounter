@@ -11,6 +11,7 @@ const { buildCorsOptions } = require('./middleware/security');
 const { createAnalyticsRouter, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
+const { createDbSessionStore } = require('./db/adminSessionStore');
 
 logger.configure({ level: config.server.logLevel });
 
@@ -45,6 +46,11 @@ function createApp() {
             config,
             adminRepo: dbManager.admin,
             logRepo: dbManager.logs,
+            // In the database, so a restart or deploy signs nobody out.
+            sessionStore: createDbSessionStore(dbManager, {
+                idleMs: config.admin.sessionIdleMs,
+                absoluteMs: config.admin.sessionMaxAgeMs,
+            }),
             isReady: () => isServerReady,
         }));
     }
@@ -225,6 +231,7 @@ module.exports.createApp = createApp;
 module.exports.createAnalyticsRouter = createAnalyticsRouter;
 module.exports.createAdminRouter = createAdminRouter;
 module.exports.startRetention = startRetention;
+module.exports.createDbSessionStore = createDbSessionStore;
 module.exports.DatabaseManager = DatabaseManager;
 module.exports.dbManager = dbManager;
 module.exports.initializeServer = initializeServer;

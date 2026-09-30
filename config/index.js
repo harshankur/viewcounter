@@ -13,6 +13,7 @@ const {
     SERVER,
 } = require('../constants');
 const { filterValidAppIds } = require('../utils/appIdUtils');
+const { parseDuration, formatDuration } = require('../utils/durationUtils');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
 const { LogLevel } = require('../utils/logger');
 
@@ -319,7 +320,13 @@ class Config {
      * pruned: it is the record of who changed or erased what, and it grows only
      * with admin activity.
      *
-     * An out-of-range or unparseable value falls back to the default.
+     * An out-of-range or unparseable retention falls back to the default.
+     *
+     * `ADMIN_SESSION_IDLE_TIMEOUT` and `ADMIN_SESSION_MAX_AGE` ("30m", "12h",
+     * "7d") bound how long a sign-in lasts: signed out after that long unused,
+     * and after that long regardless. Unlike a retention, a malformed timeout
+     * stops startup: silently using the default would give a typo like
+     * "30 min" a week-long session.
      */
     loadAdminConfig() {
         const password = this.env.ADMIN_PASSWORD || '';
@@ -330,9 +337,34 @@ class Config {
             return days >= 0 && days <= max ? days : fallback;
         };
 
+        const duration = (field, fallback, min, max) => {
+            const raw = this.env[field];
+            if (raw === undefined || raw === '') return fallback;
+            const ms = parseDuration(raw);
+            if (ms === null || ms < min || ms > max) {
+                throw getError(ErrorType.CONFIG_INVALID_VALUE, {
+                    field,
+                    reason: `must be a duration such as 30m, 12h, or 7d, from ${formatDuration(min)} to ${formatDuration(max)}`,
+                });
+            }
+            return ms;
+        };
+        const sessionIdleMs = duration('ADMIN_SESSION_IDLE_TIMEOUT',
+            ADMIN.SESSION_IDLE_TIMEOUT_MS, ADMIN.SESSION_IDLE_MIN_MS, ADMIN.SESSION_IDLE_MAX_MS);
+        const sessionMaxAgeMs = duration('ADMIN_SESSION_MAX_AGE',
+            ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS, ADMIN.SESSION_MAX_AGE_MIN_MS, ADMIN.SESSION_MAX_AGE_MAX_MS);
+        if (sessionIdleMs > sessionMaxAgeMs) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, {
+                field: 'ADMIN_SESSION_IDLE_TIMEOUT',
+                reason: `must not be longer than ADMIN_SESSION_MAX_AGE (${formatDuration(sessionMaxAgeMs)})`,
+            });
+        }
+
         return {
             password,
             enabled: longEnough,
+            sessionIdleMs,
+            sessionMaxAgeMs,
             trashRetentionDays: retention(
                 this.env.TRASH_RETENTION_DAYS, ADMIN.DEFAULT_TRASH_RETENTION_DAYS, ADMIN.MAX_TRASH_RETENTION_DAYS),
             viewLogRetentionDays: retention(

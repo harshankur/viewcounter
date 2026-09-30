@@ -27,12 +27,21 @@ export const ERROR_CODE = Object.freeze({
     TOO_MANY_ATTEMPTS: 'TOO_MANY_ATTEMPTS',
     RATE_LIMITED: 'RATE_LIMITED',
     CSRF_REJECTED: 'CSRF_REJECTED',
+    REAUTH_REQUIRED: 'REAUTH_REQUIRED',
     VALIDATION_FAILED: 'VALIDATION_FAILED',
     NOT_FOUND: 'NOT_FOUND',
     SERVER_ERROR: 'SERVER_ERROR',
     /** Client-side only: the request never got an answer. */
     NETWORK: 'NETWORK',
+    /**
+     * Client-side only: a gateway in front of the server (Cloudflare Access,
+     * say) answered with a redirect to its own sign-in page.
+     */
+    ACCESS_EXPIRED: 'ACCESS_EXPIRED',
 });
+
+/** Using the UI extends the session at most this often (the server keeps it for days). */
+export const SESSION_PING_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Mirrors VIEW_STATUS on the server. */
 export const VIEW_STATUS = Object.freeze({

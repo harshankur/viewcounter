@@ -1,15 +1,17 @@
 /**
- * Admin UI authentication: password login, server-side sessions, and CSRF.
+ * Admin UI authentication: password login, server-side sessions, CSRF, and a
+ * fresh password for the actions that cannot be undone.
  *
- * Sessions live in memory. A restart signs every admin out, which is the safe
- * direction to fail in and costs one login. The browser holds only an opaque
- * random token in an HttpOnly cookie; the store is keyed by that token's
- * SHA-256, so a memory dump of the store does not yield usable cookies.
+ * The browser holds only an opaque random token in an HttpOnly cookie. Stores
+ * are keyed by that token's SHA-256, so reading a store (the in-memory one
+ * here, or the database table the server uses so a restart signs nobody out)
+ * yields no usable session.
  *
  * CSRF is defeated three ways, each sufficient on its own in a modern browser:
  * the cookie is SameSite=Strict, every mutating request must echo a per-session
  * token in a header that a cross-site form cannot set, and a present Origin
- * header must match this server.
+ * header must match this server. The CSRF token is an HMAC of the session
+ * token, so it is never stored and cannot be computed without the cookie.
  */
 
 const crypto = require('crypto');
@@ -27,7 +29,32 @@ function hashToken(token) {
     return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+/** @returns {string} a new session token, 256 random bits */
+function newToken() {
+    return crypto.randomBytes(ADMIN.SESSION_TOKEN_BYTES).toString('base64url');
+}
+
 /**
+ * The CSRF token for a session: an HMAC of its token, so it is the same for
+ * the life of the session, is never stored, and needs the cookie to compute.
+ * @param {string} token
+ * @returns {string}
+ */
+function sessionCsrfToken(token) {
+    return crypto.createHmac('sha256', token).update('viewcounter-admin-csrf').digest('base64url');
+}
+
+/**
+ * The in-memory session store: used by tests and by an embedding app that
+ * passes no store of its own. A restart signs everyone out.
+ *
+ * Every store has the same async interface:
+ *   create()               -> { token, session }
+ *   get(token)             -> session or null; extends the idle window
+ *   destroy(token)         -> whether a session was ended
+ *   confirmPassword(token) -> records that the password was just entered
+ * where a session is { id, passwordAgeMs }.
+ *
  * @param {{ idleMs?: number, absoluteMs?: number, maxSessions?: number,
  *   now?: () => number }} [options]
  */
@@ -37,27 +64,19 @@ function createSessionStore({
     maxSessions = ADMIN.MAX_SESSIONS,
     now = Date.now,
 } = {}) {
-    /** @type {Map<string, {id: string, csrfToken: string, createdAt: number, lastSeenAt: number}>} */
+    /** @type {Map<string, {id: string, createdAt: number, lastSeenAt: number, passwordAt: number}>} */
     const sessions = new Map();
 
-    function isExpired(session, at) {
-        return at - session.lastSeenAt > idleMs || at - session.createdAt > absoluteMs;
-    }
+    const view = (session, at) => ({ id: session.id, passwordAgeMs: at - session.passwordAt });
 
     return {
-        /**
-         * Start a session.
-         * @returns {{ token: string, session: {id: string, csrfToken: string, createdAt: number, lastSeenAt: number} }}
-         */
-        create() {
+        idleMs,
+        absoluteMs,
+
+        async create() {
             const at = now();
-            const token = crypto.randomBytes(ADMIN.SESSION_TOKEN_BYTES).toString('base64url');
-            const session = {
-                id: crypto.randomUUID(),
-                csrfToken: crypto.randomBytes(ADMIN.CSRF_TOKEN_BYTES).toString('base64url'),
-                createdAt: at,
-                lastSeenAt: at,
-            };
+            const token = newToken();
+            const session = { id: crypto.randomUUID(), createdAt: at, lastSeenAt: at, passwordAt: at };
 
             // Bounded: the oldest session goes first. Map preserves insertion
             // order, so the first key is always the oldest.
@@ -65,32 +84,32 @@ function createSessionStore({
                 sessions.delete(sessions.keys().next().value);
             }
             sessions.set(hashToken(token), session);
-            return { token, session };
+            return { token, session: view(session, at) };
         },
 
-        /**
-         * Look up a live session and extend its idle window.
-         * @param {string|undefined} token
-         */
-        get(token) {
+        async get(token) {
             if (typeof token !== 'string' || token.length === 0) return null;
             const key = hashToken(token);
             const session = sessions.get(key);
             if (!session) return null;
 
             const at = now();
-            if (isExpired(session, at)) {
+            if (at - session.lastSeenAt > idleMs || at - session.createdAt > absoluteMs) {
                 sessions.delete(key);
                 return null;
             }
             session.lastSeenAt = at;
-            return session;
+            return view(session, at);
         },
 
-        /** @param {string|undefined} token */
-        destroy(token) {
+        async destroy(token) {
             if (typeof token !== 'string' || token.length === 0) return false;
             return sessions.delete(hashToken(token));
+        },
+
+        async confirmPassword(token) {
+            const session = typeof token === 'string' ? sessions.get(hashToken(token)) : null;
+            if (session) session.passwordAt = now();
         },
 
         get size() {
@@ -111,27 +130,44 @@ function readToken(req) {
  * (`req.adminBasePath`), so the cookie never travels to the public analytics
  * endpoints and still works when another app mounts the router elsewhere.
  */
-function cookieOptions(req) {
+function cookieOptions(req, maxAge = ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS) {
     return {
         httpOnly: true,
         sameSite: 'strict',
         secure: req.secure,
         path: req.adminBasePath || ADMIN.PATH_PREFIX,
-        maxAge: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
+        maxAge,
     };
 }
 
 /** @returns {import('express').RequestHandler} */
 function requireAdminSession(store) {
-    return (req, res, next) => {
-        const token = readToken(req);
-        const session = store.get(token);
-        if (!session) {
-            return res.status(HTTP_STATUS.UNAUTHORIZED).json({ code: ADMIN_ERROR_CODE.UNAUTHENTICATED });
+    return async (req, res, next) => {
+        try {
+            const token = readToken(req);
+            const session = await store.get(token);
+            if (!session) {
+                return res.status(HTTP_STATUS.UNAUTHORIZED).json({ code: ADMIN_ERROR_CODE.UNAUTHENTICATED });
+            }
+            req.adminSession = session;
+            req.adminToken = token;
+            return next();
+        } catch (error) {
+            return next(error);
         }
-        req.adminSession = session;
-        req.adminToken = token;
-        return next();
+    };
+}
+
+/**
+ * For actions that cannot be undone: the password must have been entered in
+ * the last `windowMs`, at sign-in or through POST /reauth. Otherwise the UI is
+ * told to ask for it and retry.
+ * @returns {import('express').RequestHandler}
+ */
+function requireRecentPassword(windowMs = ADMIN.REAUTH_WINDOW_MS) {
+    return (req, res, next) => {
+        if (req.adminSession && req.adminSession.passwordAgeMs <= windowMs) return next();
+        return res.status(HTTP_STATUS.FORBIDDEN).json({ code: ADMIN_ERROR_CODE.REAUTH_REQUIRED });
     };
 }
 
@@ -172,7 +208,8 @@ function requireCsrf() {
         const session = req.adminSession;
 
         const originOk = originAllowed(req);
-        const tokenOk = Boolean(session) && safeEqual(presented, session.csrfToken);
+        const tokenOk = Boolean(session) && typeof req.adminToken === 'string'
+            && safeEqual(presented, sessionCsrfToken(req.adminToken));
 
         if (!originOk || !tokenOk) {
             return res.status(HTTP_STATUS.FORBIDDEN).json({ code: ADMIN_ERROR_CODE.CSRF_REJECTED });
@@ -193,7 +230,10 @@ function verifyPassword(presented, configured) {
 module.exports = {
     createSessionStore,
     requireAdminSession,
+    requireRecentPassword,
     requireCsrf,
+    sessionCsrfToken,
+    newToken,
     verifyPassword,
     cookieOptions,
     expectedOrigin,

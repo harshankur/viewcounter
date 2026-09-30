@@ -6,12 +6,16 @@
 const {
     createSessionStore,
     requireAdminSession,
+    requireRecentPassword,
     requireCsrf,
+    sessionCsrfToken,
     verifyPassword,
     cookieOptions,
     expectedOrigin,
     hashToken,
 } = require('../middleware/adminAuth');
+const { createDbSessionStore } = require('../db/adminSessionStore');
+const { createScriptedPool, dbWith } = require('./support/scriptedPool');
 const { parseCookies, MAX_COOKIE_PAIRS } = require('../utils/cookieUtils');
 const { resolveChanges, checkField } = require('../middleware/adminValidation');
 const { Config } = require('../config');
@@ -43,13 +47,12 @@ function fakeReq({ method = 'GET', headers = {}, protocol = 'https', host = 'vie
 }
 
 describe('session store', () => {
-    test('creates opaque tokens and finds the session by them', () => {
+    test('creates opaque tokens and finds the session by them', async () => {
         const store = createSessionStore();
-        const { token, session } = store.create();
+        const { token, session } = await store.create();
         expect(token.length).toBeGreaterThanOrEqual(ADMIN.SESSION_TOKEN_BYTES);
         expect(session.id).toMatch(/^[0-9a-f-]{36}$/);
-        expect(session.csrfToken).not.toBe(token);
-        expect(store.get(token)).toBe(session);
+        expect(await store.get(token)).toEqual({ id: session.id, passwordAgeMs: expect.any(Number) });
         expect(store.size).toBe(1);
     });
 
@@ -57,104 +60,215 @@ describe('session store', () => {
         expect(hashToken('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
     });
 
-    test.each([undefined, '', 'unknown-token', 42])('does not find a session for %j', (token) => {
-        expect(createSessionStore().get(token)).toBeNull();
+    test.each([undefined, '', 'unknown-token', 42])('does not find a session for %j', async (token) => {
+        expect(await createSessionStore().get(token)).toBeNull();
     });
 
-    test('expires after the idle timeout, and activity extends it', () => {
+    test('expires after the idle timeout, and activity extends it', async () => {
         let clock = 0;
         const store = createSessionStore({ idleMs: 100, absoluteMs: 10_000, now: () => clock });
-        const { token } = store.create();
+        const { token } = await store.create();
         clock = 90;
-        expect(store.get(token)).not.toBeNull();
+        expect(await store.get(token)).not.toBeNull();
         clock = 180;
-        expect(store.get(token)).not.toBeNull();
+        expect(await store.get(token)).not.toBeNull();
         clock = 281;
-        expect(store.get(token)).toBeNull();
+        expect(await store.get(token)).toBeNull();
         expect(store.size).toBe(0);
     });
 
-    test('expires after the absolute timeout however active it is', () => {
+    test('expires after the absolute timeout however active it is', async () => {
         let clock = 0;
         const store = createSessionStore({ idleMs: 100, absoluteMs: 250, now: () => clock });
-        const { token } = store.create();
-        for (clock = 50; clock <= 250; clock += 50) expect(store.get(token)).not.toBeNull();
+        const { token } = await store.create();
+        for (clock = 50; clock <= 250; clock += 50) expect(await store.get(token)).not.toBeNull();
         clock = 251;
-        expect(store.get(token)).toBeNull();
+        expect(await store.get(token)).toBeNull();
     });
 
-    test('evicts the oldest session beyond the cap', () => {
+    test('evicts the oldest session beyond the cap', async () => {
         const store = createSessionStore({ maxSessions: 2 });
-        const first = store.create();
-        const second = store.create();
-        const third = store.create();
+        const first = await store.create();
+        const second = await store.create();
+        const third = await store.create();
         expect(store.size).toBe(2);
-        expect(store.get(first.token)).toBeNull();
-        expect(store.get(second.token)).not.toBeNull();
-        expect(store.get(third.token)).not.toBeNull();
+        expect(await store.get(first.token)).toBeNull();
+        expect(await store.get(second.token)).not.toBeNull();
+        expect(await store.get(third.token)).not.toBeNull();
     });
 
-    test('destroy ends a session and reports whether one existed', () => {
+    test('destroy ends a session and reports whether one existed', async () => {
         const store = createSessionStore();
-        const { token } = store.create();
-        expect(store.destroy(token)).toBe(true);
-        expect(store.destroy(token)).toBe(false);
-        expect(store.destroy(undefined)).toBe(false);
-        expect(store.destroy('')).toBe(false);
+        const { token } = await store.create();
+        expect(await store.destroy(token)).toBe(true);
+        expect(await store.destroy(token)).toBe(false);
+        expect(await store.destroy(undefined)).toBe(false);
+        expect(await store.destroy('')).toBe(false);
+    });
+
+    test('the password age starts at sign-in and restarts when the password is confirmed', async () => {
+        let clock = 1000;
+        const store = createSessionStore({ now: () => clock });
+        const { token } = await store.create();
+        clock = 1000 + ADMIN.REAUTH_WINDOW_MS + 1;
+        expect((await store.get(token)).passwordAgeMs).toBe(ADMIN.REAUTH_WINDOW_MS + 1);
+        await store.confirmPassword(token);
+        expect((await store.get(token)).passwordAgeMs).toBe(0);
+    });
+
+    test('the configured timeouts are exposed for the cookie lifetime', () => {
+        expect(createSessionStore({ idleMs: 5, absoluteMs: 9 })).toMatchObject({ idleMs: 5, absoluteMs: 9 });
+        expect(createSessionStore()).toMatchObject({
+            idleMs: ADMIN.SESSION_IDLE_TIMEOUT_MS, absoluteMs: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
+        });
+    });
+});
+
+describe('database session store', () => {
+    const row = (overrides = {}) => ({ id: 's1', age_s: 10, idle_s: 5, password_age_s: 10, ...overrides });
+    const storeWith = (handler, options) => {
+        const pool = createScriptedPool(handler);
+        return { pool, store: createDbSessionStore(dbWith(pool), options) };
+    };
+
+    test('create clears expired sessions, stores only the token hash, and caps the table', async () => {
+        const { pool, store } = storeWith(() => [{ affectedRows: 0 }], { idleMs: 3_600_000, absoluteMs: 86_400_000, maxSessions: 7 });
+        const { token, session } = await store.create();
+        const [purge, insert, cap] = pool.queries;
+        expect(purge.sql).toContain('last_seen_at < DATE_SUB(NOW(3), INTERVAL ? SECOND)');
+        expect(purge.params).toEqual([3600, 86400]);
+        expect(insert.params).toEqual([hashToken(token), session.id]);
+        expect(JSON.stringify(pool.queries)).not.toContain(token);
+        expect(cap.sql).toContain('ORDER BY last_seen_at DESC, created_at DESC LIMIT ?');
+        expect(cap.params).toEqual([7]);
+        expect(session.passwordAgeMs).toBe(0);
+    });
+
+    test('get reports the password age and touches last-seen at most once a minute', async () => {
+        const fresh = storeWith(() => [[row({ idle_s: 5 })]]);
+        expect(await fresh.store.get('t')).toEqual({ id: 's1', passwordAgeMs: 10_000 });
+        expect(fresh.pool.matching('UPDATE')).toHaveLength(0);
+
+        const idle = storeWith(() => [[row({ idle_s: 61 })]]);
+        await idle.store.get('t');
+        expect(idle.pool.matching('SET last_seen_at = NOW(3)')).toHaveLength(1);
+    });
+
+    test.each([
+        ['idle too long', { idle_s: 11 }],
+        ['too old', { age_s: 21 }],
+    ])('a session %s is deleted and not returned', async (_label, overrides) => {
+        const { pool, store } = storeWith((sql) => (sql.startsWith('SELECT') ? [[row(overrides)]] : [{ affectedRows: 1 }]),
+            { idleMs: 10_000, absoluteMs: 20_000 });
+        expect(await store.get('t')).toBeNull();
+        expect(pool.matching('DELETE FROM `_admin_sessions` WHERE token_hash = ?')[0].params).toEqual([hashToken('t')]);
+    });
+
+    test('an unknown or absent token finds nothing, and an absent one asks nothing', async () => {
+        const { pool, store } = storeWith(() => [[]]);
+        expect(await store.get('nope')).toBeNull();
+        expect(await store.get(undefined)).toBeNull();
+        expect(pool.queries).toHaveLength(1);
+    });
+
+    test('confirmPassword and destroy address the session by its hash', async () => {
+        const { pool, store } = storeWith(() => [{ affectedRows: 1 }]);
+        await store.confirmPassword('t');
+        expect(await store.destroy('t')).toBe(true);
+        expect(pool.queries.map((q) => q.params)).toEqual([[hashToken('t')], [hashToken('t')]]);
+        expect(pool.queries[0].sql).toContain('SET password_at = NOW(3)');
     });
 });
 
 describe('requireAdminSession', () => {
-    test('attaches the session and token when the cookie is valid', () => {
+    test('attaches the session and token when the cookie is valid', async () => {
         const store = createSessionStore();
-        const { token, session } = store.create();
+        const { token, session } = await store.create();
         const req = fakeReq({ headers: { cookie: `other=1; ${ADMIN.SESSION_COOKIE}=${token}` } });
         const next = jest.fn();
-        requireAdminSession(store)(req, fakeRes(), next);
-        expect(next).toHaveBeenCalled();
-        expect(req.adminSession).toBe(session);
+        await requireAdminSession(store)(req, fakeRes(), next);
+        expect(next).toHaveBeenCalledWith();
+        expect(req.adminSession.id).toBe(session.id);
         expect(req.adminToken).toBe(token);
     });
 
-    test('answers 401 without a valid cookie', () => {
+    test('answers 401 without a valid cookie', async () => {
         const res = fakeRes();
         const next = jest.fn();
-        requireAdminSession(createSessionStore())(fakeReq(), res, next);
+        await requireAdminSession(createSessionStore())(fakeReq(), res, next);
         expect(next).not.toHaveBeenCalled();
         expect(res.statusCode).toBe(401);
         expect(res.body).toEqual({ code: ADMIN_ERROR_CODE.UNAUTHENTICATED });
     });
+
+    test('a store that cannot be read is an error, not a sign-out', async () => {
+        const next = jest.fn();
+        const failing = { get: async () => { throw new TypeError('db down'); } };
+        await requireAdminSession(failing)(fakeReq({ headers: { cookie: `${ADMIN.SESSION_COOKIE}=x` } }), fakeRes(), next);
+        expect(next).toHaveBeenCalledWith(expect.any(TypeError));
+    });
+});
+
+describe('requireRecentPassword', () => {
+    const run = (passwordAgeMs) => {
+        const req = fakeReq({ method: 'POST' });
+        req.adminSession = { id: 's', passwordAgeMs };
+        const res = fakeRes();
+        const next = jest.fn();
+        requireRecentPassword()(req, res, next);
+        return { res, next };
+    };
+
+    test('passes when the password was entered within the window', () => {
+        expect(run(ADMIN.REAUTH_WINDOW_MS).next).toHaveBeenCalled();
+    });
+
+    test('asks for the password again once the window has passed', () => {
+        const { res, next } = run(ADMIN.REAUTH_WINDOW_MS + 1);
+        expect(next).not.toHaveBeenCalled();
+        expect(res.statusCode).toBe(403);
+        expect(res.body).toEqual({ code: ADMIN_ERROR_CODE.REAUTH_REQUIRED });
+    });
 });
 
 describe('requireCsrf', () => {
-    const session = { csrfToken: 'tok' };
-    const run = (reqOptions, adminSession = session) => {
+    const TOKEN = 'session-token';
+    const CSRF = sessionCsrfToken(TOKEN);
+    const run = (reqOptions, adminSession = { id: 's' }) => {
         const req = fakeReq(reqOptions);
         req.adminSession = adminSession;
+        req.adminToken = TOKEN;
         const res = fakeRes();
         const next = jest.fn();
         requireCsrf()(req, res, next);
         return { res, next };
     };
 
+    test('the CSRF token is derived from the session token: stable, distinct, and not the token', () => {
+        expect(sessionCsrfToken(TOKEN)).toBe(CSRF);
+        expect(sessionCsrfToken('other-token')).not.toBe(CSRF);
+        expect(CSRF).not.toContain(TOKEN);
+    });
+
     test.each(['GET', 'HEAD', 'OPTIONS'])('%s needs no token', (method) => {
         expect(run({ method }).next).toHaveBeenCalled();
     });
 
     test('a matching token from the same origin passes', () => {
-        const { next } = run({ method: 'POST', headers: { [ADMIN.CSRF_HEADER]: 'tok', origin: 'https://views.example' } });
+        const { next } = run({ method: 'POST', headers: { [ADMIN.CSRF_HEADER]: CSRF, origin: 'https://views.example' } });
         expect(next).toHaveBeenCalled();
     });
 
     test('a matching token with no Origin header passes', () => {
-        expect(run({ method: 'DELETE', headers: { [ADMIN.CSRF_HEADER]: 'tok' } }).next).toHaveBeenCalled();
+        expect(run({ method: 'DELETE', headers: { [ADMIN.CSRF_HEADER]: CSRF } }).next).toHaveBeenCalled();
     });
 
     test.each([
         ['a missing token', {}],
         ['a wrong token', { [ADMIN.CSRF_HEADER]: 'nope' }],
-        ['a foreign origin', { [ADMIN.CSRF_HEADER]: 'tok', origin: 'https://evil.example' }],
-        ['a scheme downgrade', { [ADMIN.CSRF_HEADER]: 'tok', origin: 'http://views.example' }],
+        ['another session\'s token', { [ADMIN.CSRF_HEADER]: sessionCsrfToken('other-token') }],
+        ['a foreign origin', { [ADMIN.CSRF_HEADER]: CSRF, origin: 'https://evil.example' }],
+        ['a scheme downgrade', { [ADMIN.CSRF_HEADER]: CSRF, origin: 'http://views.example' }],
     ])('refuses %s', (_label, headers) => {
         const { res, next } = run({ method: 'POST', headers });
         expect(next).not.toHaveBeenCalled();
@@ -163,7 +277,7 @@ describe('requireCsrf', () => {
     });
 
     test('refuses when there is no session at all', () => {
-        const { next } = run({ method: 'POST', headers: { [ADMIN.CSRF_HEADER]: 'tok' } }, null);
+        const { next } = run({ method: 'POST', headers: { [ADMIN.CSRF_HEADER]: CSRF } }, null);
         expect(next).not.toHaveBeenCalled();
     });
 });
@@ -189,6 +303,7 @@ describe('verifyPassword and cookie helpers', () => {
         });
         expect(cookieOptions({ secure: false }).secure).toBe(false);
         expect(cookieOptions({ secure: true, adminBasePath: '/dashboard' }).path).toBe('/dashboard');
+        expect(cookieOptions({ secure: true }, 3_600_000).maxAge).toBe(3_600_000);
     });
 
     test('expectedOrigin is scheme plus host', () => {
@@ -307,7 +422,40 @@ describe('admin config', () => {
                 enabled: true,
                 trashRetentionDays: ADMIN.DEFAULT_TRASH_RETENTION_DAYS,
                 viewLogRetentionDays: ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS,
+                sessionIdleMs: ADMIN.SESSION_IDLE_TIMEOUT_MS,
+                sessionMaxAgeMs: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
             });
+    });
+
+    test('session timeouts default to 7 days unused and 30 days in all', () => {
+        expect(ADMIN.SESSION_IDLE_TIMEOUT_MS).toBe(7 * 24 * 60 * 60 * 1000);
+        expect(ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS).toBe(30 * 24 * 60 * 60 * 1000);
+    });
+
+    test.each([
+        ['30m', '12h', 30 * 60 * 1000, 12 * 60 * 60 * 1000],
+        ['2d', '90d', 2 * 86_400_000, 90 * 86_400_000],
+        [' 1H ', '1d', 3_600_000, 86_400_000],
+    ])('ADMIN_SESSION_IDLE_TIMEOUT=%j and ADMIN_SESSION_MAX_AGE=%j are read', (idle, max, idleMs, maxMs) => {
+        const admin = new Config({ NODE_ENV: 'test', ADMIN_SESSION_IDLE_TIMEOUT: idle, ADMIN_SESSION_MAX_AGE: max }).admin;
+        expect(admin).toMatchObject({ sessionIdleMs: idleMs, sessionMaxAgeMs: maxMs });
+    });
+
+    test.each([
+        ['ADMIN_SESSION_IDLE_TIMEOUT', '30 min'],
+        ['ADMIN_SESSION_IDLE_TIMEOUT', '1.5h'],
+        ['ADMIN_SESSION_IDLE_TIMEOUT', '1m'],
+        ['ADMIN_SESSION_IDLE_TIMEOUT', '91d'],
+        ['ADMIN_SESSION_MAX_AGE', '30'],
+        ['ADMIN_SESSION_MAX_AGE', '59m'],
+        ['ADMIN_SESSION_MAX_AGE', '366d'],
+    ])('%s=%j stops startup instead of falling back', (field, value) => {
+        expect(() => new Config({ NODE_ENV: 'test', [field]: value })).toThrow(`Invalid configuration for '${field}'`);
+    });
+
+    test('an idle timeout longer than the maximum age stops startup', () => {
+        expect(() => new Config({ NODE_ENV: 'test', ADMIN_SESSION_IDLE_TIMEOUT: '10d', ADMIN_SESSION_MAX_AGE: '7d' }))
+            .toThrow("Invalid configuration for 'ADMIN_SESSION_IDLE_TIMEOUT': must not be longer than ADMIN_SESSION_MAX_AGE (7d)");
     });
 
     test('ADMIN_PASSWORD unset leaves the UI disabled', () => {

@@ -70,12 +70,14 @@ test.describe('signing in', () => {
         await expect(page.getByLabel('Password')).toBeVisible();
     });
 
-    test('an expired session sends the admin back to the login screen', async ({ page, context }) => {
+    test('an expired session asks to sign in again over the page, not by leaving it', async ({ page, context }) => {
         await signIn(page);
         await context.clearCookies();
         await activePanel(page).getByRole('button', { name: /Page/ }).click();
-        await expect(page.getByRole('alert')).toHaveText('Your session has ended. Please sign in again.');
-        await expect(page.getByLabel('Password')).toBeFocused();
+        const dialog = page.getByRole('dialog', { name: 'Signed out' });
+        await expect(dialog).toContainText('Sign in again to carry on where you left off.');
+        await expect(dialog.getByLabel('Password')).toBeFocused();
+        await expect(page.locator('#app-screen')).toBeVisible();
     });
 });
 
@@ -199,6 +201,74 @@ test.describe('delete, restore, erase', () => {
         await signIn(page, 'viewLog');
         await expect(activePanel(page).locator('.notice')).toHaveText(
             'Entries are removed automatically 90 days after they are recorded. The views themselves are not affected.');
+    });
+});
+
+test.describe('staying signed in', () => {
+    test('when the session ends mid-use, signing in again over the page carries on where it was', async ({ page, request }) => {
+        await signIn(page);
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('Cart');
+        await expect(rows(page)).toHaveCount(1);
+
+        await request.post('/__test__/end-sessions');
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('Carts');
+
+        const dialog = page.getByRole('dialog', { name: 'Signed out' });
+        await expect(dialog).toBeVisible();
+        await dialog.getByLabel('Password').fill('not the password');
+        await dialog.getByRole('button', { name: 'Sign in' }).click();
+        await expect(dialog.getByRole('alert')).toHaveText('That password is not correct.');
+
+        await dialog.getByLabel('Password').fill(PASSWORD);
+        await dialog.getByLabel('Password').press('Enter');
+        await expect(dialog).toBeHidden();
+        // The same tab, the same search, now answered.
+        await expect(page.locator('#login-screen')).toBeHidden();
+        await expect(activePanel(page).getByRole('searchbox', { name: 'Search views' })).toHaveValue('Carts');
+        await expect(activePanel(page).locator('.table-message')).toBeVisible();
+    });
+
+    test('cancelling the sign-in dialog signs out properly', async ({ page, request }) => {
+        await signIn(page);
+        await request.post('/__test__/end-sessions');
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('Cart');
+        const dialog = page.getByRole('dialog', { name: 'Signed out' });
+        await dialog.getByRole('button', { name: 'Cancel' }).click();
+        await expect(page.locator('#login-screen')).toBeVisible();
+        await expect(page.locator('#login-error')).toHaveText('Your session has ended. Please sign in again.');
+    });
+
+    test('erasing permanently asks for the password again once it is not recent, then erases', async ({ page, request }) => {
+        await signIn(page, 'trash');
+        await request.post('/__test__/age-password');
+        await row(page, TRASHED).getByRole('button', { name: 'Erase permanently' }).click();
+        await page.getByRole('alertdialog', { name: 'Erase 1 view permanently?' }).getByRole('button', { name: 'Erase permanently' }).click();
+
+        const confirm = page.getByRole('dialog', { name: 'Confirm it is you' });
+        await expect(confirm).toBeVisible();
+        await confirm.getByLabel('Password').fill(PASSWORD);
+        await confirm.getByRole('button', { name: 'Confirm' }).click();
+        await expect(page.getByRole('status').filter({ hasText: 'Erased 1 view permanently.' })).toBeVisible();
+        await expect(row(page, TRASHED)).toHaveCount(0);
+    });
+
+    test('declining the password leaves the view in the trash', async ({ page, request }) => {
+        await signIn(page, 'trash');
+        await request.post('/__test__/age-password');
+        await row(page, TRASHED).getByRole('button', { name: 'Erase permanently' }).click();
+        await page.getByRole('alertdialog', { name: 'Erase 1 view permanently?' }).getByRole('button', { name: 'Erase permanently' }).click();
+        await page.getByRole('dialog', { name: 'Confirm it is you' }).getByRole('button', { name: 'Cancel' }).click();
+        await expect(page.getByText('Enter your password again to continue.')).toBeVisible();
+        await expect(row(page, TRASHED)).toHaveCount(1);
+    });
+
+    test('an access gateway redirecting to its own sign-in is named, not reported as a network failure', async ({ page }) => {
+        await signIn(page);
+        await page.route('**/admin/api/views**', (route) => route.fulfill({
+            status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' },
+        }));
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('x');
+        await expect(page.getByText(/access gateway \(for example Cloudflare Access\) has ended/)).toBeVisible();
     });
 });
 

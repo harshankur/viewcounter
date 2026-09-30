@@ -22,6 +22,13 @@
         "submit": "Sign in",
         "signedOut": "You have been signed out."
     },
+    "session": {
+        "endedTitle": "Signed out",
+        "endedMessage": "Your session has ended. Sign in again to carry on where you left off.",
+        "confirmTitle": "Confirm it is you",
+        "confirmMessage": "Erasing views permanently cannot be undone. Enter your password to continue.",
+        "confirmAction": "Confirm"
+    },
     "tabs": {
         "label": "Sections",
         "views": "views",
@@ -43,10 +50,12 @@
         "TOO_MANY_ATTEMPTS": "Too many failed attempts. Wait a few minutes and try again.",
         "RATE_LIMITED": "Too many requests. Slow down for a moment and try again.",
         "CSRF_REJECTED": "The request was refused for security reasons. Reload the page and try again.",
+        "REAUTH_REQUIRED": "Enter your password again to continue.",
         "VALIDATION_FAILED": "The server did not accept that input.",
         "NOT_FOUND": "That was not found.",
         "SERVER_ERROR": "Something went wrong on the server. Please try again.",
-        "NETWORK": "The server could not be reached. Check your connection."
+        "NETWORK": "The server could not be reached. Check your connection.",
+        "ACCESS_EXPIRED": "Your sign-in to the site's access gateway (for example Cloudflare Access) has ended. Reload the page to sign in there again."
     },
     "pager": {
         "previous": "Previous",
@@ -334,7 +343,8 @@
         "views_restored": "Restored",
         "views_purged": "Erased",
         "trash_auto_purged": "Trash auto-erased",
-        "view_log_pruned": "View log pruned"
+        "view_log_pruned": "View log pruned",
+        "password_confirmed": "Password confirmed"
     },
     "outcomes": {
         "recorded": "Recorded",
