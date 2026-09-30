@@ -16,15 +16,21 @@ const {
     ADMIN,
     ADMIN_ACTION,
     ADMIN_ERROR_CODE,
+    ADMIN_RANGE,
+    ADMIN_RANGE_DAYS,
     APP_NAME,
     APP_SLUG,
     EDITABLE_FIELDS,
     MODIFIED_FILTER,
+    REJECTION_REASON,
     SORT_ORDER,
     SOURCE_TYPE,
+    TRACKING_OUTCOME,
     VIEW_LOG_SOURCE,
     VIEW_STATUS,
 } = require('../constants');
+const { BREAKDOWN_COLUMNS } = require('../db/analysis');
+const UserAgentParser = require('../utils/userAgentParser');
 
 const UI_DIR = path.join(__dirname, '..', 'admin');
 const LOCALE_DIR = path.join(UI_DIR, 'locales');
@@ -99,6 +105,7 @@ describe('admin UI translations', () => {
         expect(literal.size).toBeGreaterThan(50);
         expect(markupKeys.size).toBeGreaterThan(10);
         expect(prefixes.has('fields')).toBe(true);
+        expect(prefixes.has('overview.dims')).toBe(true);
     });
 
     test('every literal key used in script exists in the base locale', () => {
@@ -117,17 +124,24 @@ describe('admin UI translations', () => {
     });
 
     test.each([
-        ['errors', [...Object.values(ADMIN_ERROR_CODE), 'NETWORK']],
+        ['errors', [...Object.values(ADMIN_ERROR_CODE), 'NETWORK', 'ACCESS_EXPIRED', 'UNEXPECTED']],
         ['actions', Object.values(ADMIN_ACTION)],
         ['logSources', Object.values(VIEW_LOG_SOURCE)],
+        ['outcomes', Object.values(TRACKING_OUTCOME)],
+        ['logs.outcomeHelp', Object.values(TRACKING_OUTCOME)],
+        ['rejectionReasons', Object.values(REJECTION_REASON)],
         ['sources', Object.values(SOURCE_TYPE)],
         ['modifiedFilter', Object.values(MODIFIED_FILTER)],
         ['fields', Object.keys(EDITABLE_FIELDS)],
-        ['tabs', ['views', 'trash', 'adminLog', 'viewLog']],
+        ['tabs', ['overview', 'views', 'trash', 'trackingLog', 'adminLog']],
         ['deviceSizes', ['small', 'medium', 'large']],
+        ['deviceTypes', [...new Set(['mobile', 'tablet', 'wearable', 'smarttv', 'console', undefined].map(UserAgentParser.getDeviceType))]],
         ['columns', ['timestamp', 'app', 'page', 'source', 'device', 'country', 'client', 'event', 'status', 'actions']],
-        ['ranges', ['7d', '30d', '90d', '1y', 'all']],
-        ['insights.breakdown', ['source', 'deviceSize', 'browser', 'os', 'eventType', 'app']],
+        ['ranges', Object.values(ADMIN_RANGE)],
+        ['overview.vsPrevious', Object.keys(ADMIN_RANGE_DAYS).filter((range) => ADMIN_RANGE_DAYS[range])],
+        ['overview.dims', Object.keys(BREAKDOWN_COLUMNS)],
+        ['overview.metrics', ['visitors', 'visits', 'pageviews', 'views', 'bounceRate', 'avgVisitMs', 'pagesPerVisit', 'avgEngagedMs', 'avgScroll']],
+        ['overview.help', ['visitors', 'visits', 'pageviews', 'views', 'bounceRate', 'avgVisitMs', 'pagesPerVisit', 'avgEngagedMs', 'avgScroll']],
     ])('the %s family covers every value the server can send', (family, values) => {
         const missing = values.filter((value) => !resolves(base, `${family}.${value}`));
         expect(missing).toEqual([]);
@@ -139,12 +153,23 @@ describe('admin UI translations', () => {
         expect(toasts.filter((key) => !resolves(base, `${key}Partial`))).toEqual([]);
     });
 
-    test('every field in the details dialog has a label', () => {
+    test('every field in the details dialog has a label, and every group a heading', () => {
         const constants = scripts.find(({ file }) => file.endsWith('constants.js')).text;
-        const list = constants.match(/VIEW_DETAIL_FIELDS = Object\.freeze\(\[([\s\S]*?)\]\)/)[1];
-        const fields = [...list.matchAll(/'(\w+)'/g)].map((match) => match[1]);
-        expect(fields.length).toBeGreaterThan(15);
+        const list = constants.match(/VIEW_DETAIL_GROUPS = Object\.freeze\(\[([\s\S]*?)\n\]\);/)[1];
+        const groups = [...list.matchAll(/key: '(\w+)'/g)].map((match) => match[1]);
+        const fields = [...list.matchAll(/'(\w+)'/g)].map((match) => match[1]).filter((name) => !groups.includes(name));
+        expect(groups.length).toBeGreaterThan(4);
+        expect(fields.length).toBeGreaterThan(25);
+        expect(groups.filter((group) => !resolves(base, `details.groups.${group}`))).toEqual([]);
         expect(fields.filter((field) => !resolves(base, `fields.${field}`))).toEqual([]);
+    });
+
+    test('the details dialog shows every field a listing returns', () => {
+        const toApiRow = require('../db/AdminRepository').toApiRow;
+        const returned = Object.keys(toApiRow({}, 'blog')).filter((field) => field !== 'appId');
+        const constants = scripts.find(({ file }) => file.endsWith('constants.js')).text;
+        const list = constants.match(/VIEW_DETAIL_GROUPS = Object\.freeze\(\[([\s\S]*?)\n\]\);/)[1];
+        expect(returned.filter((field) => !list.includes(`'${field}'`))).toEqual([]);
     });
 
     test('no value in any locale is empty', () => {

@@ -113,6 +113,13 @@ export async function request(method, path, { body, query } = {}, { retried = fa
     return payload;
 }
 
+/** A listing or analysis query for the wire: breakdown filters travel as JSON. */
+function filterQuery({ where, ...query } = {}) {
+    return where && Object.keys(where).length ? { ...query, where: JSON.stringify(where) } : query;
+}
+
+const appPath = (appId, rest) => `apps/${encodeURIComponent(appId)}/${rest}`;
+
 export const api = {
     session: () => request('GET', 'session'),
     login: (password) => request('POST', 'login', { body: { password } }),
@@ -120,10 +127,14 @@ export const api = {
     logout: () => request('POST', 'logout'),
     meta: () => request('GET', 'meta'),
     apps: () => request('GET', 'apps'),
-    views: (appId, query) => request('GET', `apps/${encodeURIComponent(appId)}/views`, { query }),
-    allViews: (query) => request('GET', 'views', { query }),
-    analytics: (appId, query) => request('GET', `apps/${encodeURIComponent(appId)}/analytics`, { query }),
-    analyticsAll: (query) => request('GET', 'analytics', { query }),
+    views: (appId, query) => request('GET', appPath(appId, 'views'), { query: filterQuery(query) }),
+    allViews: (query) => request('GET', 'views', { query: filterQuery(query) }),
+    analytics: (appId, query) => request('GET', appPath(appId, 'analytics'), { query: filterQuery(query) }),
+    analyticsAll: (query) => request('GET', 'analytics', { query: filterQuery(query) }),
+    eventTypes: (appId, query) => request('GET', appPath(appId, 'event-types'), { query }),
+    eventTypesAll: (query) => request('GET', 'event-types', { query }),
+    realtime: (appId) => request('GET', appPath(appId, 'realtime')),
+    realtimeAll: () => request('GET', 'realtime'),
     edit: (appId, ids, changes) => request('PATCH', `apps/${encodeURIComponent(appId)}/views`, { body: { ids, changes } }),
     note: (appId, ids, note) => request('PUT', `apps/${encodeURIComponent(appId)}/views/note`, { body: { ids, note } }),
     remove: (appId, ids) => request('POST', `apps/${encodeURIComponent(appId)}/views/delete`, { body: { ids } }),

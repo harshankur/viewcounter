@@ -197,10 +197,10 @@ test.describe('delete, restore, erase', () => {
         await expect(activePanel(page).locator('.notice')).toContainText('erased permanently 30 days after being deleted');
     });
 
-    test('the view log explains its retention period', async ({ page }) => {
-        await signIn(page, 'viewLog');
+    test('the tracking log explains its retention period', async ({ page }) => {
+        await signIn(page, 'tracking-log');
         await expect(activePanel(page).locator('.notice')).toHaveText(
-            'Entries are removed automatically 90 days after they are recorded. The views themselves are not affected.');
+            'Entries are removed automatically 90 days after they are recorded. Views are not affected.');
     });
 });
 
@@ -560,7 +560,7 @@ test.describe('logs', () => {
     });
 
     test('the admin log filters by action', async ({ page }) => {
-        await signIn(page, 'adminLog');
+        await signIn(page, 'admin-log');
         await activePanel(page).getByRole('button', { name: 'Filter by action' }).click();
         await activePanel(page).getByRole('option', { name: 'Failed sign-in' }).click();
         await expect(activePanel(page).getByText('No admin operations recorded yet.')).toBeVisible();
@@ -578,7 +578,7 @@ test.describe('logs', () => {
     });
 
     test('the tracking log has an entry for every recorded view, at its own time', async ({ page }) => {
-        await signIn(page, 'viewLog');
+        await signIn(page, 'tracking-log');
         await expect(activePanel(page).locator('tbody tr')).toHaveCount(50);
         await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 1 of 2 · 65 entries');
         await expect(activePanel(page).locator('tbody tr').first()).toContainText('Page view');
@@ -594,6 +594,22 @@ test.describe('logs', () => {
         await expect(page).toHaveURL(/#trash$/);
         await page.reload();
         await expect(sectionTab(page, 'trash')).toHaveAttribute('aria-selected', 'true');
+        await page.keyboard.press('End');
+        await page.keyboard.press('Home');
+        await expect(page).toHaveURL(/#trash$/);
+        await sectionTab(page, 'trash').focus();
+        await page.keyboard.press('End');
+        await expect(sectionTab(page, 'admin-log')).toBeFocused();
+        await page.keyboard.press('Home');
+        await expect(sectionTab(page, 'overview')).toBeFocused();
+    });
+
+    test('addresses from earlier versions still open their section', async ({ page }) => {
+        await signIn(page, 'overview');
+        await page.goto('/admin/#viewLog');
+        await expect(sectionTab(page, 'tracking-log')).toHaveAttribute('aria-selected', 'true');
+        await page.goto('/admin/#adminLog');
+        await expect(sectionTab(page, 'admin-log')).toHaveAttribute('aria-selected', 'true');
     });
 });
 
@@ -620,11 +636,8 @@ test.describe('theme and notices', () => {
     });
 });
 
-test.describe('every app together, filters, and insights', () => {
+test.describe('every app together, and the table\'s filters', () => {
     const appTab = (page, name) => activePanel(page).getByRole('tab', { name: new RegExp(`^${name},`) });
-    const tile = (page, label) => activePanel(page).locator('.stat-tile')
-        .filter({ has: page.locator('.stat-label', { hasText: new RegExp(`^${label}$`) }) })
-        .locator('.stat-value');
     const pagerSummary = (page) => activePanel(page).locator('.pager-summary');
 
     test('the table names each row\'s app', async ({ page }) => {
@@ -636,95 +649,25 @@ test.describe('every app together, filters, and insights', () => {
         await expect(rows(page).first().locator('.col-app')).toHaveText('shop');
     });
 
-    test('the headline numbers describe exactly the table\'s rows', async ({ page }) => {
-        await signIn(page);
-        await expect(tile(page, 'Views')).toHaveText('64');
-        await expect(tile(page, 'Countries')).toHaveText('6');
-        await appTab(page, 'shop').click();
-        await expect(tile(page, 'Views')).toHaveText('3');
-        await expect(activePanel(page).locator('.insights-caption')).toHaveText('shop, filtered like the table below');
-    });
-
-    test('the date range narrows the table and the insights together', async ({ page }) => {
+    test('the date range narrows the table', async ({ page }) => {
         await signIn(page);
         // The fixture has one view 45 days old and one 200 days old.
         await activePanel(page).getByRole('button', { name: '1 year' }).click();
         await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 64 entries');
         await activePanel(page).getByRole('button', { name: '90 days' }).click();
         await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 63 entries');
-        await expect(tile(page, 'Views')).toHaveText('63');
         await activePanel(page).getByRole('button', { name: '30 days' }).click();
         await expect(pagerSummary(page)).toHaveText('Page 1 of 2 · 62 entries');
         await expect(activePanel(page).getByRole('button', { name: '30 days' })).toHaveAttribute('aria-pressed', 'true');
     });
 
-    test('the event-type filter shows where one type of view comes from', async ({ page }) => {
+    test('the event-type filter offers every type the apps hold', async ({ page }) => {
         await signIn(page);
-        await expect(tile(page, 'Views')).toHaveText('64');
         await activePanel(page).getByRole('button', { name: 'Event type' }).click();
-        await activePanel(page).getByRole('option', { name: 'download' }).click();
+        await activePanel(page).getByRole('option', { name: 'Download' }).click();
         await expect(rows(page)).toHaveCount(1);
         await expect(rows(page).first()).toContainText('/downloads');
-        await expect(tile(page, 'Views')).toHaveText('1');
-        const countries = activePanel(page).getByRole('list', { name: 'Countries by views' });
-        await expect(countries.locator('.country-row')).toHaveCount(1);
-        await expect(countries.locator('.country-row').first()).toContainText('Japan');
-    });
-
-    test('the map colours countries and lists them in order', async ({ page }) => {
-        await signIn(page);
-        await expect(activePanel(page).locator('.map-svg path.country').first()).toBeAttached();
-        expect(await activePanel(page).locator('.map-svg path.country').count()).toBeGreaterThan(150);
-        await expect(activePanel(page).locator('.map-svg path[data-code="DE"]')).toHaveClass(/map-5/);
-        await expect(activePanel(page).locator('.map-svg path[data-code="AU"]')).toHaveClass(/map-0/);
-        const first = activePanel(page).locator('.country-row').first();
-        await expect(first).toContainText('Germany');
-        await expect(first).toContainText('15');
-    });
-
-    test('a country in the list shows its tooltip on keyboard focus', async ({ page }) => {
-        await signIn(page);
-        await activePanel(page).locator('.country-row').first().focus();
-        const tooltip = activePanel(page).locator('.chart-map .chart-tooltip');
-        await expect(tooltip).toBeVisible();
-        await expect(tooltip).toContainText('Germany');
-        await expect(tooltip).toContainText('15');
-        await expect(activePanel(page).locator('.map-svg path[data-code="DE"]')).toHaveClass(/active/);
-    });
-
-    test('the trend reads out by keyboard and has a table view', async ({ page }) => {
-        await signIn(page);
-        const chart = activePanel(page).locator('.trend-svg');
-        await chart.focus();
-        await page.keyboard.press('End');
-        const tooltip = activePanel(page).locator('.chart-trend .chart-tooltip');
-        await expect(tooltip).toBeVisible();
-        await expect(tooltip).toContainText('Views');
-
-        await activePanel(page).getByRole('button', { name: 'Show as table' }).click();
-        const table = activePanel(page).locator('.chart-trend table');
-        await expect(table.locator('tbody tr').first()).toBeVisible();
-        await expect(activePanel(page).getByRole('button', { name: 'Show as chart' })).toHaveAttribute('aria-pressed', 'true');
-    });
-
-    test('breakdowns include apps only when every app is shown', async ({ page }) => {
-        await signIn(page);
-        const apps = activePanel(page).locator('.chart-card').filter({ has: page.getByRole('heading', { name: 'Apps', exact: true }) });
-        await expect(apps).toContainText('blog');
-        await expect(apps).toContainText('61');
-        await appTab(page, 'blog').click();
-        await expect(activePanel(page).locator('.insights-caption')).toHaveText('blog, filtered like the table below');
-        await expect(apps).toHaveCount(0);
-    });
-
-    test('the insights can be collapsed, and stay collapsed', async ({ page }) => {
-        await signIn(page);
-        const toggle = activePanel(page).getByRole('button', { name: 'insights' });
-        await toggle.click();
-        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-        await expect(activePanel(page).locator('.insights-body')).toBeHidden();
-        await page.reload();
-        await expect(activePanel(page).getByRole('button', { name: 'insights' })).toHaveAttribute('aria-expanded', 'false');
+        await expect(rows(page).first().locator('.col-event')).toHaveText('Download');
     });
 
     test('a batch can span apps', async ({ page }) => {
@@ -773,5 +716,273 @@ test.describe('every app together, filters, and insights', () => {
         await expect(row(page, FIRST)).toHaveCount(0);
         await expect(activePanel(page).locator('.batch-count')).toHaveText('1 view selected');
         await expect(row(page, CART).getByRole('checkbox')).toBeChecked();
+    });
+
+    test('a trashed view leaves the Overview\'s numbers at once', async ({ page }) => {
+        await signIn(page, 'overview');
+        const views = activePanel(page).locator('.stat-tile[data-metric="views"] .stat-value');
+        await expect(views).toHaveText('62');
+        await sectionTab(page, 'views').click();
+        await row(page, FIRST).getByRole('button', { name: 'Move to trash' }).click();
+        await page.getByRole('alertdialog').getByRole('button', { name: 'Move to trash' }).click();
+        await expect(page.getByRole('status').filter({ hasText: 'Moved 1 view to the trash.' })).toBeVisible();
+        await sectionTab(page, 'overview').click();
+        await expect(views).toHaveText('61');
+    });
+});
+
+test.describe('the Overview', () => {
+    const appTab = (page, name) => activePanel(page).getByRole('tab', { name: new RegExp(`^${name},`) });
+    const tile = (page, metric) => activePanel(page).locator(`.stat-tile[data-metric="${metric}"]`);
+    const card = (page, id) => activePanel(page).locator(`.chart-card[data-card="${id}"]`);
+    const chip = (page, text) => activePanel(page).locator('.chip', { hasText: text });
+
+    test('opens first, for every app, over the last 30 days', async ({ page }) => {
+        await page.goto('/admin/');
+        await page.getByLabel('Password').fill(PASSWORD);
+        await page.getByRole('button', { name: 'Sign in' }).click();
+        await expect(sectionTab(page, 'overview')).toHaveAttribute('aria-selected', 'true');
+        await expect(page).toHaveURL(/#overview$/);
+        await expect(activePanel(page).getByRole('heading', { name: 'Overview', level: 2 })).toBeVisible();
+        await expect(activePanel(page).getByRole('tab', { name: /^All apps,/ })).toHaveAttribute('aria-selected', 'true');
+        await expect(activePanel(page).getByRole('button', { name: '30 days', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        // 61 blog views in the last day and a half, and the shop's cart 19 days ago.
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('62');
+        await expect(tile(page, 'visitors').locator('.stat-value')).toHaveText('22');
+    });
+
+    test('the headline numbers follow the app and the period, against the period before', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByRole('button', { name: 'All time', exact: true }).click();
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('64');
+        await expect(tile(page, 'views').locator('.stat-delta')).toHaveText('All time');
+
+        await activePanel(page).getByRole('button', { name: '7 days', exact: true }).click();
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('61');
+        // Nothing in the 7 days before, so every view is new.
+        await expect(tile(page, 'views').locator('.stat-delta')).toContainText('New');
+        await expect(tile(page, 'views').locator('.stat-delta')).toContainText('vs the 7 days before');
+
+        await appTab(page, 'shop').click();
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('0');
+    });
+
+    test('a headline number is charted over time, readable by keyboard and as a table', async ({ page }) => {
+        await signIn(page, 'overview');
+        await expect(tile(page, 'visitors')).toHaveAttribute('aria-pressed', 'true');
+        await tile(page, 'pageviews').click();
+        await expect(tile(page, 'pageviews')).toHaveAttribute('aria-pressed', 'true');
+        await expect(tile(page, 'visitors')).toHaveAttribute('aria-pressed', 'false');
+        const trend = activePanel(page).locator('.trend-card');
+        await expect(trend.getByRole('heading')).toHaveText('Page views over time');
+
+        await trend.locator('.trend-svg').focus();
+        await page.keyboard.press('End');
+        await expect(trend.locator('.chart-tooltip')).toBeVisible();
+        await expect(trend.locator('.chart-tooltip')).toContainText('Page views');
+
+        await trend.getByRole('button', { name: 'Table' }).click();
+        const table = trend.locator('table');
+        await expect(table.getByRole('columnheader', { name: 'Bounce rate' })).toBeVisible();
+        await expect(table.getByRole('columnheader', { name: 'Time on page' })).toBeVisible();
+        // A day per row across all 30, newest first.
+        await expect(table.locator('tbody tr')).toHaveCount(31);
+    });
+
+    test('right now shows who is on the sites', async ({ page }) => {
+        await signIn(page, 'overview');
+        const live = activePanel(page).locator('.live-card');
+        await expect(live.locator('.live-count')).toHaveText('2');
+        await expect(live).toContainText('visitors in the last 5 minutes');
+        await expect(live.locator('.minute-bar')).toHaveCount(30);
+        await expect(live.getByRole('rowheader').first()).toBeVisible();
+    });
+
+    test('a breakdown row narrows everything to it, and its chip takes it off', async ({ page }) => {
+        await signIn(page, 'overview');
+        const sources = card(page, 'sources');
+        await sources.getByRole('button', { name: 'Show only Channel: Search' }).click();
+        await expect(chip(page, 'Channel: Search')).toBeVisible();
+        // Every fourth blog view came from a search engine.
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('15');
+        await expect(sources.getByRole('button', { name: 'Show only Channel: Search' })).toHaveCount(0);
+
+        await chip(page, 'Channel: Search').click();
+        await expect(chip(page, 'Channel: Search')).toHaveCount(0);
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('62');
+    });
+
+    test('"Show these views" opens exactly those rows in Views', async ({ page }) => {
+        await signIn(page, 'overview');
+        await card(page, 'sources').getByRole('button', { name: 'Show only Channel: Search' }).click();
+        await expect(chip(page, 'Channel: Search')).toBeVisible();
+        await activePanel(page).getByRole('button', { name: 'Show these views' }).click();
+
+        await expect(sectionTab(page, 'views')).toHaveAttribute('aria-selected', 'true');
+        await expect(chip(page, 'Channel: Search')).toBeVisible();
+        await expect(activePanel(page).getByRole('button', { name: '30 days', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 1 of 1 · 15 entries');
+        await chip(page, 'Channel: Search').click();
+        await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 1 of 2 · 62 entries');
+    });
+
+    test('acquisition counts page views; a custom event is no channel', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByRole('button', { name: 'All time', exact: true }).click();
+        const sources = card(page, 'sources');
+        await expect(sources.getByRole('columnheader', { name: 'Page views' })).toBeVisible();
+        await expect(sources).not.toContainText('Unknown');
+    });
+
+    test('the map colours countries, lists them in order, and filters by one', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByRole('button', { name: 'All time', exact: true }).click();
+        const locations = card(page, 'locations');
+        await expect(locations.locator('.map-svg path.country').first()).toBeAttached();
+        expect(await locations.locator('.map-svg path.country').count()).toBeGreaterThan(150);
+        await expect(locations.locator('.map-svg path[data-code="DE"]')).toHaveClass(/map-5/);
+        await expect(locations.locator('.map-svg path[data-code="AU"]')).toHaveClass(/map-0/);
+        const first = locations.locator('.country-row').first();
+        await expect(first).toContainText('Germany');
+        await expect(first).toContainText('15');
+
+        await first.focus();
+        await expect(locations.locator('.chart-tooltip')).toBeVisible();
+        await expect(locations.locator('.chart-tooltip')).toContainText('Germany');
+        await expect(locations.locator('.map-svg path[data-code="DE"]')).toHaveClass(/active/);
+
+        await first.click();
+        await expect(chip(page, 'Country: Germany')).toBeVisible();
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('15');
+    });
+
+    test('regions and cities say what they need when the server has no city database', async ({ page }) => {
+        await signIn(page, 'overview');
+        const locations = card(page, 'locations');
+        await locations.getByRole('button', { name: 'Cities' }).click();
+        await expect(locations).toContainText('Regions and cities need a city database on the server (GEOIP_CITY_DB).');
+        await expect(locations).toContainText('This product includes GeoLite2 data created by MaxMind');
+    });
+
+    test('the event-type filter narrows the Overview', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByRole('button', { name: 'All time', exact: true }).click();
+        await activePanel(page).getByRole('button', { name: 'Event type', exact: true }).click();
+        await activePanel(page).getByRole('option', { name: 'Download' }).click();
+        await expect(tile(page, 'views').locator('.stat-value')).toHaveText('1');
+        const countries = card(page, 'locations').getByRole('list', { name: 'Countries by views' });
+        await expect(countries.locator('.country-row')).toHaveCount(1);
+        await expect(countries.locator('.country-row').first()).toContainText('Japan');
+    });
+
+    test('apps are a breakdown only while every app is shown', async ({ page }) => {
+        await signIn(page, 'overview');
+        const apps = card(page, 'apps');
+        await expect(apps).toContainText('blog');
+        await expect(apps).toContainText('61');
+        await apps.getByRole('button', { name: 'Show only App: shop' }).click();
+        await expect(appTab(page, 'shop')).toHaveAttribute('aria-selected', 'true');
+        await expect(apps).toHaveCount(0);
+    });
+
+    test('the weekday-by-hour heatmap reads out by keyboard and has a table view', async ({ page }) => {
+        await signIn(page, 'overview');
+        const when = card(page, 'when');
+        await when.locator('.heatmap').focus();
+        await page.keyboard.press('ArrowRight');
+        await expect(when.locator('.chart-tooltip')).toBeVisible();
+        await expect(when.locator('.chart-tooltip')).toContainText('Views');
+        await when.getByRole('button', { name: 'Table' }).click();
+        await expect(when.locator('table tbody tr')).toHaveCount(24);
+        await expect(when.locator('table thead th')).toHaveCount(8);
+    });
+
+    test('every card can be read, and each explains an empty view', async ({ page }) => {
+        await signIn(page, 'overview');
+        for (const id of ['sources', 'pages', 'locations', 'devices', 'browsers', 'systems', 'campaigns', 'events', 'engagement', 'when', 'flow', 'apps']) {
+            await expect(card(page, id)).toBeVisible();
+        }
+        await expect(card(page, 'campaigns')).toContainText('Not tagged');
+        await expect(card(page, 'engagement')).toContainText('No time or scrolling measured yet.');
+        await card(page, 'pages').getByRole('button', { name: 'Entry' }).click();
+        await expect(card(page, 'pages').getByRole('columnheader', { name: 'Bounce' })).toBeVisible();
+    });
+
+    test('the period, the chart\'s metric, and each card\'s view are remembered', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByRole('button', { name: '7 days', exact: true }).click();
+        await tile(page, 'bounceRate').click();
+        await card(page, 'sources').getByRole('button', { name: 'Referrers' }).click();
+        await page.reload();
+        await expect(activePanel(page).getByRole('button', { name: '7 days', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(tile(page, 'bounceRate')).toHaveAttribute('aria-pressed', 'true');
+        await expect(card(page, 'sources').getByRole('button', { name: 'Referrers' })).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    test('how each number is counted is one click away', async ({ page }) => {
+        await signIn(page, 'overview');
+        await activePanel(page).getByText('How these numbers are counted').click();
+        await expect(activePanel(page).locator('.metric-help dl')).toContainText('The share of visits that saw only one page.');
+    });
+});
+
+test.describe('the Tracking log', () => {
+    test('says how it differs from Views, and what each outcome means', async ({ page }) => {
+        await signIn(page, 'tracking-log');
+        const panel = activePanel(page);
+        await expect(panel.getByRole('heading', { name: 'Tracking log', level: 2 })).toBeVisible();
+        await expect(panel.locator('.panel-intro')).toContainText('Views lists only what was recorded');
+        await panel.getByText('What each outcome means').click();
+        await expect(panel.locator('.outcome-legend')).toContainText('Never stored; counted here by name, per minute.');
+    });
+
+    test('sums up the last day, and filters by outcome', async ({ page }) => {
+        await signIn(page, 'tracking-log');
+        const panel = activePanel(page);
+        await expect(panel.locator('.tracking-summary .stat-tile')).toHaveCount(4);
+        await expect(panel.locator('.tracking-summary')).toContainText('Refused');
+        await expect(panel.getByText('Nothing refused in the last day.')).toBeVisible();
+        await panel.getByRole('button', { name: 'Filter by outcome' }).click();
+        await panel.getByRole('option', { name: 'Repeat visit' }).click();
+        await expect(panel.locator('tbody tr').first()).toContainText('Repeat visit');
+        const outcomes = await panel.locator('tbody .col-outcome').allTextContents();
+        expect(new Set(outcomes)).toEqual(new Set(['Repeat visit']));
+    });
+
+    test('an entry opens its view in the Views table', async ({ page }) => {
+        await signIn(page, 'tracking-log');
+        const first = activePanel(page).locator('tbody tr').first();
+        await first.getByRole('button', { name: /^Show view / }).click();
+        await expect(sectionTab(page, 'views')).toHaveAttribute('aria-selected', 'true');
+        await expect(rows(page)).toHaveCount(1);
+        const id = await rows(page).first().getAttribute('data-view-id');
+        await expect(activePanel(page).getByRole('searchbox', { name: 'Search views' })).toHaveValue(id);
+    });
+});
+
+test.describe('header and footer', () => {
+    test('link to the website, and say which version is running', async ({ page }) => {
+        const { version } = require('../../package.json');
+        await signIn(page);
+        const website = page.getByRole('link', { name: 'Website' }).first();
+        await expect(website).toHaveAttribute('href', 'https://viewcounter.harshankur.com');
+        await expect(website).toHaveAttribute('rel', 'noopener noreferrer');
+        await expect(page.locator('#app-version')).toHaveText(`v${version}`);
+        const footer = page.locator('#app-footer');
+        await expect(footer).toContainText(`viewcounter ${version}`);
+        await expect(footer.getByRole('link', { name: 'Admin guide' })).toHaveAttribute('href', 'https://viewcounter.harshankur.com/#admin');
+        await expect(footer.getByRole('link', { name: 'Source code' })).toHaveAttribute('href', 'https://github.com/harshankur/viewcounter');
+        await expect(footer.getByRole('link', { name: 'npm package' })).toHaveAttribute('href', 'https://www.npmjs.com/package/@harshankur/viewcounter');
+        await expect(footer).toContainText('This product includes GeoLite2 data created by MaxMind');
+    });
+
+    test('a failure in the page itself is named as one, not blamed on the server', async ({ page }) => {
+        await signIn(page);
+        await page.route('**/admin/api/views**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+        await activePanel(page).getByRole('searchbox', { name: 'Search views' }).fill('x');
+        await expect(page.getByText('Something went wrong in this page. Reload it and try again.')).toBeVisible();
+        // The browser reports the exception with its stack, where a developer looks.
+        expect(page.problems.length).toBeGreaterThan(0);
+        page.problems.length = 0;
     });
 });

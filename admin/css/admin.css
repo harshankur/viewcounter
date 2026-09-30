@@ -233,6 +233,15 @@ textarea {
     mix-blend-mode: overlay;
 }
 
+/* ---------- Icons ---------- */
+
+/* Line icons take the size and colour of the text around them. */
+.icon {
+    width: 1.1em;
+    height: 1.1em;
+    flex-shrink: 0;
+}
+
 /* ---------- Top bar ---------- */
 
 .topbar {
@@ -281,10 +290,33 @@ textarea {
     padding: 0.05rem 0.4rem;
 }
 
+.version-badge {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
 .topbar-actions {
     display: flex;
     align-items: center;
     gap: 0.75rem;
+}
+
+.header-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--radius-small);
+}
+
+.header-link:hover {
+    color: var(--primary);
+    background: var(--row-hover);
 }
 
 .theme-switcher {
@@ -321,12 +353,17 @@ textarea {
     box-shadow: 0 0 12px var(--primary-glow);
 }
 
+.theme-btn .icon {
+    width: 16px;
+    height: 16px;
+}
+
 /* ---------- Layout ---------- */
 
 main {
     max-width: 1440px;
     margin: 0 auto;
-    padding: 1.75rem 2rem 6rem;
+    padding: 1.75rem 2rem 3rem;
 }
 
 /* ---------- Terminal window chrome ---------- */
@@ -733,7 +770,7 @@ textarea.input {
 
 .tab {
     display: inline-flex;
-    gap: 0.4rem;
+    gap: 0.5rem;
     align-items: center;
     padding: 0.7rem 1rem;
     border: none;
@@ -745,8 +782,8 @@ textarea.input {
     margin-bottom: -1px;
 }
 
-.tab .prompt-char {
-    opacity: 0.4;
+.tab .icon {
+    opacity: 0.7;
 }
 
 .tab:hover {
@@ -758,7 +795,7 @@ textarea.input {
     border-bottom-color: var(--primary);
 }
 
-.tab.active .prompt-char {
+.tab.active .icon {
     opacity: 1;
 }
 
@@ -810,10 +847,6 @@ textarea.input {
     transition: color 0.15s, border-color 0.15s, background-color 0.15s, box-shadow 0.2s;
 }
 
-.app-tab .prompt-char {
-    opacity: 0.4;
-}
-
 .app-tab:hover {
     color: var(--text);
     border-color: var(--border-strong);
@@ -824,10 +857,6 @@ textarea.input {
     border-color: var(--primary);
     background: var(--row-selected);
     box-shadow: 0 0 12px var(--primary-glow);
-}
-
-.app-tab.active .prompt-char {
-    opacity: 1;
 }
 
 .app-tab.unavailable {
@@ -854,72 +883,167 @@ textarea.input {
     font-size: 0.85rem;
 }
 
-/* ---------- Insights ---------- */
-
-.insights {
+/* Each section says what it is and how it differs from the others. */
+.panel-header {
     display: flex;
     flex-direction: column;
-    gap: 0.9rem;
-    transition: opacity 0.2s;
+    gap: 0.3rem;
 }
 
-/* Refetch keeps the frame: the last render stays, dimmed, until the new one. */
-.insights.loading .insights-body {
-    opacity: 0.55;
+.panel-title {
+    font-size: 1.25rem;
 }
 
-.insights-header {
+.panel-intro {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    max-width: 62rem;
+}
+
+.filter-chips {
     display: flex;
-    align-items: baseline;
-    gap: 0.9rem;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
 }
 
-.insights-toggle {
+.filter-chips:empty {
+    display: none;
+}
+
+.chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.35rem;
+    max-width: 22rem;
+    padding: 0.3rem 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--primary);
+    background: var(--row-selected);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.chip:hover {
+    border-color: var(--primary);
+}
+
+.chip-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0;
     border: none;
     background: none;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 1rem;
-    padding: 0;
-}
-
-.insights-caret {
-    color: var(--text-muted);
-    font-size: 0.8rem;
-    transition: transform 0.2s;
-}
-
-.insights-toggle[aria-expanded='false'] .insights-caret {
-    transform: rotate(-90deg);
-}
-
-.insights-caption,
-.insights-span {
-    color: var(--text-muted);
+    color: var(--primary);
     font-size: 0.82rem;
+    cursor: pointer;
 }
 
-.insights-body {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
+.link-btn:hover {
+    text-decoration: underline;
 }
 
+/* "How these are counted": definitions, folded away until wanted. */
+.metric-help {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+}
+
+.metric-help summary {
+    cursor: pointer;
+    width: fit-content;
+    font-weight: 600;
+}
+
+.metric-help summary:hover {
+    color: var(--text);
+}
+
+.metric-help dl {
+    display: grid;
+    grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr);
+    gap: 0.4rem 1rem;
+    margin-top: 0.6rem;
+    max-width: 62rem;
+}
+
+.metric-help dt {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.outcome-legend dt {
+    font-weight: 400;
+}
+
+/* ---------- Charts ---------- */
+
+/* Headline numbers: label, value, change against the period before, sparkline. */
 .stat-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
     gap: 0.75rem;
 }
 
+/* The Overview's nine sit in even rows: all nine, five and four, three by
+   three, or two by two, by the width they have, never seven and two. */
+.overview-tiles {
+    container: tiles / inline-size;
+}
+
+.overview-tiles .stat-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+@container tiles (width >= 34rem) {
+    .overview-tiles .stat-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@container tiles (width >= 58rem) {
+    .overview-tiles .stat-tiles { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+
+@container tiles (width >= 80rem) {
+    .overview-tiles .stat-tiles { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+}
+
 .stat-tile {
-    padding: 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    padding: 0.85rem 1rem 0.7rem;
+    font: inherit;
+    color: inherit;
+    text-align: left;
     background: var(--card-bg);
     border: 1px solid var(--border);
     border-radius: var(--radius-small);
+}
+
+.stat-tile.selectable {
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.2s;
+}
+
+.stat-tile.selectable:hover {
+    border-color: var(--border-strong);
+}
+
+.stat-tile.active {
+    border-color: var(--primary);
+    box-shadow: inset 0 -2px 0 var(--primary), 0 0 12px var(--primary-glow);
 }
 
 .stat-label {
@@ -928,21 +1052,359 @@ textarea.input {
 }
 
 .stat-value {
-    font-size: 1.6rem;
+    font-size: 1.55rem;
     font-weight: 700;
     letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.insights-grid {
+.stat-delta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    min-height: 1.1rem;
+    font-size: 0.74rem;
+    color: var(--text-muted);
+}
+
+.stat-delta-value {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Good and bad changes carry an arrow and a sign as well as a colour. */
+.stat-delta.tone-good .stat-delta-value,
+.stat-delta.tone-good .icon {
+    color: var(--success);
+}
+
+.stat-delta.tone-bad .stat-delta-value,
+.stat-delta.tone-bad .icon {
+    color: var(--danger);
+}
+
+.stat-delta .icon {
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
+.sparkline {
+    display: block;
+    width: 100%;
+    height: 28px;
+    /* On the tile's bottom edge, level across a row whatever the label's length. */
+    margin-top: auto;
+    padding-top: 0.3rem;
+    overflow: visible;
+}
+
+.sparkline-line {
+    fill: none;
+    stroke: var(--chart-series);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+.tracking-summary .sparkline {
+    display: none;
+}
+
+/* The Overview */
+
+.overview-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    transition: opacity 0.2s;
+}
+
+/* Refetch keeps the frame: the last render stays, dimmed, until the new one. */
+.overview.loading .overview-content {
+    opacity: 0.55;
+}
+
+.overview-span {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    margin-top: -0.4rem;
+}
+
+.overview-top {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
     gap: 1rem;
 }
 
-.breakdown-grid {
+.overview-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
+    container: overview-grid / inline-size;
+}
+
+.card-wide {
+    grid-column: 1 / -1;
+}
+
+.card-body {
+    min-width: 0;
+}
+
+.card-footer {
+    margin-top: auto;
+}
+
+.card-note {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+.card-note a {
+    color: inherit;
+}
+
+.card-note a:hover {
+    color: var(--primary);
+}
+
+.chart-card-header .segmented {
+    flex-wrap: wrap;
+}
+
+/* Ranked tables: the label with its bar behind it, then the measures. */
+
+.rank-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 0.82rem;
+}
+
+.rank-table th,
+.rank-table td {
+    padding: 0.2rem 0.35rem;
+    text-align: left;
+    font-weight: 400;
+}
+
+.rank-table thead th {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding-bottom: 0.35rem;
+}
+
+.rank-table .rank-num {
+    width: 5.2rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.rank-table thead .rank-num {
+    white-space: normal;
+    vertical-align: bottom;
+}
+
+.rank-label-head {
+    width: auto;
+    vertical-align: bottom;
+}
+
+.rank-label {
+    padding-left: 0;
+}
+
+.rank-select,
+.rank-static {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    min-height: 1.9rem;
+    padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+    font: inherit;
+    color: var(--text);
+    text-align: left;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    overflow: hidden;
+}
+
+.rank-select {
+    cursor: pointer;
+}
+
+.rank-bar {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--chart-series);
+    opacity: 0.18;
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+.rank-text,
+.rank-detail {
+    position: relative;
+}
+
+.rank-detail {
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+.rank-filter-icon {
+    position: absolute;
+    right: 0.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--primary);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.rank-select:hover,
+.rank-select:focus-visible {
+    background: var(--row-hover);
+}
+
+.rank-select:hover .rank-filter-icon,
+.rank-select:focus-visible .rank-filter-icon {
+    opacity: 1;
+}
+
+.rank-muted .rank-static,
+.rank-muted td {
+    color: var(--text-muted);
+}
+
+.rank-muted .rank-bar {
+    background: var(--text-muted);
+}
+
+/* Right now */
+
+.live-card .chart-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.live-dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 0 var(--primary-glow);
+    animation: pulse 2s ease-out infinite;
+}
+
+.live-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+}
+
+.live-headline {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+}
+
+.live-count {
+    font-size: 2.2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.live-caption {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.minute-svg {
+    display: block;
+    width: 100%;
+    height: 56px;
+    cursor: crosshair;
+}
+
+.minute-svg:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+    border-radius: 4px;
+}
+
+.minute-bar {
+    fill: var(--chart-series);
+}
+
+.minute-bar.active {
+    fill: var(--primary-bright);
+}
+
+.minute-axis {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    margin-top: 0.2rem;
+}
+
+/* Weekday by hour */
+
+.heatmap {
+    display: grid;
+    grid-template-columns: 3rem repeat(24, minmax(0, 1fr));
+    gap: 2px;
+    align-items: center;
+}
+
+.heatmap:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+
+.heatmap-hour,
+.heatmap-day {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    white-space: nowrap;
+}
+
+.heatmap-hour {
+    overflow: visible;
+}
+
+.heatmap-cell {
+    display: block;
+    height: 1.35rem;
+    border-radius: 3px;
+}
+
+.heatmap-cell.active {
+    outline: 2px solid var(--text);
+    outline-offset: -1px;
+}
+
+.heatmap-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
 }
 
 .chart-card {
@@ -1106,37 +1568,38 @@ textarea.input {
     flex-shrink: 0;
 }
 
-/* Breakdown bars and the country list */
+/* The country list beside the map */
 
-.bar-list,
 .country-list {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: 0.2rem;
     list-style: none;
 }
 
-.bar-row,
 .country-row {
     display: grid;
     grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr) auto;
     align-items: center;
     gap: 0.6rem;
+    width: 100%;
+    font: inherit;
     font-size: 0.82rem;
-    padding: 0.1rem 0.25rem;
+    color: inherit;
+    text-align: left;
+    padding: 0.2rem 0.3rem;
+    border: none;
     border-radius: 4px;
-    cursor: default;
+    background: transparent;
 }
 
-.bar-row:hover,
-.bar-row:focus-visible,
+button.country-row {
+    cursor: pointer;
+}
+
 .country-row:hover,
 .country-row:focus-visible {
     background: var(--row-hover);
-}
-
-.bar-other .bar-label {
-    color: var(--text-muted);
 }
 
 .bar-track {
@@ -1150,11 +1613,6 @@ textarea.input {
     min-width: 2px;
     background: var(--chart-series);
     border-radius: 0 4px 4px 0;
-}
-
-.bar-other .bar-fill {
-    background: var(--text-muted);
-    opacity: 0.6;
 }
 
 .bar-value {
@@ -1199,6 +1657,10 @@ textarea.input {
 
 .country-point {
     stroke-width: 2;
+}
+
+.country.selectable {
+    cursor: pointer;
 }
 
 .country.active {
@@ -1402,10 +1864,11 @@ input[type='checkbox'] {
 .log-table .col-fields { width: auto; }
 .log-table .col-session { width: 7rem; }
 .log-table .col-ip { width: 11rem; }
-.log-table .col-source { width: 8rem; }
-.log-table .col-event { width: 9rem; }
-.log-table .col-outcome { width: auto; }
-.log-table .col-view { width: 20rem; }
+.tracking-table .col-app { width: 10rem; }
+.tracking-table .col-source { width: 9rem; }
+.tracking-table .col-outcome { width: 9.5rem; }
+.tracking-table .col-detail { width: auto; }
+.tracking-table .col-view { width: 7rem; }
 
 /*
  * Reflow (FRONTEND.md §12). A table answers to its own width, not the
@@ -1420,8 +1883,8 @@ input[type='checkbox'] {
  *   views, All apps  the same plus app 8, so each step comes 8rem later;
  *                    source also steps aside between the cards and 61
  *   admin log        always 45.5; + ip 11 from 57, session 7 from 64
- *   tracking log     always 46.5 (time, app, source, event, outcome at 12);
- *                    + view ID 20 from 67
+ *   tracking log     always 50 (time, app and site, request, outcome, detail);
+ *                    + view 7 from 57
  */
 .table-wrap {
     container: table / inline-size;
@@ -1473,8 +1936,8 @@ input[type='checkbox'] {
     .log-table .col-ip { display: none; }
 }
 
-@container table (width < 67rem) {
-    .log-table .col-view { display: none; }
+@container table (width < 57rem) {
+    .tracking-table .col-view { display: none; }
 }
 
 @container table (width < 53rem) {
@@ -1543,6 +2006,35 @@ input[type='checkbox'] {
     }
 }
 
+@container table (width < 50rem) {
+    .tracking-table thead {
+        display: none;
+    }
+
+    .tracking-table,
+    .tracking-table tbody,
+    .tracking-table tr,
+    .tracking-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .tracking-table tbody tr {
+        height: auto;
+        padding: 0.6rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .tracking-table td {
+        border: none;
+        padding: 0.15rem 0;
+    }
+
+    .tracking-table .col-view {
+        display: block;
+    }
+}
+
 .cell-primary {
     color: var(--text);
 }
@@ -1598,6 +2090,7 @@ input[type='checkbox'] {
     white-space: nowrap;
 }
 
+.badge-success { color: var(--success); background: var(--row-selected); }
 .badge-danger { color: var(--danger); background: var(--danger-bg); }
 .badge-warning { color: var(--warning); background: var(--warning-bg); }
 .badge-info { color: var(--info); background: var(--info-bg); }
@@ -1620,6 +2113,59 @@ input[type='checkbox'] {
 .pager-summary {
     color: var(--text-muted);
     font-size: 0.85rem;
+}
+
+/* ---------- Footer ---------- */
+
+.app-footer {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 1.5rem 2rem 2.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+}
+
+.footer-product {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+}
+
+.footer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.footer-link:hover {
+    color: var(--primary);
+}
+
+.footer-credits a {
+    color: inherit;
+}
+
+.footer-credits a:hover {
+    color: var(--primary);
 }
 
 /* ---------- Modal (FRONTEND.md §1.1) ---------- */
@@ -1677,6 +2223,20 @@ input[type='checkbox'] {
     flex-wrap: wrap;
     gap: 0.6rem;
     padding: 1rem 1.5rem 1.4rem;
+}
+
+.detail-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+.detail-group-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--secondary);
+    margin-bottom: 0.45rem;
 }
 
 .detail-list {
@@ -1783,6 +2343,12 @@ input[type='checkbox'] {
     50% { opacity: 0; }
 }
 
+@keyframes pulse {
+    0% { box-shadow: 0 0 0 0 var(--primary-glow); }
+    70% { box-shadow: 0 0 0 0.45rem transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+}
+
 @keyframes fade-in {
     from { opacity: 0; }
 }
@@ -1810,15 +2376,34 @@ input[type='checkbox'] {
 
 /* ---------- Narrow screens (FRONTEND.md §12: reflow, never scroll sideways) ---------- */
 
-@media (max-width: 1180px) {
-    .insights-grid {
+/* The Overview reflows by its own width: two columns of cards, then one. */
+@container overview-grid (width < 56rem) {
+    .overview-grid > .chart-card {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 1100px) {
+    .overview-top {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .overview-grid {
         grid-template-columns: minmax(0, 1fr);
     }
 }
 
 @media (max-width: 960px) {
     main {
-        padding: 1.25rem 1rem 5rem;
+        padding: 1.25rem 1rem 3rem;
+    }
+
+    .app-footer {
+        padding: 1.25rem 1rem 2rem;
+    }
+
+    .header-link span {
+        display: none;
     }
 
     .topbar {
@@ -1870,7 +2455,56 @@ input[type='checkbox'] {
         grid-template-columns: 1fr;
     }
 
-    .logo-text {
+    .metric-help dl {
+        grid-template-columns: 1fr;
+    }
+
+    .logo-text,
+    .version-badge {
         display: none;
+    }
+
+    .topbar {
+        gap: 0.5rem;
+    }
+
+    .topbar-actions {
+        gap: 0.4rem;
+    }
+
+    /* Sign out keeps its name for assistive technology, and shows its icon. */
+    #logout-btn {
+        padding: 0.4rem 0.55rem;
+    }
+
+    #logout-btn span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
+
+    .rank-table .rank-share {
+        display: none;
+    }
+
+    .rank-table .rank-num {
+        width: 4.2rem;
+    }
+
+    /* Hours stay readable: every sixth is labelled, cells get shorter. */
+    .heatmap {
+        grid-template-columns: 2.2rem repeat(24, minmax(0, 1fr));
+        gap: 1px;
+    }
+
+    .heatmap-cell {
+        height: 1rem;
+    }
+
+    .heatmap-hour:nth-child(6n + 5) {
+        visibility: hidden;
     }
 }

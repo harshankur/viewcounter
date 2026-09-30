@@ -25,7 +25,7 @@ function sidewaysOverflow(page) {
     });
 }
 
-for (const tab of ['views', 'trash', 'adminLog', 'viewLog']) {
+for (const tab of ['overview', 'views', 'trash', 'tracking-log', 'admin-log']) {
     test(`the ${tab} tab never scrolls sideways`, async ({ page }) => {
         await signIn(page, tab);
         expect(await sidewaysOverflow(page)).toEqual([]);
@@ -74,8 +74,8 @@ test.describe('at every width between phone and desktop', () => {
             await expect(activePanel(page).locator('table')).not.toHaveAttribute('aria-busy', 'true');
         }],
         ['trash', (page) => signIn(page, 'trash')],
-        ['admin log', (page) => signIn(page, 'adminLog')],
-        ['view log', (page) => signIn(page, 'viewLog')],
+        ['admin log', (page) => signIn(page, 'admin-log')],
+        ['tracking log', (page) => signIn(page, 'tracking-log')],
     ];
 
     for (const [label, open] of panels) {
@@ -96,6 +96,40 @@ test.describe('at every width between phone and desktop', () => {
             expect(failures).toEqual([]);
         });
     }
+});
+
+test.describe('the Overview at every width between phone and desktop', () => {
+    test.skip(({ isMobile }) => isMobile, 'the desktop project sweeps the widths');
+
+    test('reflows its tiles, charts, and cards without scrolling sideways', async ({ page }) => {
+        await signIn(page, 'overview');
+        const failures = [];
+        for (const width of SWEEP_WIDTHS) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.evaluate(() => new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))));
+            const overflow = await sidewaysOverflow(page);
+            if (overflow.length) failures.push(`${width}px scrolls sideways: ${overflow.join(', ')}`);
+            // Tiles sit in even rows: never a lone tile, or seven and two.
+            const perRow = await page.evaluate(() => {
+                const tops = [...document.querySelectorAll('.overview-tiles .stat-tile')].map((node) => Math.round(node.getBoundingClientRect().top));
+                return [...new Set(tops)].map((top) => tops.filter((value) => value === top).length);
+            });
+            if (!['9', '5,4', '3,3,3'].includes(perRow.join(','))) failures.push(`${width}px tiles per row: ${perRow.join(', ')}`);
+        }
+        expect(failures).toEqual([]);
+    });
+});
+
+test('the Overview on a phone keeps two tiles a row and every card one column wide', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'the phone project checks the phone layout');
+    await signIn(page, 'overview');
+    expect(await sidewaysOverflow(page)).toEqual([]);
+    const columns = await page.evaluate(() => {
+        const tops = [...document.querySelectorAll('.overview-tiles .stat-tile')].map((node) => Math.round(node.getBoundingClientRect().top));
+        const lefts = new Set([...document.querySelectorAll('.overview-grid > .chart-card')].map((node) => Math.round(node.getBoundingClientRect().left)));
+        return { firstRow: tops.filter((top) => top === tops[0]).length, cardColumns: lefts.size };
+    });
+    expect(columns).toEqual({ firstRow: 2, cardColumns: 1 });
 });
 
 test('the login screen never scrolls sideways', async ({ page }) => {

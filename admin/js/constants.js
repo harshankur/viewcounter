@@ -33,6 +33,8 @@ export const ERROR_CODE = Object.freeze({
     SERVER_ERROR: 'SERVER_ERROR',
     /** Client-side only: the request never got an answer. */
     NETWORK: 'NETWORK',
+    /** Client-side only: the page itself failed (a bug), not the server. */
+    UNEXPECTED: 'UNEXPECTED',
     /**
      * Client-side only: a gateway in front of the server (Cloudflare Access,
      * say) answered with a redirect to its own sign-in page.
@@ -42,6 +44,21 @@ export const ERROR_CODE = Object.freeze({
 
 /** Using the UI extends the session at most this often (the server keeps it for days). */
 export const SESSION_PING_INTERVAL_MS = 5 * 60 * 1000;
+
+/** How often "Right now" on the Overview refreshes while it is on screen. */
+export const REALTIME_REFRESH_MS = 15 * 1000;
+
+/** How often the tracking log refreshes itself when auto-refresh is on. */
+export const TRACKING_LOG_REFRESH_MS = 10 * 1000;
+
+/** Where the product lives: shown in the header and footer. */
+export const LINKS = Object.freeze({
+    WEBSITE: 'https://viewcounter.harshankur.com',
+    DOCS_ADMIN: 'https://viewcounter.harshankur.com/#admin',
+    SOURCE: 'https://github.com/harshankur/viewcounter',
+    CHANGELOG: 'https://github.com/harshankur/viewcounter/blob/master/CHANGELOG.md',
+    NPM: 'https://www.npmjs.com/package/@harshankur/viewcounter',
+});
 
 /** Mirrors VIEW_STATUS on the server. */
 export const VIEW_STATUS = Object.freeze({
@@ -62,12 +79,28 @@ export const SORT_ORDER = Object.freeze({
     DESC: 'desc',
 });
 
-/** The sections of the UI. */
+/** The sections of the UI, in order. */
 export const TAB = Object.freeze({
+    OVERVIEW: 'overview',
     VIEWS: 'views',
     TRASH: 'trash',
+    TRACKING_LOG: 'trackingLog',
     ADMIN_LOG: 'adminLog',
-    VIEW_LOG: 'viewLog',
+});
+
+/** Each section's address after the #, so a section can be bookmarked. */
+export const TAB_HASH = Object.freeze({
+    [TAB.OVERVIEW]: 'overview',
+    [TAB.VIEWS]: 'views',
+    [TAB.TRASH]: 'trash',
+    [TAB.TRACKING_LOG]: 'tracking-log',
+    [TAB.ADMIN_LOG]: 'admin-log',
+});
+
+/** Addresses earlier versions used, still honoured. */
+export const LEGACY_TAB_HASH = Object.freeze({
+    viewLog: TAB.TRACKING_LOG,
+    adminLog: TAB.ADMIN_LOG,
 });
 
 export const THEME = Object.freeze({
@@ -79,7 +112,9 @@ export const THEME = Object.freeze({
 export const STORAGE_KEY = Object.freeze({
     THEME: `${APP_SLUG}-admin-theme`,
     LAST_APP: `${APP_SLUG}-admin-last-app`,
-    INSIGHTS_OPEN: `${APP_SLUG}-admin-insights-open`,
+    OVERVIEW_RANGE: `${APP_SLUG}-admin-overview-range`,
+    OVERVIEW_METRIC: `${APP_SLUG}-admin-overview-metric`,
+    OVERVIEW_CARDS: `${APP_SLUG}-admin-overview-cards`,
 });
 
 export const TOAST_DURATION_MS = 4000;
@@ -89,13 +124,25 @@ export const SEARCH_DEBOUNCE_MS = 300;
 
 export const DEFAULT_LOCALE = 'en';
 
-/** Every field a view row exposes, in display order for the details dialog. */
-export const VIEW_DETAIL_FIELDS = Object.freeze([
-    'id', 'timestamp', 'pagePath', 'pageTitle', 'referrer', 'referrerDomain', 'sourceType',
-    'deviceSize', 'deviceType', 'country', 'maskedIp', 'browser', 'browserVersion', 'os',
-    'osVersion', 'sessionId', 'eventType', 'eventData', 'isUnique', 'note', 'adminModifiedAt',
-    'deletedAt',
+/**
+ * Every field a view row exposes, grouped for the details dialog. The group
+ * key names its heading (details.groups.*).
+ */
+export const VIEW_DETAIL_GROUPS = Object.freeze([
+    Object.freeze({ key: 'view', fields: Object.freeze(['id', 'timestamp', 'eventType', 'eventData', 'isUnique', 'sessionId']) }),
+    Object.freeze({ key: 'page', fields: Object.freeze(['hostname', 'pagePath', 'pageTitle']) }),
+    Object.freeze({ key: 'source', fields: Object.freeze([
+        'sourceType', 'referrer', 'referrerDomain', 'utmSource', 'utmMedium', 'utmCampaign', 'utmTerm', 'utmContent',
+    ]) }),
+    Object.freeze({ key: 'visitor', fields: Object.freeze([
+        'country', 'region', 'city', 'language', 'maskedIp', 'deviceSize', 'deviceType', 'browser', 'browserVersion', 'os', 'osVersion',
+    ]) }),
+    Object.freeze({ key: 'engagement', fields: Object.freeze(['engagedMs', 'scrollDepth']) }),
+    Object.freeze({ key: 'admin', fields: Object.freeze(['note', 'adminModifiedAt', 'deletedAt']) }),
 ]);
+
+/** Every field a view row exposes, in display order. */
+export const VIEW_DETAIL_FIELDS = Object.freeze(VIEW_DETAIL_GROUPS.flatMap((group) => group.fields));
 
 /** Editable fields rendered as free text, and those rendered otherwise. */
 export const TEXT_FIELDS = Object.freeze(['pagePath', 'pageTitle', 'referrer', 'eventType']);
@@ -128,6 +175,7 @@ export const ALL_APPS = '*';
 
 /** Mirrors ADMIN_RANGE on the server. */
 export const RANGE = Object.freeze({
+    DAY: '24h',
     WEEK: '7d',
     MONTH: '30d',
     QUARTER: '90d',
@@ -142,6 +190,12 @@ export const CHART = Object.freeze({
         HEIGHT: 220,
         MARGIN: Object.freeze({ top: 12, right: 12, bottom: 28, left: 44 }),
     }),
+    /** A stat tile's sparkline. */
+    SPARK: Object.freeze({ WIDTH: 120, HEIGHT: 28, PAD: 3 }),
+    /** "Right now": one column per minute. */
+    MINUTES: Object.freeze({ WIDTH: 300, HEIGHT: 56, GAP: 2, SPAN: 30 }),
+    /** Label every third hour across the heatmap. */
+    HEATMAP_HOUR_LABEL_EVERY: 3,
     Y_TICKS: 4,
     TICK_GAP: 8,
     X_LABEL_GAP: 18,

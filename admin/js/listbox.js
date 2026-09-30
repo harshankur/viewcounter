@@ -10,6 +10,7 @@
  */
 
 import { el, clear, uniqueId } from './dom.js';
+import { icon } from './icons.js';
 import { KEY } from './constants.js';
 
 /**
@@ -28,7 +29,7 @@ export function createListbox({ label, options, value, onChange = () => {}, clas
     const button = el('button', {
         className: 'listbox-button',
         attrs: { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': label },
-    }, [valueText, el('span', { className: 'listbox-caret', text: '▾', attrs: { 'aria-hidden': 'true' } })]);
+    }, [valueText, icon('chevronDown', { className: 'listbox-caret' })]);
 
     const list = el('ul', {
         className: 'listbox-popup',

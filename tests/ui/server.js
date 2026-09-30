@@ -148,7 +148,9 @@ let current = null;
 /** An admin router over the current data, with a new, empty session store. */
 function routerWithNewSessions() {
     const sessionStore = createSessionStore({ now: () => Date.now() + sessionClockOffset });
-    return createAdminRouter({ config: current.config, adminRepo: current.repos.adminRepo, logRepo: current.repos.logRepo, sessionStore });
+    return createAdminRouter({
+        config: current.config, adminRepo: current.repos.adminRepo, logRepo: current.repos.logRepo, sessionStore, geo: current.geo,
+    });
 }
 
 /** A fresh admin router over freshly seeded data, with no sessions. */
@@ -170,7 +172,9 @@ function buildAdmin() {
         server: { isProduction: false },
         admin: { enabled: true, password: PASSWORD, trashRetentionDays: 30, viewLogRetentionDays: 90 },
     };
-    current = { repos, config };
+    // The demo shows regions and cities as a city database would provide them.
+    const geo = DEMO ? { city: { attribution: { text: 'IP geolocation by DB-IP', url: 'https://db-ip.com' } } } : undefined;
+    current = { repos, config, geo };
     return routerWithNewSessions();
 }
 

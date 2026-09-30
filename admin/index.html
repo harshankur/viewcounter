@@ -34,19 +34,23 @@
             </svg>
             <span class="logo-text" data-i18n="app.name"></span>
             <span class="logo-badge" data-i18n="app.badge"></span>
+            <span class="version-badge" id="app-version" hidden></span>
         </div>
 
         <div class="topbar-actions">
+            <a class="header-link" id="website-link" href="https://viewcounter.harshankur.com" target="_blank"
+                rel="noopener noreferrer" data-icon="globe" data-i18n-attr="title:nav.websiteTitle"><span
+                    data-i18n="nav.website"></span></a>
             <div class="theme-switcher" role="group" data-i18n-attr="aria-label:theme.label">
-                <button class="theme-btn" id="theme-light" type="button" aria-pressed="false"
-                    data-i18n-attr="aria-label:theme.light;title:theme.light">☀️</button>
-                <button class="theme-btn" id="theme-dark" type="button" aria-pressed="false"
-                    data-i18n-attr="aria-label:theme.dark;title:theme.dark">🌙</button>
-                <button class="theme-btn" id="theme-auto" type="button" aria-pressed="false"
-                    data-i18n-attr="aria-label:theme.auto;title:theme.auto">🌓</button>
+                <button class="theme-btn" id="theme-light" type="button" aria-pressed="false" data-icon="sun"
+                    data-i18n-attr="aria-label:theme.light;title:theme.light"></button>
+                <button class="theme-btn" id="theme-dark" type="button" aria-pressed="false" data-icon="moon"
+                    data-i18n-attr="aria-label:theme.dark;title:theme.dark"></button>
+                <button class="theme-btn" id="theme-auto" type="button" aria-pressed="false" data-icon="auto"
+                    data-i18n-attr="aria-label:theme.auto;title:theme.auto"></button>
             </div>
             <button class="btn btn-secondary btn-small" id="logout-btn" type="button" hidden
-                data-i18n="nav.logout"></button>
+                data-icon="signOut"><span data-i18n="nav.logout"></span></button>
         </div>
     </nav>
 
@@ -81,6 +85,8 @@
             <div id="panels"></div>
         </section>
     </main>
+
+    <footer class="app-footer" id="app-footer" hidden></footer>
 
     <div id="modal-root" hidden></div>
     <div id="toast-root" class="toast-root"></div>

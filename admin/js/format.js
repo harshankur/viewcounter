@@ -52,6 +52,33 @@ export function formatPercent(ratio) {
     return new Intl.NumberFormat(currentLocale(), { style: 'percent', maximumFractionDigits: 1 }).format(Number(ratio) || 0);
 }
 
+/** A number with at most `digits` decimals: 1.75 pages per visit reads 1.8. */
+export function formatDecimal(value, digits = 1) {
+    return new Intl.NumberFormat(currentLocale(), { maximumFractionDigits: digits }).format(Number(value) || 0);
+}
+
+function unit(value, name) {
+    return new Intl.NumberFormat(currentLocale(), { style: 'unit', unit: name, unitDisplay: 'narrow' }).format(value);
+}
+
+/**
+ * A duration, to the second below an hour: 45s, 3m 20s, 1h 5m. Empty
+ * (never measured) shows the placeholder rather than a misleading 0s.
+ * @param {number|null} ms
+ */
+export function formatDuration(ms) {
+    if (ms === null || ms === undefined || Number.isNaN(Number(ms))) return t('common.none');
+    const seconds = Math.round(Number(ms) / 1000);
+    if (seconds < 60) return unit(seconds, 'second');
+    if (seconds < 3600) {
+        const rest = seconds % 60;
+        return rest ? `${unit(Math.floor(seconds / 60), 'minute')} ${unit(rest, 'second')}` : unit(seconds / 60, 'minute');
+    }
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const hours = Math.floor(seconds / 3600);
+    return minutes ? `${unit(hours, 'hour')} ${unit(minutes, 'minute')}` : unit(hours, 'hour');
+}
+
 /**
  * When a trend bucket starts. Day, week, and month buckets are named by their
  * date (YYYY-MM-DD) and read as calendar dates at UTC midnight; hour buckets
@@ -89,7 +116,7 @@ export function formatPeriod(period, bucket, { long = false } = {}) {
     const day = new Intl.DateTimeFormat(locale, {
         day: 'numeric', month: 'short', ...(long ? { year: 'numeric' } : {}), timeZone: 'UTC',
     }).format(date);
-    return bucket === 'week' && long ? t('insights.weekOf', { date: day }) : day;
+    return bucket === 'week' && long ? t('charts.weekOf', { date: day }) : day;
 }
 
 /** A value for display, with a translated placeholder for empty. */

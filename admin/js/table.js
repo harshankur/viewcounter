@@ -6,6 +6,7 @@
 import { clampText } from './clamp.js';
 import { el, replaceChildren } from './dom.js';
 import { formatDate, formatNumber, formatTime } from './format.js';
+import { icon } from './icons.js';
 import { t } from './i18n.js';
 import { SORT_ORDER } from './constants.js';
 
@@ -21,7 +22,7 @@ export function headerCell({ label, sortKey, sort, order, onSort, className = ''
 
     const active = sort === sortKey;
     const ariaSort = active ? (order === SORT_ORDER.ASC ? 'ascending' : 'descending') : 'none';
-    const indicator = active ? (order === SORT_ORDER.ASC ? '▲' : '▼') : '↕';
+    const indicator = active ? (order === SORT_ORDER.ASC ? 'arrowUp' : 'arrowDown') : 'sort';
 
     return el('th', { className, attrs: { scope: 'col', 'aria-sort': ariaSort } }, [
         el('button', {
@@ -31,7 +32,7 @@ export function headerCell({ label, sortKey, sort, order, onSort, className = ''
             on: { click: () => onSort(sortKey) },
         }, [
             el('span', { text: label }),
-            el('span', { className: 'sort-indicator', text: indicator, attrs: { 'aria-hidden': 'true' } }),
+            icon(indicator, { className: 'sort-indicator' }),
         ]),
     ]);
 }
@@ -130,5 +131,13 @@ export function createSegmented({ label, options, value, onChange }) {
     }
     render();
 
-    return { element: group, getValue: () => current };
+    return {
+        element: group,
+        getValue: () => current,
+        /** Show a value chosen elsewhere, without reporting it as a change. */
+        setValue(value) {
+            current = value;
+            render();
+        },
+    };
 }

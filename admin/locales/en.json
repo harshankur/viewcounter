@@ -2,11 +2,14 @@
     "app": {
         "name": "viewcounter",
         "badge": "admin",
-        "documentTitle": "ViewCounter Admin"
+        "documentTitle": "ViewCounter Admin",
+        "version": "v{version}"
     },
     "nav": {
         "skip": "Skip to content",
-        "logout": "Sign out"
+        "logout": "Sign out",
+        "website": "Website",
+        "websiteTitle": "viewcounter's website, in a new tab"
     },
     "theme": {
         "label": "Colour theme",
@@ -31,10 +34,11 @@
     },
     "tabs": {
         "label": "Sections",
-        "views": "views",
-        "trash": "trash",
-        "adminLog": "admin-log",
-        "viewLog": "view-log"
+        "overview": "Overview",
+        "views": "Views",
+        "trash": "Trash",
+        "trackingLog": "Tracking log",
+        "adminLog": "Admin log"
     },
     "common": {
         "none": "-",
@@ -55,7 +59,8 @@
         "NOT_FOUND": "That was not found.",
         "SERVER_ERROR": "Something went wrong on the server. Please try again.",
         "NETWORK": "The server could not be reached. Check your connection.",
-        "ACCESS_EXPIRED": "Your sign-in to the site's access gateway (for example Cloudflare Access) has ended. Reload the page to sign in there again."
+        "ACCESS_EXPIRED": "Your sign-in to the site's access gateway (for example Cloudflare Access) has ended. Reload the page to sign in there again.",
+        "UNEXPECTED": "Something went wrong in this page. Reload it and try again."
     },
     "pager": {
         "previous": "Previous",
@@ -81,7 +86,7 @@
     },
     "toolbar": {
         "search": "Search views",
-        "searchPlaceholder": "Search page, title, source, note, event…",
+        "searchPlaceholder": "Search page, title, site, source, campaign, note, event, or view ID…",
         "modifiedFilter": "Filter by admin changes",
         "showDeleted": "Show deleted",
         "pageSize": "Rows per page",
@@ -166,14 +171,16 @@
         "summary": {
             "one": "{active} view · {modified} modified · {deleted} in trash",
             "other": "{active} views · {modified} modified · {deleted} in trash"
-        }
+        },
+        "intro": "Every view and event the tracker recorded, one row each, newest first. These rows are what every number on the Overview is computed from. Correct a row, add a private note, or move it to the trash; every change is recorded in the Admin log."
     },
     "trash": {
         "retention": {
             "one": "Views in the trash no longer count in any statistic. They are erased permanently {count} day after being deleted, or sooner if you erase them here.",
             "other": "Views in the trash no longer count in any statistic. They are erased permanently {count} days after being deleted, or sooner if you erase them here."
         },
-        "retentionOff": "Views in the trash no longer count in any statistic. Automatic erasure is off (TRASH_RETENTION_DAYS=0), so they stay until erased here."
+        "retentionOff": "Views in the trash no longer count in any statistic. Automatic erasure is off (TRASH_RETENTION_DAYS=0), so they stay until erased here.",
+        "intro": "Views moved to the trash. They no longer count in any statistic and can be restored, or erased for good. Erasing asks for your password again."
     },
     "toasts": {
         "edited": {
@@ -250,7 +257,16 @@
         "purgeAction": "Erase permanently"
     },
     "details": {
-        "title": "View details"
+        "title": "View details",
+        "scrolled": "{percent}% of the page",
+        "groups": {
+            "view": "View",
+            "page": "Page",
+            "source": "Source and campaign",
+            "visitor": "Visitor",
+            "engagement": "Engagement",
+            "admin": "Admin changes"
+        }
     },
     "fields": {
         "id": "View ID",
@@ -268,13 +284,24 @@
         "browserVersion": "Browser version",
         "os": "Operating system",
         "osVersion": "OS version",
-        "sessionId": "Session ID",
+        "sessionId": "Session ID (sent by the site)",
         "eventType": "Event type",
         "eventData": "Event data",
         "isUnique": "Unique view",
         "note": "Note",
         "adminModifiedAt": "Modified by admin",
-        "deletedAt": "Moved to trash"
+        "deletedAt": "Moved to trash",
+        "hostname": "Site (hostname)",
+        "language": "Language",
+        "utmSource": "Campaign source",
+        "utmMedium": "Campaign medium",
+        "utmCampaign": "Campaign name",
+        "utmTerm": "Campaign term",
+        "utmContent": "Campaign content",
+        "region": "Region",
+        "city": "City",
+        "engagedMs": "Time on page",
+        "scrollDepth": "Scroll depth"
     },
     "edit": {
         "titleSingle": "Edit view",
@@ -308,16 +335,40 @@
         "allActions": "All actions",
         "filterApp": "Filter by app",
         "allApps": "All apps",
-        "filterSource": "Filter by source",
-        "allSources": "All sources",
+        "filterSource": "Filter by request type",
+        "allSources": "All request types",
+        "filterOutcome": "Filter by outcome",
+        "allOutcomes": "All outcomes",
         "system": "system",
         "emptyAdmin": "No admin operations recorded yet.",
-        "emptyViews": "No views recorded yet.",
-        "viewLogRetention": {
-            "one": "Entries are removed automatically {count} day after they are recorded. The views themselves are not affected.",
-            "other": "Entries are removed automatically {count} days after they are recorded. The views themselves are not affected."
+        "emptyTracking": "No tracking requests match.",
+        "adminIntro": "Everything done in this admin: sign-ins, edits, notes, moves to the trash, restores, and erasures, with the session and the masked address it came from. It never records what a view said, so an erased view leaves no trace of its content.",
+        "trackingIntro": "Every tracking request that reached the server, and what became of it. Views lists only what was recorded, and the Overview counts only that. This log also shows what was never stored: bots, and requests refused (an unregistered site, an unknown app, a malformed request). Use it to check that a site is sending views and to find out why some are not counted. Editing or deleting a view never changes it.",
+        "trackingRetention": {
+            "one": "Entries are removed automatically {count} day after they are recorded. Views are not affected.",
+            "other": "Entries are removed automatically {count} days after they are recorded. Views are not affected."
         },
-        "viewLogRetentionOff": "Entries are kept until removed by hand (VIEW_LOG_RETENTION_DAYS=0)."
+        "trackingRetentionOff": "Entries are kept until removed by hand (VIEW_LOG_RETENTION_DAYS=0).",
+        "outcomesTitle": "What each outcome means",
+        "outcomeHelp": {
+            "recorded": "Stored as a view, and counted as a unique view.",
+            "repeat": "Stored as a view, from a visitor already counted in this window, so not counted as unique.",
+            "bot": "A crawler, preview fetcher, or automated browser. Never stored; counted here by name, per minute.",
+            "rejected": "Refused and never stored; the reason is shown. Counted per minute, without anything about the requester."
+        },
+        "lastHours": {
+            "one": "last {count} hour",
+            "other": "last {count} hours"
+        },
+        "summaryLabel": {
+            "one": "Tracking requests in the last {count} hour",
+            "other": "Tracking requests in the last {count} hours"
+        },
+        "reasons": "Refused in the last day: {list}",
+        "noReasons": "Nothing refused in the last day.",
+        "autoRefresh": "Refresh every {seconds} s",
+        "openView": "Show this view",
+        "openViewNamed": "Show view {id}"
     },
     "logColumns": {
         "time": "Time",
@@ -327,11 +378,12 @@
         "fields": "Fields",
         "session": "Session",
         "ip": "IP (masked)",
-        "source": "Source",
+        "source": "Request",
         "event": "Event",
         "unique": "Unique",
         "outcome": "Outcome",
-        "view": "View ID"
+        "detail": "Reason or detail",
+        "view": "View"
     },
     "actions": {
         "login_succeeded": "Signed in",
@@ -344,14 +396,14 @@
         "views_restored": "Restored",
         "views_purged": "Erased",
         "trash_auto_purged": "Trash auto-erased",
-        "view_log_pruned": "View log pruned",
+        "view_log_pruned": "Tracking log pruned",
         "password_confirmed": "Password confirmed"
     },
     "outcomes": {
         "recorded": "Recorded",
         "repeat": "Repeat visit",
         "bot": "Bot",
-        "rejected": "Rejected"
+        "rejected": "Refused"
     },
     "rejectionReasons": {
         "bot": "automated client",
@@ -365,10 +417,11 @@
     },
     "logSources": {
         "registerView": "Page view",
-        "event": "Custom event",
+        "event": "Event",
         "engage": "Engagement"
     },
     "ranges": {
+        "24h": "24 hours",
         "7d": "7 days",
         "30d": "30 days",
         "90d": "90 days",
@@ -376,48 +429,218 @@
         "all": "All time"
     },
     "eventTypes": {
-        "pageview": "Page view"
+        "pageview": "Page view",
+        "outbound": "Link to another site",
+        "download": "Download"
     },
-    "insights": {
-        "title": "insights",
-        "scopeAll": "All apps, filtered like the table below",
-        "scopeApp": "{app}, filtered like the table below",
-        "span": "From {from} to {to}",
-        "noData": "No views match these filters.",
+    "deviceTypes": {
+        "desktop": "Desktop",
+        "mobile": "Phone",
+        "tablet": "Tablet",
+        "wearable": "Wearable",
+        "tv": "TV",
+        "console": "Games console"
+    },
+    "charts": {
         "views": "Views",
-        "uniqueViews": "Unique views",
-        "visitors": "Visitors",
-        "uniqueShare": "Unique views",
-        "countries": "Countries",
-        "modified": "Modified by admin",
-        "trendTitle": "Views over time",
-        "mapTitle": "Where views come from",
-        "showTable": "Show as table",
-        "showChart": "Show as chart",
+        "share": "of views",
+        "noData": "No views match these filters.",
+        "showTable": "Table",
+        "showChart": "Chart",
         "period": "Period",
         "weekOf": "Week of {date}",
-        "trendLabel": "Views over time from {from} to {to}, peaking at {peak}. Use the arrow keys to read each period.",
-        "share": "of views",
-        "other": "Other",
-        "otherTypes": "Other types",
-        "unknown": "Unknown",
+        "inProgress": "{period} (so far)",
+        "trendLabel": "{metric} from {from} to {to}, highest at {peak} on {peakAt}. Use the arrow keys to read each period.",
         "topCountries": "Countries by views",
         "mapLabel": "World map of views by country, {countries} countries with views. The list beside it gives the numbers.",
         "mapUnavailable": "The map could not be loaded. The list beside it has every number.",
         "noViews": "No views",
+        "otherTypes": "Other types",
         "moreCountries": {
             "one": "Show {count} more country",
             "other": "Show {count} more countries"
         },
-        "breakdown": {
-            "source": "Sources",
-            "deviceSize": "Device sizes",
-            "browser": "Browsers",
-            "os": "Operating systems",
-            "eventType": "Event types",
-            "app": "Apps"
+        "fewerCountries": "Show fewer",
+        "heatmapLabel": "Views by weekday and hour, busiest on {day} at {hour} with {views} views. Use the arrow keys to read each hour, or switch to the table.",
+        "heatmapCell": "{day}, {from} to {to}",
+        "hour": "Hour",
+        "minutesLabel": "Views per minute over the last {count} minutes, {views} in all. Use the arrow keys to read each minute.",
+        "minutesAgo": {
+            "one": "{count} minute ago",
+            "other": "{count} minutes ago"
         },
-        "inProgress": "{period} (so far)",
-        "fewerCountries": "Show fewer"
+        "now": "Now"
+    },
+    "overview": {
+        "intro": "Statistics for the app and period chosen below, computed from live views only (the trash never counts). Click any row in a breakdown to narrow everything to it.",
+        "showViews": "Show these views",
+        "removeFilter": "Remove the filter {filter}",
+        "clearFilters": "Clear filters",
+        "filterBy": "Show only {dimension}: {value}",
+        "cardView": "{card}: what to show",
+        "trendTitle": "{metric} over time",
+        "trendView": "Show the trend as",
+        "tilesLabel": "Headline numbers. Choose one to chart it over time.",
+        "span": {
+            "one": "From {from} to {to} · {countries} country · {unique} unique views · {modified} changed by an admin",
+            "other": "From {from} to {to} · {countries} countries · {unique} unique views · {modified} changed by an admin"
+        },
+        "empty": "No views match these filters.",
+        "allTime": "All time",
+        "noComparison": "Nothing to compare with",
+        "vsPrevious": {
+            "24h": "vs the 24 hours before",
+            "7d": "vs the 7 days before",
+            "30d": "vs the 30 days before",
+            "90d": "vs the 90 days before",
+            "1y": "vs the year before"
+        },
+        "points": "{value} pts",
+        "deltaNew": "New",
+        "helpTitle": "How these numbers are counted",
+        "metrics": {
+            "visitors": "Visitors",
+            "visits": "Visits",
+            "pageviews": "Page views",
+            "views": "Views and events",
+            "bounceRate": "Bounce rate",
+            "avgVisitMs": "Visit duration",
+            "pagesPerVisit": "Pages per visit",
+            "avgEngagedMs": "Time on page",
+            "avgScroll": "Scroll depth"
+        },
+        "help": {
+            "visitors": "Distinct visitors, told apart by a hash of the address and browser that changes every day and is never stored with anything that identifies a person. The same person on two days counts twice, and people sharing a network and browser count once.",
+            "visits": "Page views of one visitor with no pause longer than 30 minutes between them.",
+            "pageviews": "Views of a page, without custom events.",
+            "views": "Everything recorded: page views and custom events such as downloads or clicks on links to other sites.",
+            "bounceRate": "The share of visits that saw only one page.",
+            "avgVisitMs": "From the first page view of a visit to the last, plus how long the last page was visible. The average over visits.",
+            "pagesPerVisit": "Page views per visit, on average.",
+            "avgEngagedMs": "How long a page was actually visible on screen, as the tracker script measured it. Only pages with a measurement count.",
+            "avgScroll": "How much of a page had been on screen, at most, as the tracker script measured it."
+        },
+        "dims": {
+            "source": "Channel",
+            "referrer": "Referrer",
+            "referrerUrl": "Referring page",
+            "utmSource": "Campaign source",
+            "utmMedium": "Campaign medium",
+            "utmCampaign": "Campaign",
+            "utmTerm": "Campaign term",
+            "utmContent": "Campaign content",
+            "page": "Page",
+            "title": "Title",
+            "hostname": "Site",
+            "country": "Country",
+            "region": "Region",
+            "city": "City",
+            "language": "Language",
+            "deviceSize": "Screen size",
+            "deviceType": "Device type",
+            "browser": "Browser",
+            "browserVersion": "Browser version",
+            "os": "Operating system",
+            "osVersion": "System version",
+            "eventType": "Event type",
+            "app": "App",
+            "timeOnPage": "Time on page",
+            "scrollDepth": "Scrolled"
+        },
+        "noReferrer": "Direct or not sent",
+        "notTagged": "Not tagged",
+        "noTitle": "No title",
+        "unknown": "Unknown",
+        "other": "Everything else",
+        "columns": {
+            "visitors": "Visitors",
+            "views": "Views",
+            "share": "Share",
+            "visits": "Visits",
+            "bounceRate": "Bounce",
+            "timeOnPage": "Time",
+            "scroll": "Scroll",
+            "steps": "Times",
+            "count": "Count",
+            "pageviews": "Page views"
+        },
+        "noVisits": "No page views, so no visits, match these filters.",
+        "noFlow": "No visitor went from one page to another in these views.",
+        "noProperties": "No custom event carried properties in these views.",
+        "noEngagement": "No time or scrolling measured yet. The tracker script measures both; a site that registers views another way does not.",
+        "noCityData": "Regions and cities need a city database on the server (GEOIP_CITY_DB). Countries work without one.",
+        "flowHeader": "From page, to page",
+        "flowStep": "{from} → {to}",
+        "propertyHeader": "Property",
+        "property": "{key} = {value}",
+        "orMore": "{from} or more",
+        "under": "Under {to}",
+        "between": "{from} to {to}",
+        "scrollAll": "All of it (100%)",
+        "scrollBetween": "{from}% to {to}%",
+        "cards": {
+            "apps": "Apps",
+            "sources": "Sources",
+            "pages": "Pages",
+            "locations": "Locations",
+            "devices": "Devices",
+            "browsers": "Browsers",
+            "systems": "Operating systems",
+            "campaigns": "Campaigns",
+            "events": "Events",
+            "engagement": "Engagement",
+            "when": "When, by weekday and hour ({zone})",
+            "flow": "Page flow"
+        },
+        "tabs": {
+            "channels": "Channels",
+            "referrers": "Referrers",
+            "referringPages": "Referring pages",
+            "topPages": "Top",
+            "entryPages": "Entry",
+            "exitPages": "Exit",
+            "titles": "Titles",
+            "sites": "Sites",
+            "map": "Map",
+            "countries": "Countries",
+            "regions": "Regions",
+            "cities": "Cities",
+            "languages": "Languages",
+            "screenSizes": "Screen sizes",
+            "deviceTypes": "Device types",
+            "browsers": "Browsers",
+            "versions": "Versions",
+            "systems": "Systems",
+            "utmSource": "Source",
+            "utmMedium": "Medium",
+            "utmCampaign": "Campaign",
+            "utmTerm": "Term",
+            "utmContent": "Content",
+            "eventTypes": "Types",
+            "properties": "Properties",
+            "timeOnPage": "Time on page",
+            "scrollDepth": "Scroll depth"
+        },
+        "whenNote": "Covers up to the last year of the chosen period, in your time zone.",
+        "live": {
+            "title": "Right now",
+            "visitors": {
+                "one": "visitor in the last {minutes} minutes",
+                "other": "visitors in the last {minutes} minutes"
+            },
+            "pages": "Pages open now",
+            "nobody": "Nobody on the sites right now.",
+            "updated": "Updated {time}, every {seconds} s while this page is open. Live views of the chosen app; the filters above do not apply."
+        }
+    },
+    "footer": {
+        "product": "viewcounter {version}",
+        "links": "About viewcounter",
+        "website": "Website",
+        "docs": "Admin guide",
+        "changelog": "Changelog",
+        "source": "Source code",
+        "npm": "npm package",
+        "credits": "Location data:"
     }
 }

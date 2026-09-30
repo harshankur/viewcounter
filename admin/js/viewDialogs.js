@@ -5,7 +5,9 @@
 import { el, uniqueId } from './dom.js';
 import { openModal, VARIANT } from './modal.js';
 import { createListbox } from './listbox.js';
-import { formatDateTime, orNone } from './format.js';
+import { formatDateTime, formatDuration, orNone } from './format.js';
+import { regionName } from './charts.js';
+import { valueLabel } from './overview.js';
 import { t, tOr } from './i18n.js';
 import {
     DEVICE_SIZE_FIELD,
@@ -14,7 +16,7 @@ import {
     JSON_INDENT,
     NOTE_ROWS,
     TEXT_FIELDS,
-    VIEW_DETAIL_FIELDS,
+    VIEW_DETAIL_GROUPS,
 } from './constants.js';
 
 const DATE_FIELDS = new Set(['timestamp', 'adminModifiedAt', 'deletedAt']);
@@ -23,24 +25,38 @@ const DATE_FIELDS = new Set(['timestamp', 'adminModifiedAt', 'deletedAt']);
 function displayValue(field, value) {
     if (DATE_FIELDS.has(field)) return formatDateTime(value);
     if (field === 'isUnique') return value ? t('common.yes') : t('common.no');
-    if (field === 'sourceType' && value) return tOr(`sources.${value}`, value);
-    if (field === EVENT_DATA_FIELD) return value === null || value === undefined ? t('common.none') : JSON.stringify(value, null, JSON_INDENT);
+    if (value === null || value === undefined || value === '') return t('common.none');
+    if (field === 'sourceType') return tOr(`sources.${value}`, value);
+    if (field === 'deviceSize') return tOr(`deviceSizes.${value}`, value);
+    if (field === 'deviceType') return valueLabel('deviceType', value);
+    if (field === 'language') return valueLabel('language', value);
+    if (field === 'eventType') return valueLabel('eventType', value);
+    if (field === 'country') return `${regionName(value)} (${value})`;
+    if (field === 'engagedMs') return formatDuration(value);
+    if (field === 'scrollDepth') return t('details.scrolled', { percent: value });
+    if (field === EVENT_DATA_FIELD) return JSON.stringify(value, null, JSON_INDENT);
     return orNone(value);
 }
 
-/** Read-only view of every field. */
+/** Read-only view of every field, grouped: the view, its page, source, visitor, engagement, and admin changes. */
 export function openDetails(view) {
-    const list = el('dl', { className: 'detail-list' });
-    for (const field of VIEW_DETAIL_FIELDS) {
-        const value = displayValue(field, view[field]);
-        const valueNode = field === EVENT_DATA_FIELD
-            ? el('pre', { className: 'detail-json', text: value })
-            : el('span', { className: 'detail-value', text: value });
-        list.append(el('dt', { text: t(`fields.${field}`) }), el('dd', {}, [valueNode]));
-    }
+    const body = el('div', { className: 'detail-groups' }, VIEW_DETAIL_GROUPS.map((group) => {
+        const list = el('dl', { className: 'detail-list' });
+        for (const field of group.fields) {
+            const value = displayValue(field, view[field]);
+            const valueNode = field === EVENT_DATA_FIELD && view[field] !== null && view[field] !== undefined
+                ? el('pre', { className: 'detail-json', text: value })
+                : el('span', { className: 'detail-value', text: value });
+            list.append(el('dt', { text: t(`fields.${field}`) }), el('dd', {}, [valueNode]));
+        }
+        return el('section', { className: 'detail-group' }, [
+            el('h3', { className: 'detail-group-title', text: t(`details.groups.${group.key}`) }),
+            list,
+        ]);
+    }));
     openModal({
         title: t('details.title'),
-        body: list,
+        body,
         actions: [{ label: t('common.close'), variant: VARIANT.SECONDARY }],
         wide: true,
     });

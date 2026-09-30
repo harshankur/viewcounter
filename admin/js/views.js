@@ -1,6 +1,7 @@
 /**
  * The views table, used twice: the Views tab (live rows, optionally with the
- * trashed ones shown inline) and the Trash tab (trashed rows only).
+ * trashed ones shown inline) and the Trash tab (trashed rows only). These
+ * rows are the data every statistic on the Overview is computed from.
  *
  * Selection is a set of view IDs that survives paging, so a batch can span
  * pages, and is cleared whenever the query changes shape (app, filter,
@@ -8,20 +9,21 @@
  */
 
 import { api } from './api.js';
+import { appEntries, createAppTabs } from './appTabs.js';
 import { clampText } from './clamp.js';
 import { el, replaceChildren, debounce, uniqueId } from './dom.js';
 import { formatDateTime, formatNumber, orNone } from './format.js';
+import { icon } from './icons.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
 import { confirmModal } from './modal.js';
 import { createPager, createSegmented, headerCell, messageRow, timeCell } from './table.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { openDetails, openEditor, openNoteEditor } from './viewDialogs.js';
-import { createInsightsPanel } from './insights.js';
+import { valueLabel } from './overview.js';
 import {
     ALL_APPS,
     CLAMP_LINES,
-    KEY,
     RANGE,
     MODIFIED_FILTER,
     SEARCH_DEBOUNCE_MS,
@@ -53,7 +55,8 @@ const COLUMN_COUNT = COLUMNS.length + 1;
 
 /**
  * @param {{ mode: string, meta: object, context: { apps: () => object[], appId: () => string,
- *   setAppId: (id: string) => void, refreshApps: () => Promise<void>, reportError: (error: unknown) => void } }} deps
+ *   setAppId: (id: string) => void, refreshApps: () => Promise<void>, reportError: (error: unknown) => void,
+ *   viewsChanged: () => void } }} deps
  */
 export function createViewsPanel({ mode, meta, context }) {
     const isTrash = mode === PANEL_MODE.TRASH;
@@ -62,7 +65,9 @@ export function createViewsPanel({ mode, meta, context }) {
         modified: MODIFIED_FILTER.ANY,
         range: RANGE.ALL,
         eventType: '',
-        knownEventTypes: new Set(),
+        knownEventTypes: [],
+        /** Breakdown values carried over from the Overview, such as one country. */
+        where: {},
         search: '',
         sort: isTrash ? 'deletedAt' : 'timestamp',
         order: SORT_ORDER.DESC,
@@ -80,98 +85,20 @@ export function createViewsPanel({ mode, meta, context }) {
         return state.showDeleted ? VIEW_STATUS.ALL : VIEW_STATUS.ACTIVE;
     };
 
-    /** The filters the table and the insights above it share. */
+    /** The filters of the listing, the same the Overview's analysis takes. */
     const filters = () => ({
         status: status(),
         modified: state.modified,
         range: state.range,
         eventType: state.eventType,
+        where: state.where,
         search: state.search,
     });
 
     // ---- Toolbar -----------------------------------------------------------
 
-    // One tab per app (each app is its own table). Shared by the Views and
-    // Trash panels: switching here switches both. ARIA tabs pattern with
-    // automatic activation: arrow keys, Home and End move and select.
     const tableId = uniqueId('views-table');
-    const appTabs = el('div', {
-        className: 'app-tabs',
-        attrs: { role: 'tablist', 'aria-label': t('appTabs.label') },
-    });
-    let focusAppOnRender = false;
-
-    function selectApp(appId, { focus = false } = {}) {
-        focusAppOnRender = focus;
-        if (appId === context.appId()) {
-            renderAppTabs();
-            return;
-        }
-        context.setAppId(appId);
-    }
-
-    /** Every app's tab, led by one for all of them together. */
-    function tabEntries() {
-        const apps = context.apps();
-        const sum = (key) => apps.reduce((total, app) => total + app[key], 0);
-        return [
-            {
-                appId: ALL_APPS,
-                label: t('appTabs.all'),
-                active: sum('active'),
-                deleted: sum('deleted'),
-                modified: sum('modified'),
-                available: true,
-            },
-            ...apps.map((app) => ({ ...app, label: app.appId })),
-        ];
-    }
-
-    function renderAppTabs() {
-        const current = context.appId();
-        replaceChildren(appTabs, tabEntries().map((app) => {
-            const selected = app.appId === current;
-            const count = isTrash ? app.deleted : app.active;
-            const countText = t(isTrash ? 'appTabs.deletedCount' : 'appTabs.activeCount', { count });
-            return el('button', {
-                className: `app-tab${selected ? ' active' : ''}${app.available ? '' : ' unavailable'}`,
-                attrs: {
-                    type: 'button',
-                    role: 'tab',
-                    'aria-selected': String(selected),
-                    'aria-controls': tableId,
-                    'aria-label': t('appTabs.tabName', { app: app.label, count: countText }),
-                    tabindex: selected ? '0' : '-1',
-                    title: app.available ? null : t('appTabs.unavailable', { app: app.appId }),
-                },
-                dataset: { appId: app.appId },
-                on: { click: () => selectApp(app.appId) },
-            }, [
-                el('span', { className: 'prompt-char', text: '❯', attrs: { 'aria-hidden': 'true' } }),
-                el('span', { className: 'app-tab-name', text: app.label }),
-                el('span', { className: 'app-tab-count', text: formatNumber(count), attrs: { 'aria-hidden': 'true' } }),
-            ]);
-        }));
-        if (focusAppOnRender) {
-            appTabs.querySelector('[aria-selected="true"]')?.focus();
-            focusAppOnRender = false;
-        }
-    }
-
-    appTabs.addEventListener('keydown', (event) => {
-        const ids = tabEntries().map((app) => app.appId);
-        if (ids.length === 0) return;
-        const index = Math.max(0, ids.indexOf(context.appId()));
-        const moves = {
-            [KEY.ARROW_RIGHT]: (index + 1) % ids.length,
-            [KEY.ARROW_LEFT]: (index - 1 + ids.length) % ids.length,
-            [KEY.HOME]: 0,
-            [KEY.END]: ids.length - 1,
-        };
-        if (!(event.key in moves)) return;
-        event.preventDefault();
-        selectApp(ids[moves[event.key]], { focus: true });
-    });
+    const appTabs = createAppTabs({ context, controls: tableId, trash: isTrash });
 
     const searchInput = el('input', {
         className: 'input search-input',
@@ -218,7 +145,7 @@ export function createViewsPanel({ mode, meta, context }) {
 
     const eventTypeOptions = () => [
         { value: '', label: t('toolbar.allEventTypes') },
-        ...[...state.knownEventTypes].sort().map((type) => ({ value: type, label: tOr(`eventTypes.${type}`, type) })),
+        ...state.knownEventTypes.map((type) => ({ value: type, label: tOr(`eventTypes.${type}`, type) })),
     ];
     const eventTypePicker = createListbox({
         label: t('toolbar.eventType'),
@@ -242,11 +169,29 @@ export function createViewsPanel({ mode, meta, context }) {
         },
     });
 
+    // Filters carried over from the Overview, each removable on its own.
+    const chips = el('div', { className: 'filter-chips', attrs: { 'aria-live': 'polite' } });
+    function renderChips() {
+        replaceChildren(chips, Object.entries(state.where).map(([dim, value]) => {
+            const label = `${t(`overview.dims.${dim}`)}: ${valueLabel(dim, value)}`;
+            return el('button', {
+                className: 'chip',
+                attrs: { type: 'button', 'aria-label': t('overview.removeFilter', { filter: label }), title: t('overview.removeFilter', { filter: label }) },
+                dataset: { dim },
+                on: { click: () => {
+                    state.where = Object.fromEntries(Object.entries(state.where).filter(([key]) => key !== dim));
+                    resetAndLoad();
+                } },
+            }, [icon('filter'), el('span', { className: 'chip-text', text: label }), icon('close')]);
+        }));
+    }
+
     const toolbar = el('div', { className: 'toolbar' }, [
         el('div', { className: 'toolbar-group' }, [
             rangeFilter.element,
             isTrash ? null : eventTypePicker.element,
             searchInput,
+            chips,
         ]),
         el('div', { className: 'toolbar-group' }, [
             modifiedFilter.element,
@@ -272,7 +217,6 @@ export function createViewsPanel({ mode, meta, context }) {
     });
 
     const batchBar = el('div', { className: 'batch-bar', attrs: { role: 'region', 'aria-label': t('batch.region') } }, [
-        el('span', { className: 'prompt-char', text: '❯', attrs: { 'aria-hidden': 'true' } }),
         batchCount,
         el('div', { className: 'batch-actions' }, [
             isTrash ? null : batchButton('batch.edit', 'secondary', () => editViews(selectedViews())),
@@ -304,30 +248,17 @@ export function createViewsPanel({ mode, meta, context }) {
 
     const retention = isTrash ? el('p', { className: 'notice' }) : null;
 
-    // Insights live on the Views tab; the trash is for recovery, not analysis.
-    const insights = isTrash ? null : createInsightsPanel({
-        reportError: context.reportError,
-        onData: (data) => {
-            // The server lists every event type these apps hold, whatever the
-            // other filters say, so choosing one never hides the others. The
-            // current choice stays on offer even if its last view was edited.
-            const types = new Set(data.eventTypes);
-            if (state.eventType) types.add(state.eventType);
-            const known = state.knownEventTypes;
-            if (types.size === known.size && [...types].every((type) => known.has(type))) return;
-            state.knownEventTypes = types;
-            eventTypePicker.setOptions(eventTypeOptions(), state.eventType);
-        },
-    });
-
     const element = el('section', {
         className: 'panel',
         attrs: { 'aria-label': isTrash ? t('tabs.trash') : t('tabs.views') },
     }, [
-        appTabs,
+        el('header', { className: 'panel-header' }, [
+            el('h2', { className: 'panel-title', text: isTrash ? t('tabs.trash') : t('tabs.views') }),
+            el('p', { className: 'panel-intro', text: isTrash ? t('trash.intro') : t('views.intro') }),
+        ]),
+        appTabs.element,
         toolbar,
         retention,
-        insights?.element,
         summary,
         batchBar,
         el('div', { className: 'table-wrap' }, [table]),
@@ -398,13 +329,12 @@ export function createViewsPanel({ mode, meta, context }) {
         return el('span', { className: `badge ${className}`, text: t(key), attrs: title ? { title } : {} });
     }
 
-    function actionButton(icon, labelKey, handler, variant = '') {
+    function actionButton(iconName, labelKey, handler, variant = '') {
         return el('button', {
             className: `icon-btn row-action ${variant}`.trim(),
-            text: icon,
             attrs: { type: 'button', 'aria-label': t(labelKey), title: t(labelKey) },
             on: { click: handler },
-        });
+        }, [icon(iconName)]);
     }
 
     function renderRow(view) {
@@ -426,13 +356,13 @@ export function createViewsPanel({ mode, meta, context }) {
         ];
 
         const actions = [
-            actionButton('ⓘ', 'rowActions.details', () => openDetails(view)),
-            deleted ? null : actionButton('✎', 'rowActions.edit', () => editViews([view])),
-            actionButton('✐', 'rowActions.note', () => noteViews([view])),
+            actionButton('info', 'rowActions.details', () => openDetails(view)),
+            deleted ? null : actionButton('edit', 'rowActions.edit', () => editViews([view])),
+            actionButton('note', 'rowActions.note', () => noteViews([view])),
             deleted
-                ? actionButton('↺', 'rowActions.restore', () => restoreViews([view]))
-                : actionButton('🗑', 'rowActions.delete', () => deleteViews([view]), 'danger'),
-            deleted && isTrash ? actionButton('⨯', 'rowActions.purge', () => purgeViews([view]), 'danger') : null,
+                ? actionButton('restore', 'rowActions.restore', () => restoreViews([view]))
+                : actionButton('trash', 'rowActions.delete', () => deleteViews([view]), 'danger'),
+            deleted && isTrash ? actionButton('purge', 'rowActions.purge', () => purgeViews([view]), 'danger') : null,
         ];
 
         const source = view.sourceType ? tOr(`sources.${view.sourceType}`, view.sourceType) : t('common.none');
@@ -443,22 +373,27 @@ export function createViewsPanel({ mode, meta, context }) {
             el('td', { className: 'col-app' }, [clampText(view.appId, { className: 'mono' })]),
             el('td', { className: 'col-page' }, [
                 clampText(orNone(view.pagePath), { className: 'cell-primary' }),
-                clampText(orNone(view.pageTitle), { lines: CLAMP_LINES.SINGLE, className: 'cell-secondary' }),
+                clampText(view.hostname ? `${view.hostname} · ${orNone(view.pageTitle)}` : orNone(view.pageTitle), {
+                    lines: CLAMP_LINES.SINGLE, className: 'cell-secondary',
+                }),
             ]),
             el('td', { className: 'col-source' }, [
                 clampText(source, { className: 'cell-primary' }),
-                clampText(orNone(view.referrerDomain), { className: 'cell-secondary' }),
+                clampText(orNone(view.utmCampaign ?? view.referrerDomain), { className: 'cell-secondary' }),
             ]),
             el('td', { className: 'col-device' }, [
                 clampText(view.deviceSize ? tOr(`deviceSizes.${view.deviceSize}`, view.deviceSize) : t('common.none'), { className: 'cell-primary' }),
                 clampText(orNone(view.deviceType), { className: 'cell-secondary' }),
             ]),
-            el('td', { className: 'col-country' }, [clampText(orNone(view.country))]),
+            el('td', { className: 'col-country' }, [
+                clampText(orNone(view.country), { className: 'cell-primary' }),
+                clampText(orNone(view.city ?? view.region ?? view.language), { className: 'cell-secondary' }),
+            ]),
             el('td', { className: 'col-client' }, [
                 clampText(orNone(view.browser), { className: 'cell-primary' }),
                 clampText(orNone(view.os), { className: 'cell-secondary' }),
             ]),
-            el('td', { className: 'col-event' }, [clampText(orNone(view.eventType))]),
+            el('td', { className: 'col-event' }, [clampText(view.eventType ? tOr(`eventTypes.${view.eventType}`, view.eventType) : t('common.none'))]),
             el('td', { className: 'col-status' }, [el('div', { className: 'badges' }, badges)]),
             el('td', { className: 'col-actions' }, [el('div', { className: 'row-actions' }, actions)]),
         ]);
@@ -499,7 +434,7 @@ export function createViewsPanel({ mode, meta, context }) {
             state.focusSort = null;
         }
 
-        const app = tabEntries().find((entry) => entry.appId === context.appId());
+        const app = appEntries(context.apps()).find((entry) => entry.appId === context.appId());
         summary.textContent = app
             ? t('views.summary', {
                 active: formatNumber(app.active),
@@ -550,16 +485,30 @@ export function createViewsPanel({ mode, meta, context }) {
         }
     }
 
-    /** Refresh the insights for the current filters; the table has its own paging. */
-    function loadInsights() {
-        if (insights && context.appId()) insights.load({ appId: context.appId(), ...filters() });
+    /**
+     * Every event type the app holds in this status, whatever else is
+     * filtered, so choosing one never hides the others. The current choice
+     * stays on offer even if its last view was edited.
+     */
+    async function loadEventTypes() {
+        const appId = context.appId();
+        if (isTrash || !appId) return;
+        try {
+            const query = { status: status() };
+            const { eventTypes } = appId === ALL_APPS ? await api.eventTypesAll(query) : await api.eventTypes(appId, query);
+            if (appId !== context.appId()) return;
+            state.knownEventTypes = [...new Set([...eventTypes, ...(state.eventType ? [state.eventType] : [])])].sort();
+            eventTypePicker.setOptions(eventTypeOptions(), state.eventType);
+        } catch (error) {
+            context.reportError(error);
+        }
     }
 
     function resetAndLoad() {
         state.page = 1;
         state.selection.clear();
+        renderChips();
         load();
-        loadInsights();
     }
 
     // ---- Operations --------------------------------------------------------
@@ -604,10 +553,11 @@ export function createViewsPanel({ mode, meta, context }) {
         }
         if (failure) context.reportError(failure);
         if (result.affected > 0 || !failure) {
+            context.viewsChanged();
             try {
                 await context.refreshApps();
                 await load();
-                loadInsights();
+                loadEventTypes();
             } catch (error) {
                 context.reportError(error);
             }
@@ -668,18 +618,84 @@ export function createViewsPanel({ mode, meta, context }) {
 
     render();
 
+    let visible = false;
+    let stale = true;
+
     return {
         element,
         /** The app list or selected app changed. */
         syncApps() {
-            renderAppTabs();
+            appTabs.render();
         },
-        /** Start over for the current app. */
-        reload: resetAndLoad,
-        /** Refresh the current page and the insights, keeping the selection. */
-        refresh() {
-            load();
-            loadInsights();
+        /** The app changed: breakdown values of one app mean nothing in another. */
+        appChanged() {
+            state.where = {};
+            state.page = 1;
+            state.selection.clear();
+            stale = true;
+            if (visible) {
+                resetAndLoad();
+                loadEventTypes();
+            }
+        },
+        /** Shown: start over after an app change, otherwise refresh the page, keeping the selection. */
+        show() {
+            visible = true;
+            if (stale) {
+                stale = false;
+                resetAndLoad();
+            } else {
+                load();
+            }
+            loadEventTypes();
+        },
+        hide() {
+            visible = false;
+        },
+        /** Rows changed elsewhere (in the other of Views and Trash). */
+        invalidate() {
+            if (visible) load();
+        },
+        /**
+         * Show exactly the rows an Overview describes: its range, event type,
+         * and breakdown values. Search and the admin-changes filter start over.
+         * @param {{ range: string, eventType: string, where: Record<string, string|null> }} next
+         */
+        applyFilters({ range, eventType, where }) {
+            state.range = range;
+            state.eventType = eventType;
+            state.where = { ...where };
+            state.search = '';
+            state.modified = MODIFIED_FILTER.ANY;
+            searchInput.value = '';
+            rangeFilter.setValue(range);
+            modifiedFilter.setValue(MODIFIED_FILTER.ANY);
+            if (eventType && !state.knownEventTypes.includes(eventType)) {
+                state.knownEventTypes = [...state.knownEventTypes, eventType].sort();
+            }
+            eventTypePicker.setOptions(eventTypeOptions(), eventType);
+            stale = true;
+        },
+        /**
+         * Show one view by its ID, wherever it is: live or in the trash, in
+         * any range. Every other filter starts over.
+         * @param {string} viewId
+         */
+        findView(viewId) {
+            state.range = RANGE.ALL;
+            state.eventType = '';
+            state.where = {};
+            state.modified = MODIFIED_FILTER.ANY;
+            state.search = viewId;
+            searchInput.value = viewId;
+            if (!isTrash) {
+                state.showDeleted = true;
+                showDeletedToggle.checked = true;
+            }
+            rangeFilter.setValue(RANGE.ALL);
+            modifiedFilter.setValue(MODIFIED_FILTER.ANY);
+            eventTypePicker.setOptions(eventTypeOptions(), '');
+            stale = true;
         },
     };
 }
