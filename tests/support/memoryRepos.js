@@ -111,6 +111,8 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
     const tables = new Map(Object.entries(views).map(([appId, rows]) => [appId, [...rows]]));
     const adminLog = [];
     const viewLog = [];
+    /** Counted rejections, keyed like the database's primary key. */
+    const rejections = new Map();
 
     const rowsOf = (appId) => {
         if (!tables.has(appId)) tables.set(appId, []);
@@ -291,8 +293,19 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             return true;
         },
 
-        async writeViewLog({ appId, source, viewId, eventType, isUnique }) {
-            viewLog.unshift({ id: crypto.randomUUID(), createdAt: now(), appId, source, viewId, eventType, isUnique });
+        async writeViewLog({ appId, source, viewId, eventType, isUnique, hostname = null }) {
+            viewLog.unshift({ id: crypto.randomUUID(), createdAt: now(), appId, source, viewId, eventType, isUnique, hostname });
+            return true;
+        },
+
+        async recordRejections(rows) {
+            for (const row of rows) {
+                const entry = { appId: '', detail: '', hostname: '', ...row };
+                const key = [entry.minute.getTime(), entry.source, entry.reason, entry.appId, entry.detail, entry.hostname].join('|');
+                const existing = rejections.get(key);
+                if (existing) existing.requests += row.requests;
+                else rejections.set(key, { key, ...entry, minute: new Date(entry.minute) });
+            }
             return true;
         },
 
@@ -301,7 +314,11 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             const before = viewLog.length;
             const kept = viewLog.filter((entry) => entry.createdAt.getTime() >= cutoff);
             viewLog.splice(0, viewLog.length, ...kept);
-            return before - kept.length;
+            let pruned = before - kept.length;
+            for (const [key, entry] of rejections) {
+                if (entry.minute.getTime() < cutoff) { rejections.delete(key); pruned += 1; }
+            }
+            return pruned;
         },
 
         async listAdminLog({ page, pageSize, action, appId }) {
@@ -310,14 +327,48 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             return { entries: entries.slice(start, start + pageSize), total: entries.length };
         },
 
-        async listViewLog({ page, pageSize, appId, source }) {
-            const entries = viewLog.filter((entry) => (!appId || entry.appId === appId) && (!source || entry.source === source));
+        async listTrackingLog({ page, pageSize, appId, source, outcome }) {
+            const accepted = viewLog.map((entry) => ({
+                id: entry.id, at: entry.createdAt, appId: entry.appId, source: entry.source,
+                outcome: entry.isUnique ? 'recorded' : 'repeat', reason: null, detail: null,
+                hostname: entry.hostname ?? null, viewId: entry.viewId, eventType: entry.eventType, requests: 1,
+            }));
+            const refused = [...rejections.values()].map((entry) => ({
+                id: entry.key, at: entry.minute, appId: entry.appId || null, source: entry.source,
+                outcome: entry.reason === 'bot' ? 'bot' : 'rejected', reason: entry.reason, detail: entry.detail || null,
+                hostname: entry.hostname || null, viewId: null, eventType: null, requests: entry.requests,
+            }));
+            const entries = [...accepted, ...refused]
+                .filter((entry) => (!appId || entry.appId === appId) && (!source || entry.source === source)
+                    && (!outcome || entry.outcome === outcome))
+                .sort((a, b) => b.at - a.at || String(a.id).localeCompare(String(b.id)));
             const start = (page - 1) * pageSize;
             return { entries: entries.slice(start, start + pageSize), total: entries.length };
         },
+
+        async trackingSummary({ hours, appId }) {
+            const since = now().getTime() - hours * 60 * 60 * 1000;
+            const accepted = viewLog.filter((entry) => entry.createdAt.getTime() >= since && (!appId || entry.appId === appId));
+            const reasons = {};
+            for (const entry of rejections.values()) {
+                if (entry.minute.getTime() < since || (appId && entry.appId !== appId)) continue;
+                reasons[entry.reason] = (reasons[entry.reason] || 0) + entry.requests;
+            }
+            const bots = reasons.bot || 0;
+            return {
+                hours,
+                outcomes: {
+                    recorded: accepted.filter((entry) => entry.isUnique).length,
+                    repeat: accepted.filter((entry) => !entry.isUnique).length,
+                    bot: bots,
+                    rejected: Object.values(reasons).reduce((sum, value) => sum + value, 0) - bots,
+                },
+                reasons,
+            };
+        },
     };
 
-    return { adminRepo, logRepo, tables, adminLog, viewLog };
+    return { adminRepo, logRepo, tables, adminLog, viewLog, rejections };
 }
 
 module.exports = { createMemoryRepos, makeView };

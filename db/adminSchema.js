@@ -12,6 +12,7 @@ const {
     ADMIN_LOG_TABLE,
     DATABASE,
     FIELD_MAX_LENGTH,
+    TRACKING_REJECTIONS_TABLE,
     VIEW_LOG_TABLE,
 } = require('../constants');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
@@ -34,6 +35,26 @@ const ADMIN_COLUMNS = [
     { name: 'note', ddl: `VARCHAR(${FIELD_MAX_LENGTH.NOTE}) DEFAULT NULL` },
     { name: 'admin_modified_at', ddl: 'DATETIME DEFAULT NULL' },
     { name: 'deleted_at', ddl: 'DATETIME DEFAULT NULL' },
+];
+
+/**
+ * Columns 3.2 added for richer, still identifier-free analysis: which of the
+ * app's sites and which language, the campaign tags of the landing URL, an
+ * optional region and city (only with a city database configured), and how
+ * long the page was visible and how far it was scrolled.
+ */
+const TRACKING_COLUMNS = [
+    { name: 'hostname', ddl: `VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL` },
+    { name: 'language', ddl: `VARCHAR(${FIELD_MAX_LENGTH.LANGUAGE}) DEFAULT NULL` },
+    { name: 'utm_source', ddl: `VARCHAR(${FIELD_MAX_LENGTH.UTM}) DEFAULT NULL` },
+    { name: 'utm_medium', ddl: `VARCHAR(${FIELD_MAX_LENGTH.UTM}) DEFAULT NULL` },
+    { name: 'utm_campaign', ddl: `VARCHAR(${FIELD_MAX_LENGTH.UTM}) DEFAULT NULL` },
+    { name: 'utm_term', ddl: `VARCHAR(${FIELD_MAX_LENGTH.UTM}) DEFAULT NULL` },
+    { name: 'utm_content', ddl: `VARCHAR(${FIELD_MAX_LENGTH.UTM}) DEFAULT NULL` },
+    { name: 'region', ddl: `VARCHAR(${FIELD_MAX_LENGTH.REGION}) DEFAULT NULL` },
+    { name: 'city', ddl: `VARCHAR(${FIELD_MAX_LENGTH.CITY}) DEFAULT NULL` },
+    { name: 'engaged_ms', ddl: 'INT UNSIGNED DEFAULT NULL' },
+    { name: 'scroll_depth', ddl: 'TINYINT UNSIGNED DEFAULT NULL' },
 ];
 
 /** Indexes the admin columns need, keyed by index name. */
@@ -83,8 +104,37 @@ const VIEW_LOG_DDL = `
         \`view_id\` CHAR(${FIELD_MAX_LENGTH.UUID}) NOT NULL,
         \`event_type\` VARCHAR(${FIELD_MAX_LENGTH.EVENT_TYPE}) DEFAULT NULL,
         \`is_unique\` TINYINT(1) NOT NULL,
+        \`hostname\` VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL,
         INDEX \`idx_created_at\` (\`created_at\`),
         INDEX \`idx_app_created\` (\`app_id\`, \`created_at\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
+
+/** Columns the view log gained after it first shipped, for tables created by 3.1. */
+const VIEW_LOG_ADDED_COLUMNS = [
+    { name: 'hostname', ddl: `VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL` },
+];
+
+/**
+ * Tracking requests that were not stored: bots and rejections, with why.
+ *
+ * Counted per minute rather than kept one by one, so a flood of bad requests
+ * adds to a counter instead of a row each, and nothing about the requester
+ * (no IP, hash, or User-Agent) is kept. The key columns use '' rather than
+ * NULL for "none", because NULL never matches itself in a unique key and every
+ * NULL would start a new row.
+ */
+const TRACKING_REJECTIONS_DDL = `
+    CREATE TABLE IF NOT EXISTS \`${TRACKING_REJECTIONS_TABLE}\` (
+        \`minute\` DATETIME NOT NULL,
+        \`source\` VARCHAR(16) NOT NULL,
+        \`reason\` VARCHAR(32) NOT NULL,
+        \`app_id\` VARCHAR(64) NOT NULL DEFAULT '',
+        \`detail\` VARCHAR(64) NOT NULL DEFAULT '',
+        \`hostname\` VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) NOT NULL DEFAULT '',
+        \`requests\` INT UNSIGNED NOT NULL,
+        PRIMARY KEY (\`minute\`, \`source\`, \`reason\`, \`app_id\`, \`detail\`, \`hostname\`),
+        INDEX \`idx_app_minute\` (\`app_id\`, \`minute\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `;
 
@@ -97,6 +147,7 @@ const NEW_TABLE_ADMIN_COLUMNS = [
     `\`note\` VARCHAR(${FIELD_MAX_LENGTH.NOTE}) DEFAULT NULL`,
     '`admin_modified_at` DATETIME DEFAULT NULL',
     '`deleted_at` DATETIME DEFAULT NULL',
+    ...TRACKING_COLUMNS.map((column) => `\`${column.name}\` ${column.ddl}`),
 ];
 
 const NEW_TABLE_ADMIN_INDEXES = Object.values(ADMIN_INDEXES);
@@ -192,7 +243,7 @@ async function migrateAppTable(pool, appId) {
             return { migrated: false, backfilled: 0 };
         }
 
-        for (const column of ADMIN_COLUMNS) {
+        for (const column of [...ADMIN_COLUMNS, ...TRACKING_COLUMNS]) {
             if (!columns.has(column.name)) {
                 await pool.query(`ALTER TABLE \`${appId}\` ADD COLUMN \`${column.name}\` ${column.ddl}`);
             }
@@ -229,13 +280,24 @@ async function migrateAppTable(pool, appId) {
 async function ensureLogTables(pool) {
     await pool.query(ADMIN_LOG_DDL);
     await pool.query(VIEW_LOG_DDL);
+    await pool.query(TRACKING_REJECTIONS_DDL);
+
+    const viewLogColumns = await readColumns(pool, VIEW_LOG_TABLE);
+    for (const column of VIEW_LOG_ADDED_COLUMNS) {
+        if (!viewLogColumns.has(column.name)) {
+            await pool.query(`ALTER TABLE \`${VIEW_LOG_TABLE}\` ADD COLUMN \`${column.name}\` ${column.ddl}`);
+        }
+    }
 }
 
 module.exports = {
     ADMIN_COLUMNS,
+    TRACKING_COLUMNS,
     ADMIN_INDEXES,
     ADMIN_LOG_DDL,
     VIEW_LOG_DDL,
+    VIEW_LOG_ADDED_COLUMNS,
+    TRACKING_REJECTIONS_DDL,
     NEW_TABLE_ADMIN_COLUMNS,
     NEW_TABLE_ADMIN_INDEXES,
     backfillPublicIds,

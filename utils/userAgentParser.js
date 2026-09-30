@@ -1,5 +1,5 @@
 const UAParser = require('ua-parser-js');
-const { isbot } = require('isbot');
+const { isbot, isbotMatch } = require('isbot');
 
 /**
  * ua-parser-js 1.x is used because 2.x is licensed AGPL-3.0, which an MIT
@@ -60,6 +60,25 @@ class UserAgentParser {
      */
     static isBot(userAgent) {
         return Boolean(userAgent) && isbot(userAgent);
+    }
+
+    /**
+     * A short name for the bot, for the tracking log: the part of the user
+     * agent that identified it, without its version ("Googlebot", "curl").
+     * @param {string} userAgent
+     * @returns {string}
+     */
+    static botName(userAgent) {
+        if (!userAgent) return '';
+        // Where bots conventionally name themselves: "compatible; Googlebot/2.1",
+        // Chrome's headless build, or a leading product token ("curl/8.4.0").
+        const compatible = /compatible;\s*([A-Za-z][\w.-]*)/i.exec(userAgent);
+        if (compatible) return compatible[1].slice(0, 64);
+        if (/HeadlessChrome/.test(userAgent)) return 'HeadlessChrome';
+        const product = /^([A-Za-z][\w.-]*)/.exec(userAgent);
+        if (product && product[1] !== 'Mozilla') return product[1].slice(0, 64);
+        const match = isbotMatch(userAgent);
+        return match ? match.trim().split(/[\s/;(]/)[0].slice(0, 64) : '';
     }
 
     /**

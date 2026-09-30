@@ -3,12 +3,12 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const { ADMIN, APP_NAME, HTTP_STATUS, PAYLOAD_LIMITS, SERVER } = require('./constants');
+const { ADMIN, APP_NAME, HTTP_STATUS, PAYLOAD_LIMITS, REJECTION_REASON, SERVER } = require('./constants');
 const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions } = require('./middleware/security');
-const { createAnalyticsRouter } = require('./routes/analytics');
+const { createAnalyticsRouter, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 
@@ -18,6 +18,7 @@ const dbManager = new DatabaseManager(config.dbInfo);
 let isServerReady = false;
 let httpServer = null;
 let stopRetention = () => {};
+let analyticsRouter = null;
 
 /**
  * Build the Express application.
@@ -54,19 +55,30 @@ function createApp() {
     // endpoint taking a body and its payload is small.
     app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
 
+    const router = createAnalyticsRouter({
+        config,
+        dbManager,
+        isReady: () => isServerReady,
+    });
+    analyticsRouter = router;
+
     app.use(rateLimit({
         windowMs: config.server.rateLimit.windowMs,
         limit: config.server.rateLimit.max,
         message: { message: 'Too many requests, please try again later.' },
         standardHeaders: true,
         legacyHeaders: false,
+        // A tracking request turned away here is counted in the tracking log
+        // like any other refusal (in memory, written in batches).
+        handler: (req, res, next, options) => {
+            if (trackingSourceFor(req.path)) {
+                router.countRejection(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' });
+            }
+            res.status(options.statusCode).json(options.message);
+        },
     }));
 
-    app.use(createAnalyticsRouter({
-        config,
-        dbManager,
-        isReady: () => isServerReady,
-    }));
+    app.use(router);
 
     // Malformed JSON and payloads over the limit surface here.
     // eslint-disable-next-line no-unused-vars
@@ -178,6 +190,7 @@ const shutdown = async (signal, exitCode = 0) => {
 
     try {
         stopRetention();
+        await analyticsRouter?.flushRejections();
         if (httpServer) {
             await new Promise((resolve) => httpServer.close(resolve));
         }

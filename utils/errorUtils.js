@@ -45,6 +45,7 @@ const WarningType = {
     VIEW_LOG_PRUNE_FAILED: 'VIEW_LOG_PRUNE_FAILED',
     MIGRATION_TABLE_MISSING: 'MIGRATION_TABLE_MISSING',
     VIEW_LOG_WRITE_FAILED: 'VIEW_LOG_WRITE_FAILED',
+    TRACKING_LOG_WRITE_FAILED: 'TRACKING_LOG_WRITE_FAILED',
     ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
     TRASH_PURGE_FAILED: 'TRASH_PURGE_FAILED',
 };
@@ -113,6 +114,8 @@ const WARNING_MESSAGES = {
         'Behind a TLS-terminating proxy, set TRUST_PROXY and have the proxy pass X-Forwarded-Proto and the original Host.',
     [WarningType.MIGRATION_TABLE_MISSING]: (info) =>
         `Table '${info?.table}' does not exist; skipping its schema migration.`,
+    [WarningType.TRACKING_LOG_WRITE_FAILED]: (info) =>
+        `Could not write counted tracking rejections: ${info?.cause}`,
     [WarningType.VIEW_LOG_WRITE_FAILED]: (info) =>
         `Could not write the view register log entry for '${info?.appId}': ${info?.cause}`,
     [WarningType.ADMIN_LOG_WRITE_FAILED]: (info) =>

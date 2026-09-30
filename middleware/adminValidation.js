@@ -23,6 +23,7 @@ const {
     SORT_ORDER,
     UUID_PATTERN,
     VIEW_LOG_SOURCE,
+    TRACKING_OUTCOME,
     VIEW_STATUS,
 } = require('../constants');
 const ReferrerParser = require('../utils/referrerParser');
@@ -221,12 +222,15 @@ const validateAdminLogListing = (allowed) => [
     query('action').optional().custom(within(ADMIN_ACTION)).withMessage('Invalid action'),
 ];
 
-const validateViewLogListing = (allowed) => [
+const validateTrackingLogListing = (allowed) => [
     pageQuery(),
     pageSizeQuery(),
     adminAppIdFilter(allowed),
     query('source').optional().custom(within(VIEW_LOG_SOURCE)).withMessage('Invalid source'),
+    query('outcome').optional().custom(within(TRACKING_OUTCOME)).withMessage('Invalid outcome'),
 ];
+
+const validateTrackingSummary = (allowed) => [adminAppIdFilter(allowed)];
 
 /** Admin-shaped validation failure: a stable code plus per-field detail. */
 function handleAdminValidation(req, res, next) {
@@ -246,7 +250,8 @@ module.exports = {
     validateNote,
     validateBatch,
     validateAdminLogListing,
-    validateViewLogListing,
+    validateTrackingLogListing,
+    validateTrackingSummary,
     handleAdminValidation,
     resolveChanges,
     checkField,

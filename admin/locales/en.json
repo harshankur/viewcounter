@@ -320,6 +320,7 @@
         "source": "Source",
         "event": "Event",
         "unique": "Unique",
+        "outcome": "Outcome",
         "view": "View ID"
     },
     "actions": {
@@ -335,9 +336,26 @@
         "trash_auto_purged": "Trash auto-erased",
         "view_log_pruned": "View log pruned"
     },
+    "outcomes": {
+        "recorded": "Recorded",
+        "repeat": "Repeat visit",
+        "bot": "Bot",
+        "rejected": "Rejected"
+    },
+    "rejectionReasons": {
+        "bot": "automated client",
+        "unknown_app": "unknown app",
+        "origin_not_allowed": "site not registered for the app",
+        "invalid_request": "invalid request",
+        "invalid_ip": "unreadable IP address",
+        "rate_limited": "rate limited",
+        "unknown_view": "view not found",
+        "server_error": "server error"
+    },
     "logSources": {
         "registerView": "Page view",
-        "event": "Custom event"
+        "event": "Custom event",
+        "engage": "Engagement"
     },
     "ranges": {
         "7d": "7 days",

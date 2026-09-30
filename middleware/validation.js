@@ -5,8 +5,12 @@ const {
     HTTP_STATUS,
     PAYLOAD_LIMITS,
     QUERY_LIMITS,
+    REJECTION_REASON,
+    TRACKING,
     TREND_PERIODS,
+    UUID_PATTERN,
 } = require('../constants');
+const { UTM_PARAMETERS } = require('../utils/visitorContext');
 const { jsonByteLength } = require('../utils/stringUtils');
 const { isValidAppId } = require('../utils/appIdUtils');
 
@@ -83,6 +87,24 @@ const validateRegisterView = (allowedValues) => [
     boundedQuery('title', FIELD_MAX_LENGTH.PAGE_TITLE),
     boundedQuery('referrer', FIELD_MAX_LENGTH.REFERRER),
     boundedQuery('sessionId', FIELD_MAX_LENGTH.SESSION_ID),
+    ...UTM_PARAMETERS.map((name) => boundedQuery(name, FIELD_MAX_LENGTH.UTM)),
+];
+
+/**
+ * Validate an engagement beacon: how long a recorded view's page was visible
+ * and how far it was scrolled.
+ */
+const validateEngage = (allowedValues) => [
+    body('appId')
+        .notEmpty().withMessage('appId is required')
+        .custom((value) => allowedValues.appId.includes(value)).withMessage('Invalid appId'),
+    body('id')
+        .isString().withMessage('id must be a string')
+        .matches(UUID_PATTERN).withMessage('id must be a view ID'),
+    body('ms')
+        .isInt({ min: 0, max: TRACKING.MAX_ENGAGED_MS }).withMessage(`ms must be an integer between 0 and ${TRACKING.MAX_ENGAGED_MS}`),
+    body('scroll')
+        .isInt({ min: 0, max: 100 }).withMessage('scroll must be an integer between 0 and 100'),
 ];
 
 /**
@@ -199,14 +221,40 @@ const handleValidationErrors = (req, res, next) => {
     return next();
 };
 
+/**
+ * The same 422 as handleValidationErrors, for a tracking endpoint: the refusal
+ * is also reported, so the tracking log can say why a site's views are not
+ * arriving. An appId that was given but is not allowed is its own reason,
+ * since a misspelled one is the commonest cause; anything else, including a
+ * missing appId, names the first field that failed.
+ *
+ * @param {(req: import('express').Request, reason: string, details: { appId?: string, detail?: string }) => void} onReject
+ * @returns {import('express').RequestHandler}
+ */
+const handleTrackingValidation = (onReject) => (req, res, next) => {
+    const errors = validationResult(req);
+    if (errors.isEmpty()) return next();
+
+    const failed = errors.array();
+    const appIdError = failed.find((error) => error.path === 'appId');
+    if (appIdError && typeof appIdError.value === 'string' && appIdError.value !== '') {
+        onReject(req, REJECTION_REASON.UNKNOWN_APP, { appId: appIdError.value });
+    } else {
+        onReject(req, REJECTION_REASON.INVALID_REQUEST, { detail: (appIdError || failed[0]).path });
+    }
+    return handleValidationErrors(req, res, next);
+};
+
 module.exports = {
     validateAppRegistration,
     validateRegisterView,
     validateEvent,
+    validateEngage,
     validateStatsRequest,
     validateTrendsRequest,
     validateListRequest,
     validateViewsRequest,
     validateSessionRequest,
     handleValidationErrors,
+    handleTrackingValidation,
 };

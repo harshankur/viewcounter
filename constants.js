@@ -52,6 +52,14 @@ const FIELD_MAX_LENGTH = {
     NOTE: 1000,
     /** CHAR(36): the canonical textual form of a UUID. */
     UUID: 36,
+    /** The longest a DNS name can be. */
+    HOSTNAME: 253,
+    /** A primary language subtag: two or three letters, rarely up to eight. */
+    LANGUAGE: 8,
+    /** Each of utm_source, utm_medium, utm_campaign, utm_term, utm_content. */
+    UTM: 100,
+    REGION: 100,
+    CITY: 100,
 };
 
 /** Bounds for user-supplied pagination and range parameters. */
@@ -89,7 +97,7 @@ const DATABASE = {
     QUERY_TIMEOUT_MS: 5_000,
     CONNECT_TIMEOUT_MS: 10_000,
     DEFAULT_PORT: 3306,
-    SCHEMA_VERSION: 'admin_schema_v4',
+    SCHEMA_VERSION: 'schema_v5',
     /** Rows given a public_id per statement when backfilling an old table. */
     BACKFILL_BATCH_SIZE: 500,
 };
@@ -176,6 +184,8 @@ const ADMIN = {
     VIEW_LOG_PRUNE_BATCH_SIZE: 5000,
     /** How often expired trash and old view-log entries are checked for. */
     RETENTION_INTERVAL_MS: 60 * 60 * 1000,
+    /** The tracking log's summary covers this many recent hours. */
+    TRACKING_SUMMARY_HOURS: 24,
 };
 
 /**
@@ -300,15 +310,64 @@ const ADMIN_ERROR_CODE = {
     SERVER_ERROR: 'SERVER_ERROR',
 };
 
-/** Which write endpoint a view-register-log entry came through. */
+/** Which tracking endpoint a request came through. */
 const VIEW_LOG_SOURCE = {
     REGISTER_VIEW: 'registerView',
     EVENT: 'event',
+    /** Time on page and scroll depth for a view already recorded. */
+    ENGAGE: 'engage',
 };
 
 /** Service-owned tables. All carry the reserved `_` prefix. */
 const ADMIN_LOG_TABLE = '_admin_log';
 const VIEW_LOG_TABLE = '_view_log';
+/** Tracking requests that were not stored, counted per minute. */
+const TRACKING_REJECTIONS_TABLE = '_tracking_rejections';
+
+/** The tracking pipeline's own bounds. */
+const TRACKING = {
+    /** Longest visible time one page view may report. */
+    MAX_ENGAGED_MS: 6 * 60 * 60 * 1000,
+    /** Engagement is only accepted for a view recorded this recently. */
+    ENGAGE_WINDOW_HOURS: 24,
+    /** A beacon is a few dozen bytes; this bounds what is even parsed. */
+    ENGAGE_BODY_BYTES: 1024,
+    /** How often counted rejections are written to the database. */
+    REJECTION_FLUSH_MS: 15_000,
+    /**
+     * Distinct rejection keys held between flushes. Beyond it, new keys lose
+     * their app, detail, and hostname, so a flood of made-up values cannot
+     * grow memory or the table.
+     */
+    REJECTION_MAX_KEYS: 500,
+    /** Rejections are only ever stored as per-minute counts. */
+    REJECTION_BUCKET_MS: 60 * 1000,
+};
+
+/** What happened to one tracking request, as the tracking log reports it. */
+const TRACKING_OUTCOME = {
+    /** Stored, and the first view of the page by this visitor in the window. */
+    RECORDED: 'recorded',
+    /** Stored, but the same visitor viewed it again within the window. */
+    REPEAT: 'repeat',
+    /** A crawler, preview fetcher, or headless browser; counted, not stored. */
+    BOT: 'bot',
+    /** Refused; the reason says why. */
+    REJECTED: 'rejected',
+};
+
+/** Why a tracking request was not stored. */
+const REJECTION_REASON = {
+    BOT: 'bot',
+    UNKNOWN_APP: 'unknown_app',
+    ORIGIN_NOT_ALLOWED: 'origin_not_allowed',
+    INVALID_REQUEST: 'invalid_request',
+    INVALID_IP: 'invalid_ip',
+    RATE_LIMITED: 'rate_limited',
+    /** Engagement for a view that does not exist, is trashed, or is too old. */
+    UNKNOWN_VIEW: 'unknown_view',
+    SERVER_ERROR: 'server_error',
+};
 
 /** Canonical UUID text form, any version. Admin row IDs are validated with it. */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -425,6 +484,10 @@ module.exports = {
     VIEW_LOG_SOURCE,
     ADMIN_LOG_TABLE,
     VIEW_LOG_TABLE,
+    TRACKING_REJECTIONS_TABLE,
+    TRACKING,
+    TRACKING_OUTCOME,
+    REJECTION_REASON,
     UUID_PATTERN,
     EVENT_TYPE,
     TREND_PERIOD,

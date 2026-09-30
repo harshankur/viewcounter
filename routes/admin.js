@@ -29,7 +29,9 @@ const {
     FIELD_MAX_LENGTH,
     HTTP_STATUS,
     MODIFIED_FILTER,
+    REJECTION_REASON,
     SORT_ORDER,
+    TRACKING_OUTCOME,
     VIEW_LOG_SOURCE,
     VIEW_STATUS,
 } = require('../constants');
@@ -53,7 +55,8 @@ const {
     validateNote,
     validateBatch,
     validateAdminLogListing,
-    validateViewLogListing,
+    validateTrackingLogListing,
+    validateTrackingSummary,
     handleAdminValidation,
 } = require('../middleware/adminValidation');
 const { logContext, withRequestId } = require('./analytics');
@@ -267,6 +270,8 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             modifiedFilters: Object.values(MODIFIED_FILTER),
             actions: Object.values(ADMIN_ACTION),
             sources: Object.values(VIEW_LOG_SOURCE),
+            outcomes: Object.values(TRACKING_OUTCOME),
+            rejectionReasons: Object.values(REJECTION_REASON),
             maxBatchIds: ADMIN.MAX_BATCH_IDS,
             pageSizes: ADMIN.PAGE_SIZES,
             pageSizeDefault: ADMIN.PAGE_SIZE_DEFAULT,
@@ -408,18 +413,29 @@ function createAdminApi({ config, adminRepo, logRepo, sessionStore, isReady }) {
             }
         });
 
-    api.get('/logs/views', requireSession, validateViewLogListing(allowed), handleAdminValidation,
+    // The tracking log: every tracking request and what became of it.
+    api.get('/logs/tracking', requireSession, validateTrackingLogListing(allowed), handleAdminValidation,
         async (req, res) => {
             try {
-                const result = await logRepo.listViewLog({
+                const result = await logRepo.listTrackingLog({
                     page: intParam(req, 'page', 1),
                     pageSize: intParam(req, 'pageSize', ADMIN.PAGE_SIZE_DEFAULT),
                     appId: req.query.appId,
                     source: req.query.source,
+                    outcome: req.query.outcome,
                 });
                 return res.json(result);
             } catch (error) {
-                return adminError(req, res, error, 'list view log');
+                return adminError(req, res, error, 'list tracking log');
+            }
+        });
+
+    api.get('/logs/tracking/summary', requireSession, validateTrackingSummary(allowed), handleAdminValidation,
+        async (req, res) => {
+            try {
+                return res.json(await logRepo.trackingSummary({ hours: ADMIN.TRACKING_SUMMARY_HOURS, appId: req.query.appId }));
+            } catch (error) {
+                return adminError(req, res, error, 'summarize tracking log');
             }
         });
 

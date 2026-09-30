@@ -507,11 +507,12 @@ test.describe('logs', () => {
         await expect(activePanel(page).locator('tbody tr').nth(1)).toContainText('Failed sign-in');
     });
 
-    test('the view log has a receipt for every recorded view, at its own time', async ({ page }) => {
+    test('the tracking log has an entry for every recorded view, at its own time', async ({ page }) => {
         await signIn(page, 'viewLog');
         await expect(activePanel(page).locator('tbody tr')).toHaveCount(50);
         await expect(activePanel(page).locator('.pager-summary')).toHaveText('Page 1 of 2 · 65 entries');
         await expect(activePanel(page).locator('tbody tr').first()).toContainText('Page view');
+        await expect(activePanel(page).locator('tbody tr').first()).toContainText('Recorded');
         await expect(activePanel(page).locator('tbody tr').last()).toContainText('Sep 19, 2026');
     });
 

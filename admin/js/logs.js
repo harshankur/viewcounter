@@ -144,20 +144,27 @@ export function createViewLogPanel({ meta, appIds, reportError }) {
     appFilter.listbox = filterListbox(t('logs.filterApp'), t('logs.allApps'), appIds(), (id) => id,
         (value) => appFilter.onValue(value));
 
+    const outcome = (entry) => {
+        const label = tOr(`outcomes.${entry.outcome}`, entry.outcome);
+        const why = entry.reason && entry.reason !== 'bot' ? tOr(`rejectionReasons.${entry.reason}`, entry.reason) : entry.detail;
+        const counted = entry.requests > 1 ? ` ×${formatNumber(entry.requests)}` : '';
+        return why ? `${label}${counted}: ${why}` : `${label}${counted}`;
+    };
+
     const renderRow = (entry) => el('tr', {}, [
-        timeCell(entry.createdAt, { seconds: true }),
-        el('td', { className: 'col-app' }, [clampText(entry.appId)]),
+        timeCell(entry.at, { seconds: true }),
+        el('td', { className: 'col-app' }, [clampText(orNone(entry.appId))]),
         el('td', { className: 'col-source' }, [clampText(tOr(`logSources.${entry.source}`, entry.source))]),
+        el('td', { className: 'col-outcome' }, [clampText(outcome(entry))]),
         el('td', { className: 'col-event' }, [clampText(orNone(entry.eventType))]),
-        el('td', { className: 'col-unique' }, [clampText(entry.isUnique ? t('common.yes') : t('common.no'))]),
-        el('td', { className: 'col-view' }, [clampText(entry.viewId, { className: 'mono' })]),
+        el('td', { className: 'col-view' }, [clampText(orNone(entry.viewId), { className: 'mono' })]),
     ]);
 
     return createLogPanel({
         title: t('tabs.viewLog'),
-        columns: ['time', 'app', 'source', 'event', 'unique', 'view'],
+        columns: ['time', 'app', 'source', 'outcome', 'event', 'view'],
         filters: [sourceFilter, appFilter],
-        fetchPage: api.viewLog,
+        fetchPage: api.trackingLog,
         renderRow,
         meta,
         reportError,

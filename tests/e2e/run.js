@@ -57,8 +57,14 @@ function check(name, condition, detail = '') {
 
 const section = (t) => console.log(`\n\x1b[1m── ${t}\x1b[0m`);
 
+/**
+ * Sent unless a check sets its own. Node's fetch otherwise sends "node", which
+ * the server rightly treats as a bot and does not store.
+ */
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+
 async function req(method, urlPath, { key, body, headers = {} } = {}) {
-    const opts = { method, headers: { ...headers } };
+    const opts = { method, headers: { 'user-agent': BROWSER_UA, ...headers } };
     if (key) opts.headers['x-api-key'] = key;
     if (body !== undefined) {
         opts.headers['content-type'] = 'application/json';
@@ -166,6 +172,7 @@ async function main() {
         await verifyAuthAndTenancy(db);
         await verifyBoundaries();
         await verifyProvisioning(db);
+        await verifyTracking(db);
         await verifyStatementTimeout(db);
         await verifyMigration(db);
         await verifyEmbedding(db);
@@ -288,6 +295,64 @@ async function verifyEmbedding(db) {
     } finally {
         await embedded.close();
     }
+}
+
+/**
+ * 3.2 tracking: coarse context on each view, engagement, bots refused, and
+ * every request that is not stored counted for the tracking log.
+ */
+async function verifyTracking(db) {
+    section('Tracking context, engagement, bots, and counted rejections');
+    const crypto = require('crypto');
+    const headers = { origin: 'https://a.example', 'user-agent': RAW_UA, 'x-forwarded-for': '198.51.100.44', 'accept-language': 'de-DE,de;q=0.9' };
+
+    const tagged = await req('GET',
+        '/registerView?appId=tenant_a&deviceSize=small&page=/landing&referrer=https://www.google.com/'
+        + '&utm_source=newsletter&utm_medium=email&utm_campaign=launch&utm_term=t&utm_content=hero', { headers });
+    check('a tagged view is recorded and returns its ID', tagged.status === 200 && tagged.body?.recorded === true
+        && /^[0-9a-f-]{36}$/.test(tagged.body?.id || ''), JSON.stringify(tagged.body));
+    const [[row]] = await db.query('SELECT * FROM `tenant_a` WHERE public_id = ?', [tagged.body?.id]);
+    check('hostname, language, and campaign tags are stored',
+        row?.hostname === 'a.example' && row?.language === 'de' && row?.utm_source === 'newsletter'
+        && row?.utm_medium === 'email' && row?.utm_campaign === 'launch' && row?.utm_term === 't' && row?.utm_content === 'hero',
+        JSON.stringify({ hostname: row?.hostname, language: row?.language, utm: row?.utm_source }));
+    check('a tagged landing is a campaign even from a search engine', row?.source_type === 'campaign', row?.source_type);
+
+    const engage = (body) => fetch(`${BASE}/engage`, {
+        method: 'POST', headers: { ...headers, 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body),
+    });
+    const first = await engage({ appId: 'tenant_a', id: tagged.body?.id, ms: 42000, scroll: 60 });
+    await engage({ appId: 'tenant_a', id: tagged.body?.id, ms: 1000, scroll: 10 });
+    const [[engaged]] = await db.query('SELECT engaged_ms, scroll_depth FROM `tenant_a` WHERE public_id = ?', [tagged.body?.id]);
+    check('a sendBeacon-style engagement report is accepted', first.status === 204, `got ${first.status}`);
+    check('engagement keeps the larger values', Number(engaged?.engaged_ms) === 42000 && Number(engaged?.scroll_depth) === 60,
+        JSON.stringify(engaged));
+
+    const [[{ n: before }]] = await db.query('SELECT COUNT(*) AS n FROM `tenant_a`');
+    const bot = await req('GET', '/registerView?appId=tenant_a&deviceSize=large',
+        { headers: { ...headers, 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' } });
+    const [[{ n: after }]] = await db.query('SELECT COUNT(*) AS n FROM `tenant_a`');
+    check('a bot gets a 200 and is not stored', bot.status === 200 && bot.body?.recorded === false && Number(after) === Number(before));
+
+    await req('GET', '/registerView?appId=nosuchapp&deviceSize=large', { headers });
+    await req('GET', '/registerView?appId=runtime_tenant&deviceSize=large', { headers: { ...headers, origin: 'https://evil.example' } });
+    await engage({ appId: 'tenant_a', id: crypto.randomUUID(), ms: 5, scroll: 5 });
+
+    // Counted in memory and written in batches; give the batch time to land.
+    let reasons = [];
+    for (let i = 0; i < 40 && reasons.length < 4; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        [reasons] = await db.query('SELECT source, reason, app_id, detail, hostname, requests FROM `_tracking_rejections` ORDER BY reason');
+    }
+    const byReason = Object.fromEntries(reasons.map((r) => [r.reason, r]));
+    check('the bot is counted by name', byReason.bot?.detail === 'Googlebot' && byReason.bot?.app_id === 'tenant_a', JSON.stringify(byReason.bot));
+    check('the unknown app is counted with the ID sent', byReason.unknown_app?.app_id === 'nosuchapp', JSON.stringify(byReason.unknown_app));
+    check('the unregistered site is counted with its hostname',
+        byReason.origin_not_allowed?.hostname === 'evil.example' && byReason.origin_not_allowed?.app_id === 'runtime_tenant',
+        JSON.stringify(byReason.origin_not_allowed));
+    check('engagement for a view that does not exist is counted', byReason.unknown_view?.source === 'engage', JSON.stringify(byReason.unknown_view));
+    const dump = JSON.stringify(reasons);
+    check('counted rejections hold no IP or user agent', !dump.includes('198.51.100') && !dump.includes('DistinctiveFingerprint'));
 }
 
 async function verifySchema(db) {
@@ -596,6 +661,16 @@ async function verifyMigration(db) {
     const names = idx.map(i => i.INDEX_NAME);
     check('admin indexes created', ['uq_public_id', 'idx_deleted_at', 'idx_admin_modified_at'].every(n => names.includes(n)), names.join(','));
 
+    const [rejectionCols] = await db.query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = '_tracking_rejections'`, [DB_NAME]);
+    check('_tracking_rejections exists with no column for anything about the requester',
+        rejectionCols.length === 7 && !rejectionCols.some((c) => /ip|hash|agent/i.test(c.COLUMN_NAME)));
+    const [legacyCols] = await db.query(
+        `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'legacy_app'`, [DB_NAME]);
+    check('the legacy table gained the 3.2 tracking columns',
+        ['hostname', 'language', 'utm_source', 'utm_content', 'region', 'city', 'engaged_ms', 'scroll_depth']
+            .every((c) => legacyCols.some((l) => l.COLUMN_NAME === c)));
+
     for (const table of ['_admin_log', '_view_log']) {
         const [logCols] = await db.query(
             `SELECT COLUMN_NAME, COLUMN_KEY FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`, [DB_NAME, table]);
@@ -755,8 +830,19 @@ async function verifyAdmin(db) {
 
     const apiAdminLog = await admin.call('GET', '/logs/admin?pageSize=25&page=1&action=views_edited');
     check('admin log listing works against real SQL', apiAdminLog.status === 200 && apiAdminLog.body.total >= 2);
-    const apiViewLog = await admin.call('GET', '/logs/views?appId=tenant_a&source=registerView');
-    check('view log listing works against real SQL', apiViewLog.status === 200 && apiViewLog.body.entries.length > 0);
+    const tracking = await admin.call('GET', '/logs/tracking?pageSize=100');
+    const outcomes = new Set((tracking.body?.entries || []).map((e) => e.outcome));
+    check('the tracking log merges stored views and counted rejections on the real engine',
+        tracking.status === 200 && ['recorded', 'repeat', 'bot', 'rejected'].every((o) => outcomes.has(o)), [...outcomes].join(','));
+    const trackingEntries = tracking.body?.entries || [];
+    check('the tracking log is newest first',
+        trackingEntries.every((e, i) => i === 0 || new Date(trackingEntries[i - 1].at) >= new Date(e.at)));
+    const botsOnly = await admin.call('GET', '/logs/tracking?outcome=bot');
+    check('the tracking log filters by outcome', botsOnly.status === 200 && botsOnly.body.entries.length > 0
+        && botsOnly.body.entries.every((e) => e.outcome === 'bot'));
+    const summary = await admin.call('GET', '/logs/tracking/summary');
+    check('the tracking summary counts each outcome', summary.status === 200 && summary.body.outcomes.recorded > 0
+        && summary.body.outcomes.bot >= 1 && summary.body.outcomes.rejected >= 3, JSON.stringify(summary.body));
 
     // Every app together, and the insights analysis, on the real engine:
     // UNION ALL with per-branch LIMIT, a CTE, ROW_NUMBER() OVER, and the

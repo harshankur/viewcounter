@@ -261,7 +261,8 @@ describe('Admin API', () => {
             ['post', `/apps/${APP}/views/restore`],
             ['post', `/apps/${APP}/views/purge`],
             ['get', '/logs/admin'],
-            ['get', '/logs/views'],
+            ['get', '/logs/tracking'],
+            ['get', '/logs/tracking/summary'],
             ['post', '/logout'],
         ])('%s %s requires a session', async (method, path) => {
             const res = await request(app)[method](`${API}${path}`).send({}).expect(401);
@@ -587,22 +588,40 @@ describe('Admin API', () => {
             expect(filtered.body.total).toBe(1);
         });
 
-        test('the view log lists entries and filters by source', async () => {
+        test('the tracking log lists stored views and counted rejections, and filters them', async () => {
             await repos.logRepo.writeViewLog({ appId: APP, source: VIEW_LOG_SOURCE.REGISTER_VIEW, viewId: views[0].id, eventType: 'pageview', isUnique: true });
-            await repos.logRepo.writeViewLog({ appId: APP, source: VIEW_LOG_SOURCE.EVENT, viewId: views[1].id, eventType: 'click', isUnique: true });
+            await repos.logRepo.writeViewLog({ appId: APP, source: VIEW_LOG_SOURCE.EVENT, viewId: views[1].id, eventType: 'click', isUnique: false });
+            await repos.logRepo.recordRejections([
+                { minute: new Date(), source: VIEW_LOG_SOURCE.REGISTER_VIEW, reason: 'bot', appId: APP, detail: 'Googlebot', requests: 5 },
+                { minute: new Date(), source: VIEW_LOG_SOURCE.REGISTER_VIEW, reason: 'origin_not_allowed', appId: APP, hostname: 'evil.example', requests: 2 },
+            ]);
             const { agent } = await login(app);
 
-            const all = await agent.get(`${API}/logs/views`).expect(200);
-            expect(all.body.total).toBe(2);
-            const events = await agent.get(`${API}/logs/views?source=${VIEW_LOG_SOURCE.EVENT}`).expect(200);
-            expect(events.body.entries.map((e) => e.eventType)).toEqual(['click']);
+            const all = await agent.get(`${API}/logs/tracking`).expect(200);
+            expect(all.body.total).toBe(4);
+            expect(all.body.entries.map((e) => e.outcome).sort()).toEqual(['bot', 'recorded', 'rejected', 'repeat']);
+
+            const events = await agent.get(`${API}/logs/tracking?source=${VIEW_LOG_SOURCE.EVENT}`).expect(200);
+            expect(events.body.entries.map((e) => [e.eventType, e.outcome])).toEqual([['click', 'repeat']]);
+
+            const bots = await agent.get(`${API}/logs/tracking?outcome=bot`).expect(200);
+            expect(bots.body.entries).toEqual([expect.objectContaining({ detail: 'Googlebot', requests: 5 })]);
+
+            const summary = await agent.get(`${API}/logs/tracking/summary?appId=${APP}`).expect(200);
+            expect(summary.body).toEqual({
+                hours: ADMIN.TRACKING_SUMMARY_HOURS,
+                outcomes: { recorded: 1, repeat: 1, bot: 5, rejected: 2 },
+                reasons: { bot: 5, origin_not_allowed: 2 },
+            });
         });
 
         test.each([
             ['/logs/admin?action=hacked'],
             ['/logs/admin?appId=nope'],
-            ['/logs/views?source=carrier-pigeon'],
-            ['/logs/views?pageSize=1000'],
+            ['/logs/tracking?source=carrier-pigeon'],
+            ['/logs/tracking?outcome=lost'],
+            ['/logs/tracking?pageSize=1000'],
+            ['/logs/tracking/summary?appId=nope'],
         ])('rejects an invalid log filter: %s', async (path) => {
             const { agent } = await login(app);
             await agent.get(`${API}${path}`).expect(422);
@@ -631,7 +650,7 @@ describe('Admin API', () => {
             await req.expect(500);
         });
 
-        test.each([['listAdminLog', '/logs/admin'], ['listViewLog', '/logs/views']])(
+        test.each([['listAdminLog', '/logs/admin'], ['listTrackingLog', '/logs/tracking'], ['trackingSummary', '/logs/tracking/summary']])(
             '%s failure is a 500', async (operation, path) => {
                 repos.logRepo[operation] = async () => { throw new TypeError('boom'); };
                 const { agent } = await login(app);

@@ -7,7 +7,10 @@
 
 const AdminRepository = require('../db/AdminRepository');
 const LogRepository = require('../db/LogRepository');
-const { ADMIN, ADMIN_ACTION, ADMIN_LOG_TABLE, VIEW_LOG_TABLE, VIEW_LOG_SOURCE } = require('../constants');
+const {
+    ADMIN, ADMIN_ACTION, ADMIN_LOG_TABLE, REJECTION_REASON, TRACKING_OUTCOME, TRACKING_REJECTIONS_TABLE,
+    VIEW_LOG_TABLE, VIEW_LOG_SOURCE,
+} = require('../constants');
 const logger = require('../utils/logger');
 const { createScriptedPool, dbWith } = require('./support/scriptedPool');
 
@@ -249,14 +252,15 @@ describe('LogRepository', () => {
         expect(lines.join('\n')).toContain("Could not write the admin operation log entry 'x': disk full");
     });
 
-    test('writeViewLog records source, view, type, and uniqueness only', async () => {
+    test('writeViewLog records source, view, type, uniqueness, and hostname only', async () => {
         const pool = createScriptedPool();
         await new LogRepository(dbWith(pool)).writeViewLog({
             appId: 'blog', source: VIEW_LOG_SOURCE.REGISTER_VIEW, viewId: ID_A, eventType: 'pageview', isUnique: false,
+            hostname: 'blog.example.com',
         });
         const [insert] = pool.queries;
         expect(insert.sql).toContain(`INSERT INTO \`${VIEW_LOG_TABLE}\``);
-        expect(insert.params.slice(1)).toEqual(['blog', VIEW_LOG_SOURCE.REGISTER_VIEW, ID_A, 'pageview', 0]);
+        expect(insert.params.slice(1)).toEqual(['blog', VIEW_LOG_SOURCE.REGISTER_VIEW, ID_A, 'pageview', 0, 'blog.example.com']);
     });
 
     test('a failed view-log write warns and returns false instead of throwing', async () => {
@@ -286,17 +290,19 @@ describe('LogRepository', () => {
         expect(result.total).toBe(0);
     });
 
-    test('pruneViewLog deletes old entries in batches until a batch comes up short', async () => {
+    test('pruneViewLog deletes old entries of both tracking-log tables, in batches', async () => {
         const batch = ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE;
-        const removed = [batch, batch, 7];
+        const removed = [batch, batch, 7, 3];
         const pool = createScriptedPool(() => [{ affectedRows: removed.shift() }]);
-        expect(await new LogRepository(dbWith(pool)).pruneViewLog(90)).toBe(batch * 2 + 7);
-        expect(pool.queries).toHaveLength(3);
-        for (const { sql, params } of pool.queries) {
-            expect(sql.startsWith(`DELETE FROM \`${VIEW_LOG_TABLE}\` WHERE created_at < DATE_SUB(NOW(3), INTERVAL ? DAY)`)).toBe(true);
-            expect(sql).toContain('ORDER BY created_at LIMIT ?');
+        expect(await new LogRepository(dbWith(pool)).pruneViewLog(90)).toBe(batch * 2 + 7 + 3);
+        const [a, b, c, d] = pool.queries;
+        for (const { sql, params } of [a, b, c]) {
+            expect(sql.startsWith(`DELETE FROM \`${VIEW_LOG_TABLE}\` WHERE \`created_at\` < DATE_SUB(NOW(3), INTERVAL ? DAY)`)).toBe(true);
+            expect(sql).toContain('ORDER BY `created_at` LIMIT ?');
             expect(params).toEqual([90, batch]);
         }
+        expect(d.sql.startsWith(`DELETE FROM \`${TRACKING_REJECTIONS_TABLE}\` WHERE \`minute\` <`)).toBe(true);
+        expect(pool.queries).toHaveLength(4);
     });
 
     test('pruneViewLog never touches the admin log', async () => {
@@ -305,20 +311,85 @@ describe('LogRepository', () => {
         expect(pool.queries.map((q) => q.sql).join('\n')).not.toContain(ADMIN_LOG_TABLE);
     });
 
-    test('listViewLog filters, pages, and maps rows', async () => {
-        const pool = createScriptedPool((sql) => (sql.includes('COUNT(*)') ? [[{ count: 1 }]] : [[{
-            id: 'v', created_at: 't', app_id: 'blog', source: 'event', view_id: ID_A, event_type: 'click', is_unique: 1,
-        }]]));
-        const result = await new LogRepository(dbWith(pool)).listViewLog({ page: 1, pageSize: 50, appId: 'blog', source: 'event' });
-        expect(pool.queries[0].sql).toContain('WHERE app_id = ? AND source = ?');
-        expect(result.entries[0]).toEqual({ id: 'v', createdAt: 't', appId: 'blog', source: 'event', viewId: ID_A, eventType: 'click', isUnique: true });
+    test('recordRejections adds to the stored count of each minute and key in one statement', async () => {
+        const pool = createScriptedPool();
+        const minute = new Date('2026-09-30T10:15:00Z');
+        await new LogRepository(dbWith(pool)).recordRejections([
+            { minute, source: 'registerView', reason: REJECTION_REASON.BOT, detail: 'Googlebot', requests: 4 },
+            { minute, source: 'event', reason: REJECTION_REASON.UNKNOWN_APP, appId: 'blgo', hostname: 'blog.example.com', requests: 1 },
+        ]);
+        const [insert] = pool.queries;
+        expect(insert.sql).toContain(`INSERT INTO \`${TRACKING_REJECTIONS_TABLE}\``);
+        expect(insert.sql).toContain('ON DUPLICATE KEY UPDATE requests = requests + VALUES(requests)');
+        expect(insert.params).toEqual([
+            minute, 'registerView', 'bot', '', 'Googlebot', '', 4,
+            minute, 'event', 'unknown_app', 'blgo', '', 'blog.example.com', 1,
+        ]);
     });
 
-    test('listViewLog without filters has no WHERE clause', async () => {
-        const pool = createScriptedPool((sql) => (sql.includes('COUNT(*)') ? [[{}]] : [[]]));
-        const result = await new LogRepository(dbWith(pool)).listViewLog({ page: 1, pageSize: 50 });
-        expect(pool.queries[0].sql).not.toContain('WHERE');
-        expect(result.total).toBe(0);
+    test('recordRejections with nothing to write sends nothing', async () => {
+        const pool = createScriptedPool();
+        expect(await new LogRepository(dbWith(pool)).recordRejections([])).toBe(true);
+        expect(pool.queries).toHaveLength(0);
+    });
+
+    test('a failed rejection write warns and returns false instead of throwing', async () => {
+        const pool = createScriptedPool(() => { throw new TypeError('gone'); });
+        const rows = [{ minute: new Date(), source: 'event', reason: 'bot', requests: 1 }];
+        expect(await new LogRepository(dbWith(pool)).recordRejections(rows)).toBe(false);
+        expect(lines.join('\n')).toContain('Could not write counted tracking rejections: gone');
+    });
+
+    test('listTrackingLog merges accepted views and counted rejections, newest first', async () => {
+        const pool = createScriptedPool((sql) => {
+            if (sql.startsWith('SELECT COUNT(*)')) return [[{ count: sql.includes(VIEW_LOG_TABLE) ? 5 : 2 }]];
+            return [[
+                { at: 't2', entry_id: 'v1', app_id: 'blog', source: 'registerView', outcome: 'recorded', reason: null, detail: null,
+                    hostname: 'blog.example.com', view_id: ID_A, event_type: 'pageview', requests: 1 },
+                { at: 't1', entry_id: 'r1', app_id: null, source: 'registerView', outcome: 'bot', reason: 'bot', detail: 'Googlebot',
+                    hostname: null, view_id: null, event_type: null, requests: '3' },
+            ]];
+        });
+        const result = await new LogRepository(dbWith(pool)).listTrackingLog({ page: 2, pageSize: 25, appId: 'blog' });
+        const [list] = pool.queries;
+        expect(list.sql).toContain('UNION ALL');
+        expect(list.sql).toContain('ORDER BY at DESC, entry_id ASC LIMIT ? OFFSET ?');
+        expect(list.params).toEqual(['blog', 'blog', 25, 25]);
+        expect(result.total).toBe(7);
+        expect(result.entries).toEqual([
+            { id: 'v1', at: 't2', appId: 'blog', source: 'registerView', outcome: 'recorded', reason: null, detail: null,
+                hostname: 'blog.example.com', viewId: ID_A, eventType: 'pageview', requests: 1 },
+            { id: 'r1', at: 't1', appId: null, source: 'registerView', outcome: 'bot', reason: 'bot', detail: 'Googlebot',
+                hostname: null, viewId: null, eventType: null, requests: 3 },
+        ]);
+    });
+
+    test.each([
+        [TRACKING_OUTCOME.RECORDED, VIEW_LOG_TABLE, 'is_unique = 1'],
+        [TRACKING_OUTCOME.REPEAT, VIEW_LOG_TABLE, 'is_unique = 0'],
+        [TRACKING_OUTCOME.BOT, TRACKING_REJECTIONS_TABLE, 'reason = ?'],
+        [TRACKING_OUTCOME.REJECTED, TRACKING_REJECTIONS_TABLE, 'reason <> ?'],
+    ])('the %s filter reads only the table that holds it', async (outcome, table, condition) => {
+        const pool = createScriptedPool((sql) => (sql.startsWith('SELECT COUNT(*)') ? [[{ count: 0 }]] : [[]]));
+        await new LogRepository(dbWith(pool)).listTrackingLog({ page: 1, pageSize: 25, outcome });
+        expect(pool.queries[0].sql).not.toContain('UNION ALL');
+        expect(pool.queries[0].sql).toContain(condition);
+        const counted = pool.queries.slice(1).map((q) => q.sql);
+        expect(counted).toHaveLength(1);
+        expect(counted[0]).toContain(table);
+    });
+
+    test('trackingSummary counts requests per outcome and per reason', async () => {
+        const pool = createScriptedPool((sql) => (sql.includes(VIEW_LOG_TABLE)
+            ? [[{ recorded: '10', repeats: '4' }]]
+            : [[{ reason: 'bot', requests: '6' }, { reason: 'origin_not_allowed', requests: '2' }, { reason: 'unknown_app', requests: '1' }]]));
+        const summary = await new LogRepository(dbWith(pool)).trackingSummary({ hours: 24, appId: 'blog' });
+        expect(summary).toEqual({
+            hours: 24,
+            outcomes: { recorded: 10, repeat: 4, bot: 6, rejected: 3 },
+            reasons: { bot: 6, origin_not_allowed: 2, unknown_app: 1 },
+        });
+        for (const { params } of pool.queries) expect(params).toEqual([24, 'blog']);
     });
 
     test.each([

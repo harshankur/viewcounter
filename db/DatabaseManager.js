@@ -9,6 +9,7 @@ const {
     QUERY_LIMITS,
     SERVER,
     TOP_N_RESULTS,
+    TRACKING,
     TREND_PERIOD,
     VIEW_LOG_SOURCE,
 } = require('../constants');
@@ -439,6 +440,15 @@ class DatabaseManager {
             sessionId,
             eventType = EVENT_TYPE.PAGEVIEW,
             eventData,
+            hostname = null,
+            language = null,
+            utmSource = null,
+            utmMedium = null,
+            utmCampaign = null,
+            utmTerm = null,
+            utmContent = null,
+            region = null,
+            city = null,
             uniqueWindowHours = SERVER.DEFAULT_UNIQUE_VISITOR_WINDOW_HOURS,
             userAgent = '',
             visitorSecret,
@@ -480,8 +490,10 @@ class DatabaseManager {
                 page_path, page_title,
                 referrer, referrer_domain, source_type,
                 browser, browser_version, os, os_version, device_type,
-                session_id, event_type, event_data, is_unique
-            ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                session_id, event_type, event_data, is_unique,
+                hostname, language, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
+                region, city
+            ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 publicId,
                 truncate(maskedIp, FIELD_MAX_LENGTH.MASKED_IP),
@@ -502,6 +514,15 @@ class DatabaseManager {
                 storedEventType,
                 eventData ? JSON.stringify(eventData) : null,
                 isUnique,
+                truncate(hostname, FIELD_MAX_LENGTH.HOSTNAME),
+                truncate(language, FIELD_MAX_LENGTH.LANGUAGE),
+                truncate(utmSource, FIELD_MAX_LENGTH.UTM),
+                truncate(utmMedium, FIELD_MAX_LENGTH.UTM),
+                truncate(utmCampaign, FIELD_MAX_LENGTH.UTM),
+                truncate(utmTerm, FIELD_MAX_LENGTH.UTM),
+                truncate(utmContent, FIELD_MAX_LENGTH.UTM),
+                truncate(region, FIELD_MAX_LENGTH.REGION),
+                truncate(city, FIELD_MAX_LENGTH.CITY),
             ]
         );
 
@@ -513,6 +534,7 @@ class DatabaseManager {
             viewId: publicId,
             eventType: storedEventType,
             isUnique: isUnique === 1,
+            hostname,
         });
 
         return {
@@ -521,6 +543,32 @@ class DatabaseManager {
             publicId,
             isUnique: isUnique === 1,
         };
+    }
+
+    /**
+     * Record how long a view's page was visible and how far it was scrolled.
+     *
+     * A page reports this when it is hidden or left, possibly more than once
+     * (hidden, shown again, then left), each time with its running total, so
+     * the larger value always wins. Only a live view from the last
+     * TRACKING.ENGAGE_WINDOW_HOURS is updated: an old or trashed view keeps
+     * what it had.
+     *
+     * @param {string} appId already validated
+     * @param {{ viewId: string, engagedMs: number, scrollDepth: number }} engagement
+     * @returns {Promise<boolean>} whether a view was updated
+     */
+    async addEngagement(appId, { viewId, engagedMs, scrollDepth }) {
+        this.assertReady();
+        const [result] = await this.pool.query(
+            `UPDATE \`${appId}\`
+             SET engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?),
+                 scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?)
+             WHERE public_id = ? AND ${LIVE_ROW}
+               AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)`,
+            [engagedMs, scrollDepth, viewId, TRACKING.ENGAGE_WINDOW_HOURS]
+        );
+        return result.affectedRows > 0;
     }
 
     /**

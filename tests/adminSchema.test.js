@@ -6,6 +6,8 @@
 const {
     ADMIN_LOG_DDL,
     VIEW_LOG_DDL,
+    TRACKING_REJECTIONS_DDL,
+    TRACKING_COLUMNS,
     ADMIN_INDEXES,
     backfillPublicIds,
     ensureLogTables,
@@ -109,9 +111,11 @@ describe('migrateAppTable', () => {
         expect(resumedAfter).toEqual([0, size, size * 2, size * 2 + 3]);
     });
 
+    const MIGRATED = ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at', ...TRACKING_COLUMNS.map((c) => c.name)];
+
     test('an already migrated table is read and left alone', async () => {
         const pool = legacyTablePool({
-            columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at'],
+            columns: MIGRATED,
             indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
         });
         expect(await migrateAppTable(pool, 'blog')).toEqual({ migrated: true, backfilled: 0 });
@@ -121,7 +125,7 @@ describe('migrateAppTable', () => {
 
     test('a nullable public_id left by an interrupted migration is tightened', async () => {
         const pool = legacyTablePool({
-            columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at'],
+            columns: MIGRATED,
             nullable: { public_id: true },
             indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
         });
@@ -152,6 +156,17 @@ describe('migrateAppTable', () => {
         });
     });
 
+    test('a 3.1 table gains the 3.2 tracking columns, nullable, and nothing else', async () => {
+        const pool = legacyTablePool({
+            columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at'],
+            indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
+        });
+        await migrateAppTable(pool, 'blog');
+        const alters = pool.matching('ALTER TABLE').map((q) => q.sql);
+        expect(alters).toEqual(TRACKING_COLUMNS.map((c) => `ALTER TABLE \`blog\` ADD COLUMN \`${c.name}\` ${c.ddl}`));
+        for (const sql of alters) expect(sql).toMatch(/DEFAULT NULL$/);
+    });
+
     test('backfillPublicIds returns zero when every row already has an ID', async () => {
         const pool = legacyTablePool({ pending: 0 });
         expect(await backfillPublicIds(pool, 'blog')).toBe(0);
@@ -159,10 +174,25 @@ describe('migrateAppTable', () => {
 });
 
 describe('log table DDL', () => {
-    test('ensureLogTables creates both tables', async () => {
-        const pool = createScriptedPool();
+    test('ensureLogTables creates the log tables and adds the hostname a 3.1 view log lacks', async () => {
+        const pool = createScriptedPool((sql) => (sql.includes('information_schema.COLUMNS')
+            ? [[{ name: 'id', nullable: 'NO' }, { name: 'is_unique', nullable: 'NO' }]] : undefined));
         await ensureLogTables(pool);
-        expect(pool.queries.map((q) => q.sql)).toEqual([ADMIN_LOG_DDL, VIEW_LOG_DDL]);
+        const statements = pool.queries.map((q) => q.sql);
+        expect(statements.slice(0, 3)).toEqual([ADMIN_LOG_DDL, VIEW_LOG_DDL, TRACKING_REJECTIONS_DDL]);
+        expect(statements.at(-1)).toBe('ALTER TABLE `_view_log` ADD COLUMN `hostname` VARCHAR(253) DEFAULT NULL');
+    });
+
+    test('ensureLogTables leaves a current view log alone', async () => {
+        const pool = createScriptedPool((sql) => (sql.includes('information_schema.COLUMNS')
+            ? [[{ name: 'id', nullable: 'NO' }, { name: 'hostname', nullable: 'YES' }]] : undefined));
+        await ensureLogTables(pool);
+        expect(pool.matching('ALTER TABLE')).toHaveLength(0);
+    });
+
+    test('rejections are counted per minute and key, with no column for anything about the requester', () => {
+        expect(TRACKING_REJECTIONS_DDL).toContain('PRIMARY KEY (`minute`, `source`, `reason`, `app_id`, `detail`, `hostname`)');
+        expect(TRACKING_REJECTIONS_DDL).not.toMatch(/ip|hash|agent/i);
     });
 
     test.each([['admin log', ADMIN_LOG_DDL], ['view log', VIEW_LOG_DDL]])(
@@ -199,7 +229,37 @@ describe('DatabaseManager admin wiring', () => {
         const [insert] = manager.pool.matching('INSERT INTO `blog`');
         expect(insert.params[0]).toBe(result.publicId);
         const [log] = manager.pool.matching('INSERT INTO `_view_log`');
-        expect(log.params.slice(1)).toEqual(['blog', VIEW_LOG_SOURCE.EVENT, result.publicId, 'click', 1]);
+        expect(log.params.slice(1)).toEqual(['blog', VIEW_LOG_SOURCE.EVENT, result.publicId, 'click', 1, null]);
+    });
+
+    test('registerEvent stores the 3.2 context columns, bounded to their widths', async () => {
+        const manager = managerWith(() => [{ insertId: 1 }]);
+        await manager.registerEvent('blog', {
+            ip: '203.0.113.5', deviceSize: 'large', uniqueWindowHours: 0, visitorSecret: 'a'.repeat(64),
+            hostname: 'www.example.com', language: 'en', utmSource: 's'.repeat(150), utmMedium: 'email',
+            utmCampaign: 'launch', utmTerm: null, utmContent: 'hero', region: 'Bavaria', city: 'Munich',
+        });
+        const [insert] = manager.pool.matching('INSERT INTO `blog`');
+        expect(insert.sql).toContain('hostname, language, utm_source, utm_medium, utm_campaign, utm_term, utm_content,');
+        expect(insert.params.slice(-9)).toEqual(['www.example.com', 'en', 's'.repeat(100), 'email', 'launch', null, 'hero', 'Bavaria', 'Munich']);
+        const [log] = manager.pool.matching('INSERT INTO `_view_log`');
+        expect(log.params.at(-1)).toBe('www.example.com');
+    });
+
+    test('addEngagement only ever raises the values, and only on a recent live view', async () => {
+        const manager = managerWith(() => [{ affectedRows: 1 }]);
+        expect(await manager.addEngagement('blog', { viewId: 'v', engagedMs: 1500, scrollDepth: 40 })).toBe(true);
+        const [update] = manager.pool.matching('UPDATE `blog`');
+        expect(update.sql).toContain('engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?)');
+        expect(update.sql).toContain('scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?)');
+        expect(update.sql).toContain(DatabaseManager.LIVE_ROW);
+        expect(update.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)');
+        expect(update.params).toEqual([1500, 40, 'v', 24]);
+    });
+
+    test('addEngagement reports when no view matched', async () => {
+        const manager = managerWith(() => [{ affectedRows: 0 }]);
+        expect(await manager.addEngagement('blog', { viewId: 'v', engagedMs: 1, scrollDepth: 1 })).toBe(false);
     });
 
     test('registerEvent defaults the view-log source to registerView', async () => {
@@ -246,7 +306,9 @@ describe('DatabaseManager admin wiring', () => {
         await manager.migrate(['blog', 'shop']);
         expect(manager.pool.matching('CREATE TABLE IF NOT EXISTS `_admin_log`')).toHaveLength(1);
         expect(manager.pool.matching('CREATE TABLE IF NOT EXISTS `_view_log`')).toHaveLength(1);
-        expect(manager.pool.matching('information_schema.COLUMNS')).toHaveLength(2);
+        expect(manager.pool.matching('CREATE TABLE IF NOT EXISTS `_tracking_rejections`')).toHaveLength(1);
+        // The view log's own columns, then one read per app.
+        expect(manager.pool.matching('information_schema.COLUMNS').map((q) => q.params[0])).toEqual(['_view_log', 'blog', 'shop']);
     });
 
     test('migrate reports how many existing rows received public IDs', async () => {

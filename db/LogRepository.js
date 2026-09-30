@@ -7,7 +7,14 @@
 
 const crypto = require('crypto');
 
-const { ADMIN, ADMIN_LOG_TABLE, VIEW_LOG_TABLE } = require('../constants');
+const {
+    ADMIN,
+    ADMIN_LOG_TABLE,
+    REJECTION_REASON,
+    TRACKING_OUTCOME,
+    TRACKING_REJECTIONS_TABLE,
+    VIEW_LOG_TABLE,
+} = require('../constants');
 const { logWarning, WarningType } = require('../utils/errorUtils');
 
 /**
@@ -20,8 +27,28 @@ const ADMIN_LOG_COLUMNS = [
 ].join(', ');
 
 const VIEW_LOG_COLUMNS = [
-    'id', 'created_at', 'app_id', 'source', 'view_id', 'event_type', 'is_unique',
+    'id', 'created_at', 'app_id', 'source', 'view_id', 'event_type', 'is_unique', 'hostname',
 ].join(', ');
+
+/**
+ * The tracking log is two streams read as one: accepted views, one row each
+ * in the view log, and requests that were not stored, counted per minute.
+ * Both branches select the same columns so they can be merged and paged
+ * together, newest first.
+ */
+const ACCEPTED_BRANCH = `
+    SELECT created_at AS at, id AS entry_id, app_id, source,
+        IF(is_unique = 1, '${TRACKING_OUTCOME.RECORDED}', '${TRACKING_OUTCOME.REPEAT}') AS outcome,
+        CAST(NULL AS CHAR) AS reason, CAST(NULL AS CHAR) AS detail, hostname,
+        view_id, event_type, 1 AS requests
+    FROM \`${VIEW_LOG_TABLE}\``;
+const REJECTED_BRANCH = `
+    SELECT minute AS at, CONCAT_WS('|', minute, source, reason, app_id, detail, hostname) AS entry_id,
+        NULLIF(app_id, '') AS app_id, source,
+        IF(reason = '${REJECTION_REASON.BOT}', '${TRACKING_OUTCOME.BOT}', '${TRACKING_OUTCOME.REJECTED}') AS outcome,
+        reason, NULLIF(detail, '') AS detail, NULLIF(hostname, '') AS hostname,
+        CAST(NULL AS CHAR) AS view_id, CAST(NULL AS CHAR) AS event_type, requests
+    FROM \`${TRACKING_REJECTIONS_TABLE}\``;
 
 /** mysql2 returns JSON columns parsed; tolerate a string from other drivers. */
 function parseJson(value) {
@@ -101,13 +128,13 @@ class LogRepository {
      *   isUnique: boolean }} entry
      * @returns {Promise<boolean>}
      */
-    async writeViewLog({ appId, source, viewId, eventType, isUnique }) {
+    async writeViewLog({ appId, source, viewId, eventType, isUnique, hostname = null }) {
         try {
             await this.pool.query(
                 `INSERT INTO \`${VIEW_LOG_TABLE}\`
-                    (id, created_at, app_id, source, view_id, event_type, is_unique)
-                 VALUES (?, NOW(3), ?, ?, ?, ?, ?)`,
-                [crypto.randomUUID(), appId, source, viewId, eventType, isUnique ? 1 : 0]
+                    (id, created_at, app_id, source, view_id, event_type, is_unique, hostname)
+                 VALUES (?, NOW(3), ?, ?, ?, ?, ?, ?)`,
+                [crypto.randomUUID(), appId, source, viewId, eventType, isUnique ? 1 : 0, hostname]
             );
             return true;
         } catch (cause) {
@@ -125,16 +152,48 @@ class LogRepository {
      * @returns {Promise<number>} entries removed
      */
     async pruneViewLog(days) {
-        let total = 0;
-        for (;;) {
-            const [result] = await this.pool.query(
-                `DELETE FROM \`${VIEW_LOG_TABLE}\` WHERE created_at < DATE_SUB(NOW(3), INTERVAL ? DAY)
-                 ORDER BY created_at LIMIT ?`,
-                [days, ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE]
+        const prune = async (table, column) => {
+            let total = 0;
+            for (;;) {
+                const [result] = await this.pool.query(
+                    `DELETE FROM \`${table}\` WHERE \`${column}\` < DATE_SUB(NOW(3), INTERVAL ? DAY)
+                     ORDER BY \`${column}\` LIMIT ?`,
+                    [days, ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE]
+                );
+                const removed = Number(result?.affectedRows || 0);
+                total += removed;
+                if (removed < ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE) return total;
+            }
+        };
+        return await prune(VIEW_LOG_TABLE, 'created_at') + await prune(TRACKING_REJECTIONS_TABLE, 'minute');
+    }
+
+    /**
+     * Add counted rejections, merging into any count already stored for the
+     * same minute and key. Never throws: losing a count must not fail the
+     * request that produced it, or the flush that carries many.
+     *
+     * @param {{ minute: Date, source: string, reason: string, appId?: string,
+     *   detail?: string, hostname?: string, requests: number }[]} rows
+     * @returns {Promise<boolean>}
+     */
+    async recordRejections(rows) {
+        if (rows.length === 0) return true;
+        try {
+            await this.pool.query(
+                `INSERT INTO \`${TRACKING_REJECTIONS_TABLE}\`
+                    (minute, source, reason, app_id, detail, hostname, requests)
+                 VALUES ${rows.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ')}
+                 ON DUPLICATE KEY UPDATE requests = requests + VALUES(requests)`,
+                rows.flatMap((row) => [
+                    row.minute, row.source, row.reason,
+                    row.appId || '', row.detail || '', row.hostname || '', row.requests,
+                ])
             );
-            const removed = Number(result?.affectedRows || 0);
-            total += removed;
-            if (removed < ADMIN.VIEW_LOG_PRUNE_BATCH_SIZE) return total;
+            return true;
+        } catch (cause) {
+            logWarning(WarningType.TRACKING_LOG_WRITE_FAILED, { cause: cause.message });
+            return false;
         }
     }
 
@@ -176,37 +235,104 @@ class LogRepository {
     }
 
     /**
-     * @param {{ page: number, pageSize: number, appId?: string, source?: string }} query
+     * The tracking log: every tracking request and what became of it, newest
+     * first. Accepted views are listed one by one; bots and rejections as one
+     * entry per minute and key, with how many requests it stands for.
+     *
+     * @param {{ page: number, pageSize: number, appId?: string, source?: string, outcome?: string }} query
      * @returns {Promise<{ entries: object[], total: number }>}
      */
-    async listViewLog({ page, pageSize, appId, source }) {
-        const where = [];
+    async listTrackingLog({ page, pageSize, appId, source, outcome }) {
+        const accepted = { where: [], params: [] };
+        const rejected = { where: [], params: [] };
+        for (const branch of [accepted, rejected]) {
+            if (appId) { branch.where.push('app_id = ?'); branch.params.push(appId); }
+            if (source) { branch.where.push('source = ?'); branch.params.push(source); }
+        }
+        if (outcome === TRACKING_OUTCOME.RECORDED) accepted.where.push('is_unique = 1');
+        if (outcome === TRACKING_OUTCOME.REPEAT) accepted.where.push('is_unique = 0');
+        if (outcome === TRACKING_OUTCOME.BOT) { rejected.where.push('reason = ?'); rejected.params.push(REJECTION_REASON.BOT); }
+        if (outcome === TRACKING_OUTCOME.REJECTED) { rejected.where.push('reason <> ?'); rejected.params.push(REJECTION_REASON.BOT); }
+
+        const wantAccepted = !outcome || outcome === TRACKING_OUTCOME.RECORDED || outcome === TRACKING_OUTCOME.REPEAT;
+        const wantRejected = !outcome || outcome === TRACKING_OUTCOME.BOT || outcome === TRACKING_OUTCOME.REJECTED;
+        const clause = (branch) => (branch.where.length ? ` WHERE ${branch.where.join(' AND ')}` : '');
+
+        const branches = [];
         const params = [];
-        if (appId) { where.push('app_id = ?'); params.push(appId); }
-        if (source) { where.push('source = ?'); params.push(source); }
-        const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        if (wantAccepted) { branches.push(ACCEPTED_BRANCH + clause(accepted)); params.push(...accepted.params); }
+        if (wantRejected) { branches.push(REJECTED_BRANCH + clause(rejected)); params.push(...rejected.params); }
 
         const [rows] = await this.pool.query(
-            `SELECT ${VIEW_LOG_COLUMNS} FROM \`${VIEW_LOG_TABLE}\` ${clause}
-             ORDER BY created_at DESC, id ASC LIMIT ? OFFSET ?`,
+            `SELECT * FROM (${branches.join(' UNION ALL ')}) AS entries
+             ORDER BY at DESC, entry_id ASC LIMIT ? OFFSET ?`,
             [...params, pageSize, (page - 1) * pageSize]
         );
-        const [count] = await this.pool.query(
-            `SELECT COUNT(*) AS count FROM \`${VIEW_LOG_TABLE}\` ${clause}`,
-            params
-        );
+
+        let total = 0;
+        if (wantAccepted) {
+            const [count] = await this.pool.query(
+                `SELECT COUNT(*) AS count FROM \`${VIEW_LOG_TABLE}\`${clause(accepted)}`, accepted.params);
+            total += Number(count[0]?.count || 0);
+        }
+        if (wantRejected) {
+            const [count] = await this.pool.query(
+                `SELECT COUNT(*) AS count FROM \`${TRACKING_REJECTIONS_TABLE}\`${clause(rejected)}`, rejected.params);
+            total += Number(count[0]?.count || 0);
+        }
 
         return {
             entries: rows.map((row) => ({
-                id: row.id,
-                createdAt: row.created_at,
-                appId: row.app_id,
+                id: row.entry_id,
+                at: row.at,
+                appId: row.app_id ?? null,
                 source: row.source,
-                viewId: row.view_id,
-                eventType: row.event_type,
-                isUnique: row.is_unique === 1 || row.is_unique === true,
+                outcome: row.outcome,
+                reason: row.reason ?? null,
+                detail: row.detail ?? null,
+                hostname: row.hostname ?? null,
+                viewId: row.view_id ?? null,
+                eventType: row.event_type ?? null,
+                requests: Number(row.requests),
             })),
-            total: Number(count[0]?.count || 0),
+            total,
+        };
+    }
+
+    /**
+     * How the last `hours` of tracking requests turned out: requests per
+     * outcome, and per reason for the ones not stored.
+     *
+     * @param {{ hours: number, appId?: string }} query
+     * @returns {Promise<{ hours: number, outcomes: Record<string, number>, reasons: Record<string, number> }>}
+     */
+    async trackingSummary({ hours, appId }) {
+        const appClause = appId ? ' AND app_id = ?' : '';
+        const appParams = appId ? [appId] : [];
+        const [acceptedRows] = await this.pool.query(
+            `SELECT COALESCE(SUM(is_unique = 1), 0) AS recorded, COALESCE(SUM(is_unique = 0), 0) AS repeats
+             FROM \`${VIEW_LOG_TABLE}\` WHERE created_at >= DATE_SUB(NOW(3), INTERVAL ? HOUR)${appClause}`,
+            [hours, ...appParams]
+        );
+        const [reasonRows] = await this.pool.query(
+            `SELECT reason, SUM(requests) AS requests FROM \`${TRACKING_REJECTIONS_TABLE}\`
+             WHERE minute >= DATE_SUB(NOW(), INTERVAL ? HOUR)${appClause}
+             GROUP BY reason ORDER BY reason`,
+            [hours, ...appParams]
+        );
+
+        const reasons = Object.fromEntries(reasonRows.map((row) => [row.reason, Number(row.requests)]));
+        const bots = reasons[REJECTION_REASON.BOT] || 0;
+        const rejectedTotal = Object.values(reasons).reduce((sum, value) => sum + value, 0) - bots;
+        return {
+            hours,
+            outcomes: {
+                [TRACKING_OUTCOME.RECORDED]: Number(acceptedRows[0]?.recorded || 0),
+                [TRACKING_OUTCOME.REPEAT]: Number(acceptedRows[0]?.repeats || 0),
+                [TRACKING_OUTCOME.BOT]: bots,
+                [TRACKING_OUTCOME.REJECTED]: rejectedTotal,
+            },
+            reasons,
         };
     }
 }

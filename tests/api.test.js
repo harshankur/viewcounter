@@ -156,13 +156,19 @@ describe('API Endpoints - Integration Tests', () => {
                 expect(recorded()).toMatchObject({ referrer: null, sourceType: 'direct' });
             });
 
-            test('the Referer header value never reaches the database layer', async () => {
+            test('the Referer header never becomes the referrer; only its hostname names the site visited', async () => {
                 await request(server)
                     .get('/registerView?appId=test_app_1&deviceSize=large')
                     .set('referer', OWN_PAGE)
                     .expect(200);
 
-                expect(JSON.stringify(registerSpy.mock.calls.at(-1))).not.toContain('tracked.example');
+                // It names the tracked page itself, so it is not where the visitor
+                // came from, and its path and query never reach the database.
+                const { referrer, referrerDomain, hostname, ...rest } = recorded();
+                expect({ referrer, referrerDomain }).toEqual({ referrer: null, referrerDomain: null });
+                expect(hostname).toBe(new URL(OWN_PAGE).hostname);
+                expect(JSON.stringify(rest)).not.toContain('tracked.example');
+                expect(JSON.stringify(registerSpy.mock.calls.at(-1))).not.toContain(new URL(OWN_PAGE).pathname);
             });
 
             test('an explicit search-engine referrer is still classified as search', async () => {

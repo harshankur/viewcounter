@@ -64,9 +64,11 @@ function requestOrigin(req) {
  * every appId still in that state.
  *
  * @param {{ origins: Record<string, string[]> }} allowed
+ * @param {{ onReject?: (req: import('express').Request, appId: string) => void }} [options]
+ *   told about each refusal, so the tracking log can count it
  * @returns {import('express').RequestHandler}
  */
-function requireRegisteredOrigin(allowed) {
+function requireRegisteredOrigin(allowed, { onReject = () => {} } = {}) {
     const origins = allowed?.origins || {};
 
     return (req, res, next) => {
@@ -82,6 +84,7 @@ function requireRegisteredOrigin(allowed) {
             return next();
         }
 
+        onReject(req, appId);
         return res.status(HTTP_STATUS.FORBIDDEN).json({
             message: 'Request origin is not registered for this appId',
         });

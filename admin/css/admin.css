@@ -1404,8 +1404,8 @@ input[type='checkbox'] {
 .log-table .col-ip { width: 11rem; }
 .log-table .col-source { width: 8rem; }
 .log-table .col-event { width: 9rem; }
-.log-table .col-unique { width: 6rem; }
-.log-table .col-view { width: auto; }
+.log-table .col-outcome { width: auto; }
+.log-table .col-view { width: 20rem; }
 
 /*
  * Reflow (FRONTEND.md §12). A table answers to its own width, not the
@@ -1420,7 +1420,8 @@ input[type='checkbox'] {
  *   views, All apps  the same plus app 8, so each step comes 8rem later;
  *                    source also steps aside between the cards and 61
  *   admin log        always 45.5; + ip 11 from 57, session 7 from 64
- *   view log         always 40.5; + view ID 12 from 53
+ *   tracking log     always 46.5 (time, app, source, event, outcome at 12);
+ *                    + view ID 20 from 67
  */
 .table-wrap {
     container: table / inline-size;
@@ -1472,11 +1473,11 @@ input[type='checkbox'] {
     .log-table .col-ip { display: none; }
 }
 
-@container table (width < 53rem) {
-    .log-table .col-view {
-        display: none;
-    }
+@container table (width < 67rem) {
+    .log-table .col-view { display: none; }
+}
 
+@container table (width < 53rem) {
     .views-table thead {
         display: none;
     }

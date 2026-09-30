@@ -96,5 +96,6 @@ export const api = {
     restore: (appId, ids) => request('POST', `apps/${encodeURIComponent(appId)}/views/restore`, { body: { ids } }),
     purge: (appId, ids) => request('POST', `apps/${encodeURIComponent(appId)}/views/purge`, { body: { ids } }),
     adminLog: (query) => request('GET', 'logs/admin', { query }),
-    viewLog: (query) => request('GET', 'logs/views', { query }),
+    trackingLog: (query) => request('GET', 'logs/tracking', { query }),
+    trackingSummary: (query) => request('GET', 'logs/tracking/summary', { query }),
 };

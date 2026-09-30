@@ -7,6 +7,9 @@ const {
     EVENT_TYPE,
     HTTP_STATUS,
     QUERY_LIMITS,
+    REJECTION_REASON,
+    SOURCE_TYPE,
+    TRACKING,
     TREND_PERIOD,
     VIEW_LOG_SOURCE,
 } = require('../constants');
@@ -16,18 +19,57 @@ const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getClientIp, isValidIP, normalizeIp } = require('../utils/ipUtils');
 const { requireReadApiKey, requireAppScope, requireAdminApiKey, appsInScope } = require('../middleware/auth');
-const { requireRegisteredOrigin, noStore } = require('../middleware/security');
+const { requireRegisteredOrigin, requestOrigin, noStore } = require('../middleware/security');
+const { createRejectionCounter } = require('../db/rejectionCounter');
+const { hostnameOf, primaryLanguage, utmTags } = require('../utils/visitorContext');
 const {
     validateAppRegistration,
     validateRegisterView,
     validateEvent,
+    validateEngage,
     validateStatsRequest,
     validateTrendsRequest,
     validateListRequest,
     validateViewsRequest,
     validateSessionRequest,
     handleValidationErrors,
+    handleTrackingValidation,
 } = require('../middleware/validation');
+
+/** The tracking endpoints, by path, and the source the tracking log files them under. */
+const TRACKING_PATHS = {
+    '/registerView': VIEW_LOG_SOURCE.REGISTER_VIEW,
+    '/event': VIEW_LOG_SOURCE.EVENT,
+    '/engage': VIEW_LOG_SOURCE.ENGAGE,
+};
+
+/**
+ * @param {string} path a request path, relative to where the router is mounted
+ * @returns {string|null} the tracking source, or null for any other endpoint
+ */
+function trackingSourceFor(path) {
+    return Object.hasOwn(TRACKING_PATHS, path) ? TRACKING_PATHS[path] : null;
+}
+
+/**
+ * sendBeacon posts text/plain, which needs no CORS preflight; a fetch may
+ * send JSON. Either way the handler sees an object, or an empty one for a
+ * body that is not JSON, which validation then refuses.
+ * @type {import('express').RequestHandler}
+ */
+function parseBeaconBody(req, res, next) {
+    if (typeof req.body === 'string') {
+        try {
+            const parsed = JSON.parse(req.body);
+            req.body = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+        } catch {
+            req.body = {};
+        }
+    } else if (!req.body || typeof req.body !== 'object') {
+        req.body = {};
+    }
+    next();
+}
 
 /**
  * Analytics routes.
@@ -79,7 +121,7 @@ function intQuery(req, name, fallback) {
  * @param {{ perAppMax: number, windowMs: number }} rateLimitConfig
  * @returns {import('express').RequestHandler}
  */
-function buildPerAppLimiter(rateLimitConfig) {
+function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
     const { perAppMax, windowMs } = rateLimitConfig || {};
     // Zero disables it, for single-tenant deployments where the per-IP limit
     // is the only bound that means anything.
@@ -96,6 +138,10 @@ function buildPerAppLimiter(rateLimitConfig) {
         // bypass this limiter exists to be immune to.
         keyGenerator: (req) => String(req.query?.appId || req.body?.appId || '__unattributed__'),
         validate: { keyGeneratorIpFallback: false },
+        handler: (req, res, next, options) => {
+            onLimit(req);
+            res.status(options.statusCode).json(options.message);
+        },
     });
 }
 
@@ -151,8 +197,38 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
     const requireKey = requireReadApiKey(config.auth);
     const requireScope = requireAppScope();
     const requireAdmin = requireAdminApiKey(config.auth);
-    const requireOrigin = requireRegisteredOrigin(config.allowed);
-    const limitPerApp = buildPerAppLimiter(config.server?.rateLimit);
+
+    // Tracking requests that are not stored are counted for the tracking log,
+    // so an operator can see why a site's views are not arriving.
+    const rejections = createRejectionCounter({
+        write: (rows) => (dbManager.logs?.recordRejections ? dbManager.logs.recordRejections(rows) : Promise.resolve(true)),
+    });
+    const reject = (req, reason, { appId, detail } = {}) => {
+        const source = trackingSourceFor(req.path);
+        if (!source) return;
+        rejections.count({
+            source,
+            reason,
+            appId: appId ?? req.query?.appId ?? req.body?.appId,
+            detail,
+            hostname: hostnameOf(requestOrigin(req)),
+        });
+    };
+
+    const requireOrigin = requireRegisteredOrigin(config.allowed, {
+        onReject: (req, appId) => reject(req, REJECTION_REASON.ORIGIN_NOT_ALLOWED, { appId }),
+    });
+    const limitPerApp = buildPerAppLimiter(config.server?.rateLimit,
+        (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'app' }));
+    const trackingValidation = handleTrackingValidation(reject);
+
+    /** Views from these are counted in the tracking log and never stored. */
+    const refuseBot = (req) => {
+        const userAgent = req.get('user-agent') || '';
+        if (!UserAgentParser.isBot(userAgent)) return false;
+        reject(req, REJECTION_REASON.BOT, { detail: UserAgentParser.botName(userAgent) });
+        return true;
+    };
 
     router.use(withRequestId);
 
@@ -176,13 +252,17 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
         limitPerApp,
         requireOrigin,
         validateRegisterView(config.allowed),
-        handleValidationErrors,
+        trackingValidation,
         async (req, res) => {
             try {
                 const { appId, deviceSize, page, title, referrer, sessionId } = req.query;
-                const ip = normalizeIp(getClientIp(req));
+                if (refuseBot(req)) {
+                    return res.json({ message: 'Automated clients are not counted', recorded: false, duplicate: false });
+                }
 
+                const ip = normalizeIp(getClientIp(req));
                 if (!isValidIP(ip)) {
+                    reject(req, REJECTION_REASON.INVALID_IP);
                     logger.warn(`Rejected request with unparseable client IP`, logContext(req));
                     return res.status(HTTP_STATUS.BAD_REQUEST).json({ message: 'Invalid IP address format' });
                 }
@@ -199,6 +279,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                 // recorded every direct visit as a referral from the site's own
                 // domain. A server relaying views passes the real referrer here.
                 const referrerData = ReferrerParser.parse(referrer);
+                const utm = utmTags(req.query);
 
                 const result = await dbManager.registerEvent(appId, {
                     ip,
@@ -208,7 +289,11 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     pageTitle: title,
                     referrer: referrerData.referrer,
                     referrerDomain: referrerData.referrerDomain,
-                    sourceType: referrerData.sourceType,
+                    // A tagged link is a campaign, whichever site it was clicked on.
+                    sourceType: utm.utmSource || utm.utmMedium ? SOURCE_TYPE.CAMPAIGN : referrerData.sourceType,
+                    hostname: hostnameOf(requestOrigin(req)),
+                    language: primaryLanguage(req.get('accept-language')),
+                    ...utm,
                     browser: uaData.browser,
                     browserVersion: uaData.browserVersion,
                     os: uaData.os,
@@ -224,15 +309,21 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
 
                 logger.audit('registerView', { ...logContext(req), appId, duplicate: result.duplicate });
 
+                // `id` lets the page report engagement for this view later.
                 if (result.duplicate) {
                     return res.status(HTTP_STATUS.OK).json({
                         message: 'View already registered recently',
                         duplicate: true,
+                        recorded: true,
+                        id: result.publicId,
                     });
                 }
 
-                return res.status(HTTP_STATUS.OK).json({ message: 'Success!', duplicate: false });
+                return res.status(HTTP_STATUS.OK).json({
+                    message: 'Success!', duplicate: false, recorded: true, id: result.publicId,
+                });
             } catch (error) {
+                reject(req, REJECTION_REASON.SERVER_ERROR);
                 return handleRouteError(req, res, error, 'register view');
             }
         }
@@ -245,13 +336,17 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
         limitPerApp,
         requireOrigin,
         validateEvent(config.allowed),
-        handleValidationErrors,
+        trackingValidation,
         async (req, res) => {
             try {
                 const { appId, eventType, eventData, sessionId, page, title } = req.body;
-                const ip = normalizeIp(getClientIp(req));
+                if (refuseBot(req)) {
+                    return res.json({ message: 'Automated clients are not counted', recorded: false });
+                }
 
+                const ip = normalizeIp(getClientIp(req));
                 if (!isValidIP(ip)) {
+                    reject(req, REJECTION_REASON.INVALID_IP);
                     return res.status(HTTP_STATUS.BAD_REQUEST).json({ message: 'Invalid IP address format' });
                 }
 
@@ -273,6 +368,8 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
                     sessionId,
                     eventType,
                     eventData,
+                    hostname: hostnameOf(requestOrigin(req)),
+                    language: primaryLanguage(req.get('accept-language')),
                     userAgent,
                     visitorSecret: config.privacy.visitorSecret,
                     // Custom events are never deduplicated.
@@ -284,10 +381,44 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
 
                 return res.status(HTTP_STATUS.OK).json({
                     message: 'Event tracked successfully',
+                    recorded: true,
+                    id: result.publicId,
+                    // Deprecated: the internal row number. Kept for 3.x clients; use `id`.
                     insertId: result.insertId,
                 });
             } catch (error) {
+                reject(req, REJECTION_REASON.SERVER_ERROR);
                 return handleRouteError(req, res, error, 'track event');
+            }
+        }
+    );
+
+    /**
+     * Engagement for a recorded view: how long its page was visible and how
+     * far it was scrolled, sent by the tracker when the page is hidden or left.
+     */
+    router.post('/engage',
+        express.text({ type: () => true, limit: TRACKING.ENGAGE_BODY_BYTES }),
+        parseBeaconBody,
+        limitPerApp,
+        requireOrigin,
+        validateEngage(config.allowed),
+        trackingValidation,
+        async (req, res) => {
+            try {
+                if (refuseBot(req)) return res.status(HTTP_STATUS.NO_CONTENT).end();
+
+                const { appId, id, ms, scroll } = req.body;
+                const updated = await dbManager.addEngagement(appId, {
+                    viewId: id,
+                    engagedMs: Number(ms),
+                    scrollDepth: Number(scroll),
+                });
+                if (!updated) reject(req, REJECTION_REASON.UNKNOWN_VIEW);
+                return res.status(HTTP_STATUS.NO_CONTENT).end();
+            } catch (error) {
+                reject(req, REJECTION_REASON.SERVER_ERROR);
+                return handleRouteError(req, res, error, 'record engagement');
             }
         }
     );
@@ -459,7 +590,11 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true }) {
         }
     );
 
+    /** For the host app's own limiter, which runs before this router, and for shutdown. */
+    router.countRejection = reject;
+    router.flushRejections = () => rejections.flush();
+
     return router;
 }
 
-module.exports = { createAnalyticsRouter, handleRouteError, logContext, withRequestId };
+module.exports = { createAnalyticsRouter, handleRouteError, logContext, withRequestId, trackingSourceFor };
