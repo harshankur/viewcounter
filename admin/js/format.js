@@ -53,17 +53,36 @@ export function formatPercent(ratio) {
 }
 
 /**
- * A trend bucket label. Buckets are named by the date they start on
- * (YYYY-MM-DD, from the server) and read as calendar dates, not instants, so
- * they are formatted in UTC to avoid shifting a day across time zones.
+ * When a trend bucket starts. Day, week, and month buckets are named by their
+ * date (YYYY-MM-DD) and read as calendar dates at UTC midnight; hour buckets
+ * ("YYYY-MM-DD HH:00") are instants in the server's clock, which is UTC.
  * @param {string} period
- * @param {'day'|'week'|'month'} bucket
- * @param {{ long?: boolean }} [options] long adds the year, and "week of"
+ * @param {'hour'|'day'|'week'|'month'} bucket
+ * @returns {Date}
+ */
+export function periodStart(period, bucket) {
+    return bucket === 'hour'
+        ? new Date(`${String(period).replace(' ', 'T')}:00Z`)
+        : new Date(`${period}T00:00:00Z`);
+}
+
+/**
+ * A trend bucket label. Calendar buckets are formatted in UTC so a day never
+ * shifts across time zones; an hour is an instant, shown in local time.
+ * @param {string} period
+ * @param {'hour'|'day'|'week'|'month'} bucket
+ * @param {{ long?: boolean }} [options] long adds the date to an hour, the year
+ *   to a day, and "week of" to a week
  */
 export function formatPeriod(period, bucket, { long = false } = {}) {
-    const date = new Date(`${period}T00:00:00Z`);
+    const date = periodStart(period, bucket);
     if (Number.isNaN(date.getTime())) return period;
     const locale = currentLocale();
+    if (bucket === 'hour') {
+        return new Intl.DateTimeFormat(locale, {
+            ...(long ? { day: 'numeric', month: 'short' } : {}), hour: 'numeric', minute: '2-digit',
+        }).format(date);
+    }
     if (bucket === 'month') {
         return new Intl.DateTimeFormat(locale, { month: long ? 'long' : 'short', year: 'numeric', timeZone: 'UTC' }).format(date);
     }

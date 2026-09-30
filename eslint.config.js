@@ -126,6 +126,33 @@ module.exports = [
     },
 
     {
+        // The tracker: a classic browser script that runs on visitors' pages.
+        files: ['tracker/**/*.js'],
+        languageOptions: {
+            sourceType: 'script',
+            globals: {
+                window: 'readonly', document: 'readonly', navigator: 'readonly', location: 'readonly',
+                history: 'readonly', performance: 'readonly', fetch: 'readonly', Blob: 'readonly',
+                URLSearchParams: 'readonly', requestAnimationFrame: 'readonly', addEventListener: 'readonly',
+                innerWidth: 'readonly', innerHeight: 'readonly', scrollY: 'readonly',
+            },
+        },
+        rules: {
+            // Nothing of the visitor's is ever stored on their device.
+            'no-restricted-globals': ['error',
+                { name: 'localStorage', message: 'The tracker stores nothing on the visitor’s device (ePrivacy Art. 5(3)).' },
+                { name: 'sessionStorage', message: 'The tracker stores nothing on the visitor’s device (ePrivacy Art. 5(3)).' },
+                { name: 'indexedDB', message: 'The tracker stores nothing on the visitor’s device (ePrivacy Art. 5(3)).' },
+            ],
+            'no-restricted-properties': ['error',
+                { object: 'document', property: 'cookie', message: 'The tracker never reads or sets cookies.' },
+                { object: 'window', property: 'localStorage', message: 'The tracker stores nothing on the visitor’s device.' },
+                { object: 'window', property: 'sessionStorage', message: 'The tracker stores nothing on the visitor’s device.' },
+            ],
+        },
+    },
+
+    {
         // The E2E runner is a standalone Node script, not a Jest test.
         files: ['tests/e2e/**'],
         languageOptions: {

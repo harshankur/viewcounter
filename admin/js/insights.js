@@ -7,11 +7,12 @@
 import { api } from './api.js';
 import { barList, statTiles, trendChart, trendTable, worldMap } from './charts.js';
 import { el, replaceChildren, uniqueId } from './dom.js';
-import { formatDateTime } from './format.js';
+import { formatDateTime, periodStart } from './format.js';
 import { t, tOr } from './i18n.js';
 import { ALL_APPS, STORAGE_KEY } from './constants.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 /** Breakdown cards, in display order; `allOnly` cards appear for every app at once. */
 const BREAKDOWNS = [
@@ -23,9 +24,13 @@ const BREAKDOWNS = [
     { dim: 'app', label: (v) => v ?? t('insights.unknown'), allOnly: true },
 ];
 
-/** The date after `period` by one bucket, as YYYY-MM-DD. */
+/** The period after `period` by one bucket, labelled as the server labels it. */
 function nextPeriod(period, bucket) {
-    const date = new Date(`${period}T00:00:00Z`);
+    const date = periodStart(period, bucket);
+    if (bucket === 'hour') {
+        date.setTime(date.getTime() + HOUR_MS);
+        return `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 13)}:00`;
+    }
     if (bucket === 'month') date.setUTCMonth(date.getUTCMonth() + 1);
     else date.setTime(date.getTime() + (bucket === 'week' ? 7 : 1) * DAY_MS);
     return date.toISOString().slice(0, 10);
@@ -125,7 +130,7 @@ export function createInsightsPanel({ reportError, onData = () => {} }) {
         // The last bucket is still filling up if it has not ended yet, so its
         // dip is not a real decline; the tooltip says "so far".
         const lastPeriod = points[points.length - 1]?.period;
-        const lastInProgress = Boolean(lastPeriod) && nextPeriod(lastPeriod, data.bucket) > new Date().toISOString().slice(0, 10);
+        const lastInProgress = Boolean(lastPeriod) && periodStart(nextPeriod(lastPeriod, data.bucket), data.bucket) > new Date();
         const content = showTrendTable
             ? el('div', { className: 'chart-body chart-table-wrap' }, [trendTable({ points, bucket: data.bucket })])
             : trendChart({ points, bucket: data.bucket, lastInProgress });

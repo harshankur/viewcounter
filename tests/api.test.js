@@ -89,6 +89,19 @@ describe('API Endpoints - Integration Tests', () => {
         });
     });
 
+    describe('GET /tracker.js through the full app', () => {
+        test('overrides helmet\'s same-origin resource policy, so other sites can load it', async () => {
+            const res = await request(server).get('/tracker.js').expect(200);
+            expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+            expect(res.headers['x-content-type-options']).toBe('nosniff');
+        });
+
+        test('everything else keeps the same-origin policy', async () => {
+            const res = await request(server).get('/health');
+            expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
+        });
+    });
+
     describe('GET /registerView', () => {
         test('should register a basic view', async () => {
             const response = await request(server)

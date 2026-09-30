@@ -1,4 +1,6 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const geoip = require('geoip-country');
@@ -35,6 +37,14 @@ const {
     handleValidationErrors,
     handleTrackingValidation,
 } = require('../middleware/validation');
+
+/**
+ * The tracker script sites include with <script src=".../tracker.js">. Read
+ * once; it is part of the package, not configuration.
+ */
+const TRACKER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'tracker.js'), 'utf8');
+/** Cached briefly, so a fix reaches every site within the hour. */
+const TRACKER_MAX_AGE_SECONDS = 60 * 60;
 
 /** The tracking endpoints, by path, and the source the tracking log files them under. */
 const TRACKING_PATHS = {
@@ -248,6 +258,16 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     });
 
     /**
+     * The tracker script. Loaded by other sites, so it opts out of the
+     * same-origin resource policy helmet applies to everything else.
+     */
+    router.get('/tracker.js', (req, res) => {
+        res.set('Cache-Control', `public, max-age=${TRACKER_MAX_AGE_SECONDS}`);
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.type('application/javascript').send(TRACKER_SOURCE);
+    });
+
+    /**
      * Register a page view.
      */
     router.get('/registerView',
@@ -281,7 +301,8 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                 // page itself, not where the visitor came from, so reading it
                 // recorded every direct visit as a referral from the site's own
                 // domain. A server relaying views passes the real referrer here.
-                const referrerData = ReferrerParser.parse(referrer);
+                const hostname = hostnameOf(requestOrigin(req));
+                const referrerData = ReferrerParser.parse(referrer, hostname);
                 const utm = utmTags(req.query);
 
                 const result = await dbManager.registerEvent(appId, {
@@ -294,7 +315,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                     referrerDomain: referrerData.referrerDomain,
                     // A tagged link is a campaign, whichever site it was clicked on.
                     sourceType: utm.utmSource || utm.utmMedium ? SOURCE_TYPE.CAMPAIGN : referrerData.sourceType,
-                    hostname: hostnameOf(requestOrigin(req)),
+                    hostname,
                     language: primaryLanguage(req.get('accept-language')),
                     ...utm,
                     region: place.region,

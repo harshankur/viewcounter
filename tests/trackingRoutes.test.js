@@ -84,6 +84,17 @@ describe('GET /registerView', () => {
         expect(stored(dbManager)).toMatchObject({ sourceType: SOURCE_TYPE.SEARCH, utmSource: null, utmMedium: null });
     });
 
+    test.each([
+        ['another page of the same site', 'https://blog.example.com/earlier', SOURCE_TYPE.INTERNAL],
+        ['the same site with www.', 'https://www.blog.example.com/earlier', SOURCE_TYPE.INTERNAL],
+        ['a sibling site', 'https://shop.example.com/', SOURCE_TYPE.REFERRAL],
+    ])('a referrer from %s is %s', async (_label, referrer, sourceType) => {
+        const { app, dbManager } = build();
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'small', referrer })
+            .set('Origin', 'https://blog.example.com').set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager)).toMatchObject({ sourceType, referrer });
+    });
+
     test('a repeat view also returns its ID, so its engagement can be reported', async () => {
         const { app } = build({ registerEvent: async () => ({ duplicate: true, publicId: VIEW_ID }) });
         const res = await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'small' })
@@ -262,6 +273,32 @@ describe('what counts as a tracking request', () => {
     test('refused read requests are never counted', async () => {
         const { app, counted } = build();
         await request(app).get('/stats/blog').expect(503);
+        expect(await counted()).toEqual([]);
+    });
+});
+
+describe('GET /tracker.js', () => {
+    test('is JavaScript other sites may load, cached for an hour', async () => {
+        const { app } = build();
+        const res = await request(app).get('/tracker.js').expect(200);
+        expect(res.headers['content-type']).toMatch(/^application\/javascript/);
+        expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+        expect(res.headers['cache-control']).toBe('public, max-age=3600');
+        expect(res.text).toContain('document.currentScript');
+        expect(res.headers.etag).toBeTruthy();
+        await request(app).get('/tracker.js').set('If-None-Match', res.headers.etag).expect(304);
+    });
+
+    test('never reads or writes anything on the visitor’s device', async () => {
+        const { app } = build();
+        const { text } = await request(app).get('/tracker.js').expect(200);
+        const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+        expect(code).not.toMatch(/localStorage|sessionStorage|indexedDB|document\.cookie/);
+    });
+
+    test('loading it is not a tracking request', async () => {
+        const { app, counted } = build();
+        await request(app).get('/tracker.js').expect(200);
         expect(await counted()).toEqual([]);
     });
 });

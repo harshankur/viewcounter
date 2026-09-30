@@ -10,9 +10,12 @@ class ReferrerParser {
     /**
      * Parse referrer URL
      * @param {string} referrer - Referrer URL from request headers
+     * @param {string|null} [siteHostname] - the hostname of the page viewed; a
+     *   referrer on the same site (www. or not) is internal navigation, which
+     *   would otherwise count every click within a site as a referral from it
      * @returns {object} Parsed referrer data
      */
-    static parse(referrer) {
+    static parse(referrer, siteHostname = null) {
         if (!referrer || referrer === '') {
             return {
                 referrer: null,
@@ -24,7 +27,10 @@ class ReferrerParser {
         try {
             const url = new URL(referrer);
             const domain = url.hostname || null;
-            const sourceType = this.getSourceType(domain, referrer);
+            const sameSite = (host) => String(host || '').toLowerCase().replace(/^www\./, '');
+            const sourceType = domain && siteHostname && sameSite(domain) === sameSite(siteHostname)
+                ? SOURCE_TYPE.INTERNAL
+                : this.getSourceType(domain, referrer);
 
             return {
                 referrer: truncate(referrer, FIELD_MAX_LENGTH.REFERRER),

@@ -10,6 +10,8 @@
  * Usage: node tests/ui/server.js [port]
  */
 
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const helmet = require('helmet');
 
@@ -205,6 +207,27 @@ function start(port = PORT) {
     app.post('/__test__/age-password', (req, res) => {
         sessionClockOffset += ADMIN.REAUTH_WINDOW_MS + 60 * 1000;
         res.status(204).end();
+    });
+
+    // Test-only: a page that loads the real tracker, for tests/ui/tracker.spec.js.
+    // The tracker posts to its own origin, where the tests intercept it.
+    app.get('/tracker.js', (req, res) => {
+        res.type('application/javascript').send(fs.readFileSync(path.join(__dirname, '..', '..', 'tracker', 'tracker.js'), 'utf8'));
+    });
+    app.get(/^\/tracker-lab\//, (req, res) => {
+        const attribute = (name) => {
+            const value = typeof req.query[name] === 'string' ? req.query[name].replace(/[^a-z0-9.,:-]/gi, '') : '';
+            return value ? ` data-${name}="${value}"` : '';
+        };
+        res.type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Tracker lab</title></head>
+<body>
+  <a id="outbound" href="https://elsewhere.example/private/path?token=secret">elsewhere</a>
+  <a id="download" href="/files/report%20final.pdf">report</a>
+  <a id="internal" href="/tracker-lab/other">internal</a>
+  <div style="height: 4000px"></div>
+  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('outbound')}${attribute('downloads')}></script>
+</body></html>`);
     });
 
     app.use(ADMIN.PATH_PREFIX, (req, res, next) => admin(req, res, next));

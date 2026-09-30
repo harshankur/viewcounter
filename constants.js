@@ -435,6 +435,8 @@ const SOURCE_TYPE = {
     EMAIL: 'email',
     CAMPAIGN: 'campaign',
     REFERRAL: 'referral',
+    /** From another page of the same site: a click within it, not a way in. */
+    INTERNAL: 'internal',
     UNKNOWN: 'unknown',
 };
 
