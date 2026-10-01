@@ -72,7 +72,7 @@ function readJsonFile(filePath) {
  *
  * CONFIG.md §4: never a shallow spread of a nested object. The previous
  * implementation returned the parsed file verbatim, so a `dbInfo.json` missing
- * `host` produced `host: undefined` instead of falling back — and an
+ * `host` produced `host: undefined` instead of falling back, and an
  * `allowed.json` missing `appId` produced `undefined`, which then threw on
  * `.join()` at startup.
  *
@@ -108,7 +108,7 @@ class Config {
      * Server, logging, and proxy settings.
      *
      * `nodeEnv` defaults to production. It previously defaulted to
-     * development, which is also what the setup wizard wrote into `.env` — and
+     * development, which is also what the setup wizard wrote into `.env`, and
      * ten route handlers echo raw database error text to the caller when the
      * environment is development. A deploy that forgot to set NODE_ENV leaked
      * table names and SQL fragments to anonymous callers.
@@ -213,7 +213,7 @@ class Config {
      *
      * Two sources, because they serve different deployments:
      *  - `READ_API_KEYS` (env): unscoped keys that can read every app. This is
-     *    the single-operator case — all the apps are yours anyway.
+     *    the single-operator case: all the apps are yours anyway.
      *  - `apiKeys` in allowed.json: `{ "<key>": ["blog"] }`, scoped to named
      *    apps. This is the multi-tenant case, where one customer's key must
      *    not read another customer's analytics. Use `"*"` for an unscoped key.
@@ -279,7 +279,7 @@ class Config {
         // Resolved lazily, on first read rather than at construction.
         //
         // This module is imported by index.js, and index.js is the package
-        // entry point — so an application that only wants to mount
+        // entry point, so an application that only wants to mount
         // createAnalyticsRouter would otherwise generate and persist a secret
         // purely as a side effect of `require('@harshankur/viewcounter')`, writing it into
         // node_modules where the next `npm ci` wipes it. Embedders supply their

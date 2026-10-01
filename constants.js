@@ -472,7 +472,7 @@ const SCOPE_ALL = '*';
  * identifiers cannot be bound as parameters. Until now app IDs only ever came
  * from trusted local config; they can now arrive over HTTP from the admin API,
  * so the character set is restricted to what is unambiguously safe as an
- * identifier. This is the gate — not a nicety.
+ * identifier. This is the gate, not a nicety.
  *
  * Letters, digits, underscore, and hyphen only. A backtick is the sole
  * character that can terminate a quoted identifier, and none of these can;

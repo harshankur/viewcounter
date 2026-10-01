@@ -2,7 +2,7 @@
  * Persisted server secret for visitor hashing.
  *
  * agent-instructions SECURITY.md §1: never fall back to a weak, guessable
- * default for a security-relevant value — generate one cryptographically and
+ * default for a security-relevant value: generate one cryptographically and
  * persist it. This module is that generator.
  */
 

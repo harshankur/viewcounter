@@ -4,7 +4,7 @@
  *
  * Boots the actual server as a subprocess, drives it over real HTTP, and then
  * inspects the rows it wrote by querying the database directly. Nothing here
- * uses the test mock — the point is to exercise what the mock cannot: real DDL,
+ * uses the test mock. The point is to exercise what the mock cannot: real DDL,
  * real parameter binding, real strict-mode behaviour, real JSON columns.
  *
  * Deliberately NOT part of the Jest run: it needs a live database. Start one
@@ -50,8 +50,8 @@ function check(name, condition, detail = '') {
         console.log(`  \x1b[32m✓\x1b[0m ${name}`);
     } else {
         fail++;
-        failures.push(`${name}${detail ? ` — ${detail}` : ''}`);
-        console.log(`  \x1b[31m✗ ${name}\x1b[0m${detail ? ` — ${detail}` : ''}`);
+        failures.push(`${name}${detail ? `: ${detail}` : ''}`);
+        console.log(`  \x1b[31m✗ ${name}\x1b[0m${detail ? `: ${detail}` : ''}`);
     }
 }
 
@@ -158,7 +158,7 @@ async function main() {
         });
 
         // In connect mode the app tables are not auto-created, so provision
-        // them through the admin API — which is itself the thing under test.
+        // them through the admin API, which is itself the thing under test.
         if (DB_MODE === 'connect') {
             for (const appId of ['tenant_a', 'tenant_b']) {
                 await req('POST', '/apps', { key: ADMIN_KEY, body: { appId } });

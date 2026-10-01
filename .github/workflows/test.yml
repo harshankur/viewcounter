@@ -164,7 +164,7 @@ jobs:
             -e "GRANT ALL PRIVILEGES ON *.* TO 'vcuser'@'%'; FLUSH PRIVILEGES;"
 
       # The unit suite runs against a mock. This exercises real DDL, real
-      # parameter binding, and real STRICT-mode behaviour — the class of bug a
+      # parameter binding, and real STRICT-mode behaviour: the class of bug a
       # test double cannot surface, and which a mock previously hid twice.
       - name: Run E2E against MySQL
         run: |

@@ -113,7 +113,7 @@ function buildTile({ pad, radius }) {
 }
 
 // --- Emit --------------------------------------------------------------------
-// Filenames are fixed by agent-instructions FRONTEND.md §10 — every project
+// Filenames are fixed by agent-instructions FRONTEND.md §10: every project
 // ships the same names so an icon is always findable without reading the HTML.
 
 const APP_NAME = 'ViewCounter';
@@ -163,7 +163,7 @@ const has = (cmd, args) => {
 };
 
 if (!has('rsvg-convert', ['--version'])) {
-    console.warn('\nrsvg-convert not found — skipped PNG/ICO output. Install with: brew install librsvg');
+    console.warn('\nrsvg-convert not found: skipped PNG/ICO output. Install with: brew install librsvg');
     return;
 }
 
@@ -178,7 +178,7 @@ for (const { svg, file, size } of rasters) {
 // favicon.ico is multi-resolution, which rsvg-convert cannot produce; Pillow
 // packs the sizes from a single high-res render.
 if (!has('python3', ['-c', 'import PIL'])) {
-    console.warn('favicon.ico skipped — needs Pillow (pip install pillow)');
+    console.warn('favicon.ico skipped: needs Pillow (pip install pillow)');
 } else {
     const tmpPng = path.join(os.tmpdir(), 'viewcounter-icon-src.png');
     render(faviconSvg, Math.max(...ICO_SIZES) * 4, tmpPng);

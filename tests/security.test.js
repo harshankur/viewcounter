@@ -72,7 +72,7 @@ afterAll(async () => {
     await new Promise(resolve => server.close(resolve));
 });
 
-describe('H1 — read endpoints must be authenticated', () => {
+describe('H1: read endpoints must be authenticated', () => {
     test('/apps does not enumerate the allowlist to an anonymous caller', async () => {
         const response = await request(server).get('/apps').expect(401);
 
@@ -118,7 +118,7 @@ describe('Admin surface is absent without ADMIN_PASSWORD', () => {
     });
 });
 
-describe('H3 — client-supplied forwarding headers must not set the client IP', () => {
+describe('H3: client-supplied forwarding headers must not set the client IP', () => {
     test.each([
         ['x-forwarded-for', '9.9.9.9'],
         ['x-real-ip', '8.8.8.8'],
@@ -148,7 +148,7 @@ describe('H3 — client-supplied forwarding headers must not set the client IP',
     });
 });
 
-describe('H4 — writes are bound to registered origins', () => {
+describe('H4: writes are bound to registered origins', () => {
     test('an unregistered origin cannot write to a bound app', async () => {
         await request(server)
             .get('/registerView?appId=bound_app&deviceSize=large')
@@ -171,7 +171,7 @@ describe('H4 — writes are bound to registered origins', () => {
     });
 });
 
-describe('M4/M6 — boundary validation on untrusted input', () => {
+describe('M4/M6: boundary validation on untrusted input', () => {
     test.each([
         ['abc', 'non-numeric'],
         ['-1', 'negative'],
@@ -293,7 +293,7 @@ describe('appId is the table-name gate and cannot be escaped', () => {
     });
 });
 
-describe('M1 — errors must not leak internal detail', () => {
+describe('M1: errors must not leak internal detail', () => {
     test('a failing query returns a correlation id, not the database message', async () => {
         const original = dbManager.getStats;
         dbManager.getStats = jest.fn().mockRejectedValue(
@@ -330,7 +330,7 @@ describe('Prototype pollution', () => {
     });
 });
 
-describe('L8 — analytics responses must not be shared-cacheable', () => {
+describe('L8: analytics responses must not be shared-cacheable', () => {
     test.each([
         '/stats/test_app_1',
         '/views/test_app_1',

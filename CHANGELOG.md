@@ -218,12 +218,12 @@ Node 24 or newer.
   entry point ran `initializeServer()` and eagerly resolved the visitor-hash
   secret at import time, so merely requiring the library to mount its router
   validated config, attempted a database connection, and persisted a secret
-  inside `node_modules` — where the next install wipes it. Startup is now gated
+  inside `node_modules`, where the next install wipes it. Startup is now gated
   on being the main module, and the secret resolves lazily on first read.
 - **The server crashed on its first database connection.** `mysql2/promise`'s
   pool emits the raw callback-style connection on its `connection` event, and
   mysql2 deliberately makes `.then()`/`.catch()` on the resulting `Query`
-  throw — so the statement-timeout hook took the process down before it could
+  throw, so the statement-timeout hook took the process down before it could
   serve a request. Only a real database surfaced this; the test mock's pool
   hook was a no-op that never invoked the handler. The mock now emits a
   realistically-shaped connection, so the unit suite catches a regression.
@@ -252,7 +252,7 @@ Node 24 or newer.
 - Raw client IPs were written to stdout on every view, event, and error, which
   persists them to disk on any normal deployment.
 - Database error text was returned to callers whenever `NODE_ENV` was not
-  exactly `development` — which was the default. Responses now carry only a
+  exactly `development`, which was the default. Responses now carry only a
   request id.
 - `limit`, `days`, and `offset` were unvalidated: `?limit=abc` produced
   `LIMIT NaN` and `?limit=999999999999` defeated the intended row cap.
@@ -287,7 +287,7 @@ Node 24 or newer.
 - Support for Node 20 and Node 22; the minimum is now Node 24. Node 20 reached
   end of life in April 2026 and no longer receives security patches. Node 22 is
   still supported upstream, but this project tracks only the current LTS rather
-  than maintaining a matrix of older runtimes — a decision, not an EOL forced
+  than maintaining a matrix of older runtimes: a decision, not an EOL forced
   by anything about 22 itself. Dropping a runtime is a breaking change and
   belongs in a major release, and this is that release.
 - `docs/favicon.png`, superseded by `favicon.ico` and the `icon-*.png` set.

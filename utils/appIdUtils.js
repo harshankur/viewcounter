@@ -2,7 +2,7 @@
  * App ID validation.
  *
  * An app ID becomes a MySQL table name. Identifiers cannot be bound as query
- * parameters, so they are interpolated — which is safe only because the value
+ * parameters, so they are interpolated, which is safe only because the value
  * is checked here first. App IDs used to come exclusively from local config;
  * the admin API now accepts them over HTTP, so this is a live injection
  * boundary, not a formatting preference.

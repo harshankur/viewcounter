@@ -3,7 +3,7 @@ name: Release
 # Releases are driven by the version field in package.json, not by tagging
 # manually. When this workflow is run, if package.json carries a version that
 # has no matching git tag yet, that version is tested, published to npm with
-# provenance, tagged, and given a GitHub Release — in that order. Publish runs
+# provenance, tagged, and given a GitHub Release, in that order. Publish runs
 # BEFORE tagging deliberately: if publish fails, nothing is left dangling. A
 # tag created before a failed publish blocks every retry afterward, because the
 # next run's "does this tag already exist" check reports the version as
@@ -146,7 +146,7 @@ jobs:
       - run: npm ci
 
       # setup-node writes `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`
-      # into .npmrc whenever registry-url is set — even when NODE_AUTH_TOKEN is
+      # into .npmrc whenever registry-url is set, even when NODE_AUTH_TOKEN is
       # undefined, leaving an EMPTY token line. npm reads that and concludes
       # "token auth is already configured", so it never starts the OIDC exchange
       # and the publish fails as unauthenticated (actions/setup-node#1551).

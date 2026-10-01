@@ -38,7 +38,7 @@ const AdminRepository = require('./AdminRepository');
  * Columns returned for a session lookup.
  *
  * Deliberately explicit rather than `SELECT *`. The previous wildcard returned
- * `visitor_hash` — the pseudonymous visitor identifier itself — to any caller
+ * `visitor_hash` (the pseudonymous visitor identifier itself) to any caller
  * of the sessions endpoint.
  */
 const SESSION_COLUMNS = [
@@ -66,7 +66,7 @@ const SESSION_COLUMNS = [
  *
  * `id` is a generated UUID and is the row's identity; `app_id` is a uniqueness
  * *constraint*, not an identity (CODE_STANDARDS.md §8). The distinction matters
- * the first time an app is renamed, or deleted and a later one reuses the name —
+ * the first time an app is renamed, or deleted and a later one reuses the name:
  * with the natural key as the primary key, anything referencing the old row
  * would silently re-point at the new one.
  */
@@ -83,7 +83,7 @@ const APP_REGISTRY_DDL = `
  * DDL for one app's event table.
  *
  * `appId` is interpolated because MySQL cannot bind an identifier as a
- * parameter. Every caller must have passed it through `isValidAppId` first —
+ * parameter. Every caller must have passed it through `isValidAppId` first;
  * the assertion below is the backstop, not the primary gate.
  *
  * @param {string} appId
@@ -142,7 +142,7 @@ function appTableDDL(appId) {
  * `mysql2/promise`'s pool emits the RAW callback-style connection on its
  * `connection` event, not the promise-wrapped one. Its `query()` returns a
  * `Query`, and mysql2 deliberately makes `.then()`/`.catch()` on a `Query`
- * throw — so treating it as a promise crashes the process on the very first
+ * throw, so treating it as a promise crashes the process on the very first
  * database connection. The callback form is the correct API for that object.
  *
  * Failure is swallowed on purpose: MariaDB and MySQL < 5.7.8 have no
@@ -348,7 +348,7 @@ class DatabaseManager {
     /**
      * Provision a new app: validate, create its table, record it.
      *
-     * Idempotent — re-registering an existing app is a no-op rather than an
+     * Idempotent: re-registering an existing app is a no-op rather than an
      * error, so a retried provisioning call cannot fail halfway.
      *
      * @param {string} appId

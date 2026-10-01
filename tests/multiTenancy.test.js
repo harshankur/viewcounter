@@ -1,7 +1,7 @@
 /**
  * Multi-tenant isolation.
  *
- * Before scoping, a valid read key read *every* app's analytics — the appId
+ * Before scoping, a valid read key read *every* app's analytics: the appId
  * allowlist only ever constrained which table was queried, never who was
  * entitled to query it. These tests are what keeps that from regressing.
  */

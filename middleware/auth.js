@@ -3,8 +3,8 @@
  *
  * Two distinct steps, deliberately separate:
  *
- *   requireReadApiKey  — *authentication*: is this a key we issued?
- *   requireAppScope    — *authorization*: may THIS key read THIS app?
+ *   requireReadApiKey   *authentication*: is this a key we issued?
+ *   requireAppScope     *authorization*: may THIS key read THIS app?
  *
  * The second step is what makes the service multi-tenant. Without it a valid
  * key read every tenant's analytics, because the appId allowlist only ever

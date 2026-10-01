@@ -69,8 +69,8 @@ class PrivacyUtils {
      * Generate the transient visitor identifier.
      *
      * This is a keyed HMAC, not a bare digest. Every non-secret input is
-     * public or guessable — the date is known, user agents come from a small
-     * population, and IPv4 is only 2^32 — so an unkeyed SHA-256 of them is
+     * public or guessable (the date is known, user agents come from a small
+     * population, and IPv4 is only 2^32), so an unkeyed SHA-256 of them is
      * reversible by exhaustive search in about an hour on one CPU core. The
      * server secret is what makes that search infeasible; the window id is
      * what stops hashes being linkable over time.

@@ -6,7 +6,7 @@
  * identified by an enum member, its message text lives in exactly one table
  * here, and callers branch on `err.code` rather than parsing message strings.
  *
- * `getError` builds and reports but deliberately does NOT throw — the `throw`
+ * `getError` builds and reports but deliberately does NOT throw: the `throw`
  * stays visible at the call site and under the caller's control.
  */
 

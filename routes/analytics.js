@@ -125,7 +125,7 @@ function intQuery(req, name, fallback) {
  * other tenant on the instance depends on, which is the failure mode that
  * matters once the apps belong to different people.
  *
- * Keyed on appId only — never on IP — so it is unaffected by how the client's
+ * Keyed on appId only, never on IP, so it is unaffected by how the client's
  * address is derived, and cannot be rotated away by a caller changing address.
  *
  * @param {{ perAppMax: number, windowMs: number }} rateLimitConfig
@@ -169,7 +169,7 @@ function withRequestId(req, res, next) {
  * Build the correlation context for a log line.
  *
  * Logs the MASKED address, never the raw one. `logRequest` previously wrote
- * the unmasked IP on every view, event, and error — and on any normal
+ * the unmasked IP on every view, event, and error, and on any normal
  * deployment stdout is persisted to disk, so the raw addresses the privacy
  * design goes to lengths to keep out of the database were being written beside
  * it anyway.
@@ -184,7 +184,7 @@ function logContext(req) {
  *
  * The client gets a stable message plus the request id; the detail goes to the
  * server log only. Previously the raw database error text was returned to the
- * caller whenever NODE_ENV was not exactly "development" — which was the
+ * caller whenever NODE_ENV was not exactly "development", which was the
  * default, and which the setup wizard wrote into .env.
  */
 function handleRouteError(req, res, error, operation) {
@@ -584,7 +584,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
      * Provision a new app. Admin tier only.
      *
      * Creates the app's table and records it in the registry, then adds it to
-     * the live allowlist so it accepts traffic immediately — no restart. The
+     * the live allowlist so it accepts traffic immediately, with no restart. The
      * appId becomes a table identifier, so it is validated against a strict
      * pattern before it reaches any DDL.
      */

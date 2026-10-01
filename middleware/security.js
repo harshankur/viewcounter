@@ -10,7 +10,7 @@ const { HTTP_STATUS } = require('../constants');
  * agent-instructions SECURITY.md §9: `cors()` with no options is never the
  * default. The wildcard mattered more here than the usual "no credentials, so
  * it's harmless" reasoning suggests, because the read endpoints served real
- * data — `*` made them script-readable from any origin, not merely reachable.
+ * data: `*` made them script-readable from any origin, not merely reachable.
  *
  * @param {string[]} allowedOrigins
  * @returns {import('cors').CorsOptions}

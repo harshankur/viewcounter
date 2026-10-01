@@ -29,7 +29,7 @@ function isValidIP(ip) {
  * Deliberately reads ONLY `req.ip`, which Express derives according to the
  * app's `trust proxy` setting. The previous implementation read `x-real-ip`
  * and `x-forwarded-for` straight off the request, so any caller could name
- * their own address — forging geolocation, inflating unique-visitor counts,
+ * their own address: forging geolocation, inflating unique-visitor counts,
  * and rotating the rate-limiter key to bypass it entirely.
  *
  * If a reverse proxy in front of this service sets only `X-Real-IP`, configure

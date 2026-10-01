@@ -287,7 +287,7 @@ describe('DatabaseManager', () => {
         test('applies the timeout without treating a raw connection as a promise', async () => {
             // Regression: mysql2/promise's pool emits the RAW callback-style
             // connection on its `connection` event. Its query() returns a
-            // Query, and mysql2 makes .then()/.catch() on a Query throw — so
+            // Query, and mysql2 makes .then()/.catch() on a Query throw, so
             // the previous promise-style call crashed the process on the very
             // first database connection. Only a real database surfaced it;
             // the mock's `on()` used to be a no-op.

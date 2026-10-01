@@ -64,7 +64,7 @@ const boundedBody = (name, max) =>
  *
  * Deliberately no `.toInt()` sanitizer: under Express 5 `req.query` is a
  * getter-only property, so a sanitizer appears to work but never writes the
- * coerced value back — the handler would still receive a string and bind it
+ * coerced value back: the handler would still receive a string and bind it
  * into `LIMIT ?`, which MySQL rejects. Handlers coerce explicitly instead,
  * after this validator has established the value is a valid integer in range.
  */
@@ -187,7 +187,7 @@ const validateSessionRequest = (allowedValues) => [
  * Validate an app-provisioning request.
  *
  * `appId` here becomes a table identifier, so it is checked against the strict
- * pattern rather than an allowlist — there is no allowlist yet, that is the
+ * pattern rather than an allowlist: there is no allowlist yet, that is the
  * point of the call.
  */
 const validateAppRegistration = () => [

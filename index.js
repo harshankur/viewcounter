@@ -112,7 +112,7 @@ const app = createApp();
  * Config-declared apps and registry-declared apps are unioned: the file stays
  * authoritative for a fixed single-operator deployment, while the registry
  * carries tenants provisioned at runtime. A registry that cannot be read is a
- * warning rather than a startup failure — config-declared apps still work.
+ * warning rather than a startup failure: config-declared apps still work.
  */
 async function mergeRegisteredApps() {
     try {
@@ -185,8 +185,8 @@ const initializeServer = async () => {
     }
 };
 
-// Only when run directly. Requiring this module as a library — to mount
-// createAnalyticsRouter into an existing app — must not validate config,
+// Only when run directly. Requiring this module as a library (to mount
+// createAnalyticsRouter into an existing app) must not validate config,
 // connect to a database, or bind a port as a side effect of the import.
 if (require.main === module) {
     initializeServer();
