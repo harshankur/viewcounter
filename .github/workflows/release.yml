@@ -97,21 +97,13 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npx jest --ci --coverage
+      # The same gate as test.yml. The browser tests of the admin UI, which
+      # ships in the tarball, are not run here: they are run locally, with
+      # `npm test`, before the release commit is made.
+      - name: Lint and run tests
+        run: npm run test:ci
         env:
           NODE_ENV: test
-
-      # The admin UI ships in the tarball, so the release is gated on the same
-      # browser tests as test.yml. Runs against tests/ui/server.js, no database.
-      - name: Install Playwright's Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run UI tests
-        run: npx playwright test
 
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high

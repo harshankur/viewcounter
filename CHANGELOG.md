@@ -5,6 +5,16 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+
+- CI no longer downloads a browser or runs the admin UI's browser tests, in
+  the test workflow or the release workflow, to save CI time. Both workflows
+  run `npm run test:ci` (lint and Jest with coverage), and the test workflow
+  still audits dependencies, checks the tarball, and runs the end-to-end suite
+  against a real MySQL. The browser tests run locally: `npm run test:ui` on
+  every change to `admin/` or `tracker/`, and the full `npm test` before a
+  release.
+
 ## [3.2.0]
 
 Tracks far more of what analytics needs without identifying anyone, and turns

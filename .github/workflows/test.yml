@@ -1,9 +1,15 @@
 name: Test Suite
 
-# Everything that has to pass before code is trustworthy: lint, the unit suite
-# (mocked DB), a dependency audit, a real install-and-require of the packed
-# tarball, and an end-to-end run against a real MySQL service container. No
-# build or deploy step lives here -- that split is what release.yml is for.
+# Everything that has to pass before code is trustworthy, short of a browser:
+# lint, the unit suite (mocked DB), a dependency audit, a real
+# install-and-require of the packed tarball, and an end-to-end run against a
+# real MySQL service container. No build or deploy step lives here: that split
+# is what release.yml is for.
+#
+# The browser tests of the admin UI and the tracker script (tests/ui, Playwright)
+# are deliberately not run here. Downloading a browser and its system packages
+# on every push is CI time better saved, so they run locally instead: with
+# `npm test`, on every change to the UI, and before every release.
 on:
   push:
     branches: [master]
@@ -39,24 +45,14 @@ jobs:
 
       - run: npm ci
 
-      - name: Lint
-        run: npm run lint
-
-      # The suite runs entirely against tests/dbMock.js, so no MySQL service
-      # container is needed here. The coverage floor in jest.config.js is
-      # build-breaking, so a drop in coverage fails this job.
-      - name: Run tests
-        run: npx jest --ci --coverage
+      # Lint, then the Jest suite with coverage: `npm test` without the browser
+      # tests and the report. The suite runs entirely against tests/dbMock.js,
+      # so no MySQL service container is needed here. The coverage floor in
+      # jest.config.js is build-breaking, so a drop in coverage fails this job.
+      - name: Lint and run tests
+        run: npm run test:ci
         env:
           NODE_ENV: test
-
-      # The admin UI in a real browser (TESTING.md, UI end-to-end tier). Runs
-      # against tests/ui/server.js, so it needs no database.
-      - name: Install Playwright's Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Run UI tests
-        run: npx playwright test
 
   audit:
     name: Dependency audit

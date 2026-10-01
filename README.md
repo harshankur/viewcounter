@@ -1030,16 +1030,22 @@ npm run test:watch
 # Run tests and persist database for inspection
 npm run test:persist
 
-# Run tests for CI/CD (no report generation)
+# The fast gate CI runs: lint and Jest with coverage, no browser, no report
 npm run test:ci
 
-# Run only the admin UI tests in a real browser (Playwright)
+# Run only the admin UI and tracker tests in a real browser (Playwright)
 npx playwright install chromium   # once
 npm run test:ui
 ```
 
 `npm test` includes the Playwright suite, so run `npx playwright install
 chromium` once before the first run.
+
+CI runs everything except the browser tests: lint, Jest with its coverage
+floor, the dependency audit, the tarball check, and the end-to-end run against
+a real MySQL. It does not download a browser, to save CI time, so the browser
+tests are a local step: run `npm run test:ui` whenever you change anything
+under `admin/` or `tracker/`, and the full `npm test` before a release.
 
 ### Test Database
 
