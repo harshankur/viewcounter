@@ -6,18 +6,22 @@ Currently, the following versions of View Counter are supported with security up
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.1.x   | :white_check_mark: |
-| < 3.1   | :x:                |
+| 3.2.x   | :white_check_mark: |
+| < 3.2   | :x:                |
 
 Versions before 3.0 are not supported: the analytics read endpoints were
 unauthenticated and visitor hashes were derived without a server secret, which
 made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
-3.0.x is not patched further. 3.1 is a drop-in upgrade with no breaking API
-change: its schema migration runs on startup, adds columns, and gives existing
-rows a public id without changing their recorded data. The one behaviour change
-is the referrer fix described in the changelog. 3.1 also fixes runtime
-dependency advisories present in 3.0.x.
+3.1.x is not patched further. 3.2 is a drop-in upgrade with no breaking change
+to the public API: its schema migration runs on startup and only adds columns
+and tables. It stores referrers without their query string or fragment, which
+in 3.1 could keep a token or email address from the page a visitor came from;
+it stops storing bots; and it replaces the AGPL-licensed ua-parser-js 2.x with
+the MIT-licensed 1.x. See the changelog for the upgrade notes.
+
+3.0.x and 3.1.x are not supported. 3.1 moved to a public id per row and fixed
+runtime dependency advisories present in 3.0.x.
 
 ## Reporting a Vulnerability
 

@@ -5,6 +5,153 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.2.0]
+
+Tracks far more of what analytics needs without identifying anyone, and turns
+the admin UI into an analysis console: an Overview with every headline number
+against the period before, a tracking log that explains itself, and sessions
+that last. Adds a tracker script served by the server. No public API is
+removed or renamed.
+
+Upgrading from 3.1:
+
+- Nothing to do for the schema: the first start adds eleven tracking columns
+  to every app table (hostname, language, the five campaign tags, region, city,
+  engaged time, and scroll depth, all empty for older rows), a `hostname`
+  column to `_view_log`, and creates `_tracking_rejections` and
+  `_admin_sessions`, with the `CREATE`, `ALTER`, and `INDEX` privileges 3.1
+  already needed.
+- Bots are no longer stored. Crawlers, link previewers, headless browsers, and
+  command-line clients are answered but counted only in the tracking log, so
+  view counts can drop where bots were being recorded before.
+- A referrer on the same site as the page is now `internal`, not `referral`.
+- Admin sessions now survive restarts and last up to 30 days (7 without use).
+  Set `ADMIN_SESSION_IDLE_TIMEOUT` and `ADMIN_SESSION_MAX_AGE` to change that.
+  Everyone is signed out once, on the upgrade.
+- To add the tracker script to a site, its origin must be in `CORS_ORIGINS`
+  (and registered for the app, if the app is bound to its sites), and a
+  Content Security Policy on the site must allow the ViewCounter server in
+  `script-src` and `connect-src`.
+- Region and city need a city database: see `GEOIP_CITY_DB` in the README.
+- Referrers are now stored as their origin and path only. Rows recorded before
+  keep theirs as sent, query string included; to strip those too, run for each
+  app table:
+  ```sql
+  UPDATE `blog` SET referrer = SUBSTRING_INDEX(SUBSTRING_INDEX(referrer, '#', 1), '?', 1)
+  WHERE referrer LIKE '%?%' OR referrer LIKE '%#%';
+  ```
+- Trend periods in the admin are UTC dates and hours, whatever the database's
+  time zone. Run ViewCounter and its database in the same zone (containers
+  default to UTC).
+
+### Added
+
+- **Tracker script** at `GET /tracker.js`: one `<script>` tag records page
+  views (including single-page app navigation, each referred by the page it
+  left), time on page and scroll depth, clicks on links to other sites (their
+  hostname only) and on downloads (the file name only), the landing URL's
+  campaign tags, and custom events through `window.viewcounter.track()`.
+  `data-hosts` limits it to production hostnames, it ignores automated
+  browsers, and it can respect Do Not Track. It stores nothing on the device;
+  a lint rule makes cookies or web storage in it a build failure.
+- **More context per view**, none of it identifying: the site visited (the
+  hostname of the request's `Origin`), the visitor's language (the primary
+  subtag of `Accept-Language` only), the five `utm_*` campaign tags of the
+  landing URL (no other query key is ever kept), and, through the new
+  `POST /engage`, how long the page was visible and how far it was scrolled.
+  A tagged landing counts as a campaign.
+- **Region and city** from an optional city database (`GEOIP_CITY_DB`, a
+  MaxMind-format file such as DB-IP IP to City Lite or GeoLite2 City), looked
+  up in memory and discarded like the country. The file is re-read when
+  replaced. The admin UI credits the location data as its licences ask,
+  including GeoLite2 for the bundled country data, which was never credited
+  before.
+- **Tracking log** (the view log, extended): every accepted view as before,
+  plus per-minute counts of every request not stored and why (bot, unknown
+  app, site not registered for the app, invalid request or IP, rate limited,
+  engagement for a missing view, server error), in `_tracking_rejections`.
+  Counts are kept in memory and written every 15 seconds, and made-up app IDs,
+  hostnames, and details are kept only within budgets of 100 distinct keys a
+  minute and 1,000 an hour, so a flood never becomes a flood of rows. Nothing
+  about the requester is stored.
+- **Overview** in the admin UI, where it now opens: visitors, visits, page
+  views, views and events, bounce rate, visit duration, pages per visit, time
+  on page, and scroll depth, each against the period before with a sparkline;
+  any of them over time, with a table of every number per period; "Right
+  now"; channels, referrers, referring pages, and all five campaign tags;
+  top, entry, and exit pages, titles, and sites; a world map, countries,
+  regions, cities, and languages; devices, browsers, and systems with their
+  versions; custom events and their properties; time-on-page and scroll
+  distributions; page flow; a weekday-by-hour heatmap in the viewer's time
+  zone; and apps. Clicking any row narrows everything to it, and "Show these
+  views" opens exactly those rows in Views. Visits are read from the rotating
+  visitor hash with a 30-minute gap, so never across days.
+- **Columns you choose, order, and size** in the Views, Trash, and log tables:
+  a Columns dialog offers every stored field (title, site, referrer, campaign,
+  language, browser and system versions, engagement, masked IP, session, view
+  ID, note, and more) and puts them in order of importance; column edges drag
+  to resize, by mouse, touch, or keyboard. A table shows as many chosen
+  columns as fit its width, in order, so a wider window shows more, and keeps
+  the rest of each row one tap away under it; on a phone a row is a card of
+  the first few. Nothing scrolls sideways, and the choices are remembered in
+  the browser. Listings sort by the new columns too.
+- A **24 hours** range, charted by hour.
+- Admin API: breakdown filters (`where`) on listings and analyses; per-period
+  numbers for every headline metric; the analysis window of a bounded range;
+  `GET /event-types`; `GET /realtime`; `POST /reauth`; and the running version
+  in `/meta`.
+- `registerView` and `/event` responses include the view's public `id` and
+  `recorded`.
+
+### Changed
+
+- **Referrers keep their origin and path only**: the query string and fragment
+  of the page before, which can carry tokens or email addresses, are dropped
+  before storing, and the tracker never sends them. The source is still read
+  from the whole URL, in memory.
+- **Admin sessions** are stored in the database, as a hash of their token, so
+  restarts and deploys sign nobody out. They end after 7 days without use or
+  30 days after signing in, both configurable; reading the UI counts as use.
+  A session that ends mid-use opens a sign-in dialog over the page and carries
+  on after it. Erasing permanently asks for the password again unless it was
+  entered in the last 15 minutes.
+- The admin UI is five titled sections (Overview, Views, Trash, Tracking log,
+  Admin log), each saying what it holds and how it differs from the others,
+  with line icons, the running version and a link to the website in the
+  header, and a footer linking the documentation, changelog, source, and
+  package, with the copyright notice. The page uses a wide screen up to 1920
+  pixels. The details dialog shows every stored field, grouped. The Views tab
+  loses its insights panel to the Overview.
+- Sources, referrers, and campaigns in the analysis count page views only: a
+  custom event carries no referrer.
+- A same-site referrer is `internal` rather than a referral.
+- The admin UI's API serves the tracking log at `/logs/tracking` (with a
+  summary at `/logs/tracking/summary`) instead of `/logs/views`.
+- Search in the admin also finds the site and the campaign.
+- An admin's referrer edit decides per row, from each row's own site, whether
+  it is internal.
+
+### Fixed
+
+- Campaign detection looked for campaign tags in the referrer, where they
+  never are; it now reads the landing URL's tags.
+- Bots were stored as views.
+- `ua-parser-js` 2.x is licensed AGPL-3.0-or-later; it is replaced by the
+  MIT-licensed 1.x, with its names mapped so existing and new rows share one
+  label.
+- A failure in the admin page itself was reported as a server error.
+- A malformed or oversized body sent to a tracking endpoint, and a browser's
+  preflight from a site missing from `CORS_ORIGINS`, now show up in the
+  tracking log; neither ever reached it before.
+- On macOS, about one full test run in ten failed when a test server was
+  given a port another program held on 127.0.0.1; test servers now listen on
+  127.0.0.1.
+
+### Deprecated
+
+- `insertId` in the `/event` response, the internal row number. Use `id`. It
+  will be removed in 4.0.
+
 ## [3.1.0]
 
 Adds the admin UI, fixes how direct visits are classified, and resolves runtime
