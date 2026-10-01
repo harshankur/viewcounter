@@ -2,7 +2,7 @@
 AGENTS.md
 CLAUDE.md
 GEMINI.md
-agent-instructions/
+/agent-instructions
 
 # Agent-tool local state (settings, scheduled-task locks, worktrees): never shared
 .claude/
