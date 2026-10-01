@@ -1,60 +1,11 @@
 /**
- * Pieces shared by every data table: sortable headers, the pager, and the
- * empty and loading states.
+ * Controls shared by the tables: the pager and the segmented control. The
+ * table itself is dataTable.js.
  */
 
-import { clampText } from './clamp.js';
 import { el, replaceChildren } from './dom.js';
-import { formatDate, formatNumber, formatTime } from './format.js';
-import { icon } from './icons.js';
+import { formatNumber } from './format.js';
 import { t } from './i18n.js';
-import { SORT_ORDER } from './constants.js';
-
-/**
- * A header cell. Sortable headers are buttons, so they are reachable and
- * operable by keyboard, and expose the sort through aria-sort.
- *
- * @param {{ label: string, sortKey?: string, sort?: string, order?: string,
- *   onSort?: (key: string) => void, className?: string }} options
- */
-export function headerCell({ label, sortKey, sort, order, onSort, className = '' }) {
-    if (!sortKey) return el('th', { className, text: label, attrs: { scope: 'col' } });
-
-    const active = sort === sortKey;
-    const ariaSort = active ? (order === SORT_ORDER.ASC ? 'ascending' : 'descending') : 'none';
-    const indicator = active ? (order === SORT_ORDER.ASC ? 'arrowUp' : 'arrowDown') : 'sort';
-
-    return el('th', { className, attrs: { scope: 'col', 'aria-sort': ariaSort } }, [
-        el('button', {
-            className: `sort-btn${active ? ' active' : ''}`,
-            attrs: { type: 'button' },
-            dataset: { sortKey },
-            on: { click: () => onSort(sortKey) },
-        }, [
-            el('span', { text: label }),
-            icon(indicator, { className: 'sort-indicator' }),
-        ]),
-    ]);
-}
-
-/**
- * A timestamp cell: the date above the time of day, like every other two-line
- * cell, so it never needs the width of both on one line.
- *
- * @param {string|Date} value
- * @param {{ seconds?: boolean }} [options]
- */
-export function timeCell(value, { seconds = false } = {}) {
-    return el('td', { className: 'col-time' }, [
-        clampText(formatDate(value), { className: 'cell-primary' }),
-        clampText(formatTime(value, { seconds }), { className: 'cell-secondary' }),
-    ]);
-}
-
-/** A full-width row for empty or loading states. */
-export function messageRow(columns, text, className = 'table-message') {
-    return el('tr', {}, [el('td', { className, text, attrs: { colspan: String(columns) } })]);
-}
 
 /**
  * Previous / next pagination with a live summary.

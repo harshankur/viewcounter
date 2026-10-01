@@ -82,6 +82,13 @@ const ICONS = {
     chevronDown: [
         ['path', { d: 'M6 9l6 6 6-6' }],
     ],
+    chevronRight: [
+        ['path', { d: 'M9 6l6 6-6 6' }],
+    ],
+    columns: [
+        ['rect', { x: 3, y: 4, width: 18, height: 16, rx: 2 }],
+        ['path', { d: 'M9 4v16M15 4v16' }],
+    ],
     arrowUp: [
         ['path', { d: 'M12 19V5M6 11l6-6 6 6' }],
     ],

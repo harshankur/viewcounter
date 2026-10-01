@@ -18,6 +18,7 @@ const {
     ADMIN_ERROR_CODE,
     ADMIN_RANGE,
     ADMIN_RANGE_DAYS,
+    ADMIN_SORT_COLUMNS,
     APP_NAME,
     APP_SLUG,
     EDITABLE_FIELDS,
@@ -136,7 +137,6 @@ describe('admin UI translations', () => {
         ['tabs', ['overview', 'views', 'trash', 'trackingLog', 'adminLog']],
         ['deviceSizes', ['small', 'medium', 'large']],
         ['deviceTypes', [...new Set(['mobile', 'tablet', 'wearable', 'smarttv', 'console', undefined].map(UserAgentParser.getDeviceType))]],
-        ['columns', ['timestamp', 'app', 'page', 'source', 'device', 'country', 'client', 'event', 'status', 'actions']],
         ['ranges', Object.values(ADMIN_RANGE)],
         ['overview.vsPrevious', Object.keys(ADMIN_RANGE_DAYS).filter((range) => ADMIN_RANGE_DAYS[range])],
         ['overview.dims', Object.keys(BREAKDOWN_COLUMNS)],
@@ -145,6 +145,24 @@ describe('admin UI translations', () => {
     ])('the %s family covers every value the server can send', (family, values) => {
         const missing = values.filter((value) => !resolves(base, `${family}.${value}`));
         expect(missing).toEqual([]);
+    });
+
+    test('every column a table can show has a label', () => {
+        const idsIn = (file) => [...scripts.find((script) => script.file.endsWith(file)).text.matchAll(/\{\s*(?:\/\/[^\n]*\n\s*)?id: '(\w+)'/g)]
+            .map((match) => match[1]);
+        const viewColumns = idsIn('views.js');
+        const logColumns = idsIn('logs.js');
+        expect(viewColumns.length).toBeGreaterThan(20);
+        expect(logColumns.length).toBeGreaterThan(12);
+        expect([...viewColumns, 'actions'].filter((id) => !resolves(base, `columns.${id}`))).toEqual([]);
+        expect(logColumns.filter((id) => !resolves(base, `logColumns.${id}`))).toEqual([]);
+    });
+
+    test('every sort key a views column names is one the server sorts by', () => {
+        const views = scripts.find((script) => script.file.endsWith('views.js')).text;
+        const keys = [...views.matchAll(/\bsort: '(\w+)'/g)].map((match) => match[1]);
+        expect(keys.length).toBeGreaterThan(10);
+        expect(keys.filter((key) => !Object.hasOwn(ADMIN_SORT_COLUMNS, key))).toEqual([]);
     });
 
     test('every success toast has the partial variant the UI derives from it', () => {
@@ -229,6 +247,13 @@ describe('admin UI wire constants match the server', () => {
     };
 
     test('CSRF header', () => expect(stringConst('CSRF_HEADER')).toBe(ADMIN.CSRF_HEADER));
+    test('the footer\'s copyright notice is the LICENSE file\'s', () => {
+        const [, year, holder] = fs.readFileSync(path.join(__dirname, '..', 'LICENSE'), 'utf8').match(/Copyright \(c\) (\d{4}) (.+)/);
+        const notice = constants.match(/export const COPYRIGHT = Object\.freeze\(\{([\s\S]*?)\}\)/)[1];
+        expect(notice).toContain(`YEAR: ${year},`);
+        expect(notice).toContain(`HOLDER: '${holder.trim()}',`);
+        expect(require('../package.json').author).toBe(holder.trim());
+    });
     test('app identity', () => {
         expect(stringConst('APP_NAME')).toBe(APP_NAME);
         expect(stringConst('APP_SLUG')).toBe(APP_SLUG);

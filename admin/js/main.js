@@ -14,7 +14,7 @@ import { initTheme } from './theme.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { createViewsPanel, PANEL_MODE } from './views.js';
 import {
-    ALL_APPS, ERROR_CODE, KEY, LEGACY_TAB_HASH, LINKS, SESSION_PING_INTERVAL_MS, STORAGE_KEY, TAB, TAB_HASH, THEME,
+    ALL_APPS, COPYRIGHT, ERROR_CODE, KEY, LEGACY_TAB_HASH, LINKS, SESSION_PING_INTERVAL_MS, STORAGE_KEY, TAB, TAB_HASH, THEME,
 } from './constants.js';
 
 const TAB_ORDER = [TAB.OVERVIEW, TAB.VIEWS, TAB.TRASH, TAB.TRACKING_LOG, TAB.ADMIN_LOG];
@@ -173,6 +173,10 @@ function renderChrome() {
     const credits = (shell.meta.attributions ?? []).map((credit) => (credit.url
         ? el('a', { text: credit.text, attrs: { href: credit.url, target: '_blank', rel: 'noopener noreferrer' } })
         : el('span', { text: credit.text })));
+    const external = (text, href) => el('a', { text, attrs: { href, target: '_blank', rel: 'noopener noreferrer' } });
+    // "© 2026 Harsh Ankur", with the name a link: built around the name so a
+    // translation can put the parts in its own order.
+    const [beforeHolder, afterHolder] = t('footer.copyright', { year: COPYRIGHT.YEAR, holder: '\u0000' }).split('\u0000');
     replaceChildren(byId('app-footer'), [
         el('div', { className: 'footer-row' }, [
             el('span', { className: 'footer-product', text: t('footer.product', { version: shell.meta.version }) }),
@@ -184,10 +188,16 @@ function renderChrome() {
                 outboundLink(LINKS.NPM, t('footer.npm'), 'package'),
             ]),
         ]),
-        credits.length ? el('p', { className: 'footer-credits' }, [
-            el('span', { text: t('footer.credits') }),
-            ...credits.flatMap((credit, index) => [index ? ' · ' : ' ', credit]),
-        ]) : null,
+        el('div', { className: 'footer-row footer-legal' }, [
+            el('p', { className: 'footer-copyright' }, [
+                beforeHolder, external(COPYRIGHT.HOLDER, COPYRIGHT.HOLDER_URL), afterHolder ?? '',
+                ' · ', external(t('footer.license'), LINKS.LICENSE),
+            ]),
+            credits.length ? el('p', { className: 'footer-credits' }, [
+                el('span', { text: t('footer.credits') }),
+                ...credits.flatMap((credit, index) => [index ? ' · ' : ' ', credit]),
+            ]) : null,
+        ]),
     ]);
     byId('app-footer').hidden = false;
 }

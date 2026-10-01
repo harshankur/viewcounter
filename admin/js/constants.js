@@ -58,6 +58,14 @@ export const LINKS = Object.freeze({
     SOURCE: 'https://github.com/harshankur/viewcounter',
     CHANGELOG: 'https://github.com/harshankur/viewcounter/blob/master/CHANGELOG.md',
     NPM: 'https://www.npmjs.com/package/@harshankur/viewcounter',
+    LICENSE: 'https://github.com/harshankur/viewcounter/blob/master/LICENSE',
+});
+
+/** The copyright notice in the footer, as the LICENSE file states it. */
+export const COPYRIGHT = Object.freeze({
+    YEAR: 2026,
+    HOLDER: 'Harsh Ankur',
+    HOLDER_URL: 'https://harshankur.com',
 });
 
 /** Mirrors VIEW_STATUS on the server. */
@@ -115,6 +123,25 @@ export const STORAGE_KEY = Object.freeze({
     OVERVIEW_RANGE: `${APP_SLUG}-admin-overview-range`,
     OVERVIEW_METRIC: `${APP_SLUG}-admin-overview-metric`,
     OVERVIEW_CARDS: `${APP_SLUG}-admin-overview-cards`,
+    /** Followed by a table's name: its chosen columns, their order, and widths. */
+    TABLE_PREFIX: `${APP_SLUG}-admin-table-`,
+});
+
+/** Geometry of the data tables, in CSS pixels. */
+export const TABLE = Object.freeze({
+    /** Narrower than this, a table is a list of cards. */
+    CARDS_BELOW: 600,
+    /** A card shows this many of the chosen columns; the rest are under "more". */
+    CARD_FIELDS: 5,
+    SELECT_WIDTH: 42,
+    /** The column of "more" buttons, present only when some columns do not fit. */
+    MORE_WIDTH: 40,
+    /** Narrowest and widest a column can be made. */
+    MIN_WIDTH: 72,
+    MAX_WIDTH: 720,
+    /** Arrow keys on a column edge move it this far; with Shift, further. */
+    RESIZE_STEP: 16,
+    RESIZE_STEP_LARGE: 64,
 });
 
 export const TOAST_DURATION_MS = 4000;

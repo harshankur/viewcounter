@@ -124,19 +124,54 @@
         "selectPage": "Select every view on this page",
         "selectRow": "Select the view from {time}",
         "empty": "No views match.",
-        "emptyTrash": "The trash is empty."
+        "emptyTrash": "The trash is empty.",
+        "columns": "Columns",
+        "columnsTitle": "Columns",
+        "columnsIntro": "Tick the columns you want, and put them in order of importance. The table shows as many as fit its width, in this order; the rest of each row is one tap away, under it. Drag a column's edge in the table to change its width.",
+        "columnsReset": "Reset to default",
+        "columnsApply": "Apply",
+        "columnsNone": "Choose at least one column.",
+        "moveUp": "Move {column} up",
+        "moveDown": "Move {column} down",
+        "onlyAllApps": "shown under All apps",
+        "resize": "Width of the {column} column",
+        "resizeHint": "Drag to resize. Arrow keys also work, and Enter or a double click resets it.",
+        "showMore": {
+            "one": "Show {count} more field",
+            "other": "Show {count} more fields"
+        },
+        "hideMore": {
+            "one": "Hide {count} more field",
+            "other": "Hide {count} more fields"
+        },
+        "showMoreAll": "Show for every row: {columns}",
+        "hideMoreAll": "Hide for every row: {columns}"
     },
     "columns": {
-        "timestamp": "Time",
+        "time": "Time",
+        "deleted": "Deleted",
+        "app": "App",
         "page": "Page",
         "source": "Source",
-        "device": "Device",
-        "country": "Country",
-        "client": "Client",
-        "event": "Event",
         "status": "Status",
-        "actions": "Actions",
-        "app": "App"
+        "event": "Event",
+        "country": "Location",
+        "device": "Device",
+        "client": "Client",
+        "title": "Title",
+        "site": "Site",
+        "referrer": "Referrer",
+        "campaign": "Campaign",
+        "language": "Language",
+        "browser": "Browser",
+        "system": "System",
+        "engagement": "Engagement",
+        "ip": "Masked IP",
+        "session": "Session ID",
+        "viewId": "View ID",
+        "note": "Note",
+        "modified": "Changed by admin",
+        "actions": "Actions"
     },
     "status": {
         "deleted": "In trash",
@@ -379,11 +414,12 @@
         "session": "Session",
         "ip": "IP (masked)",
         "source": "Request",
-        "event": "Event",
-        "unique": "Unique",
         "outcome": "Outcome",
         "detail": "Reason or detail",
-        "view": "View"
+        "view": "View",
+        "site": "Site",
+        "event": "Event",
+        "requests": "Requests"
     },
     "actions": {
         "login_succeeded": "Signed in",
@@ -641,6 +677,8 @@
         "changelog": "Changelog",
         "source": "Source code",
         "npm": "npm package",
-        "credits": "Location data:"
+        "credits": "Location data:",
+        "copyright": "© {year} {holder}",
+        "license": "MIT License"
     }
 }

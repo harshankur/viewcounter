@@ -360,8 +360,9 @@ textarea {
 
 /* ---------- Layout ---------- */
 
+/* Wide enough that a large screen shows more columns and wider charts. */
 main {
-    max-width: 1440px;
+    max-width: 1920px;
     margin: 0 auto;
     padding: 1.75rem 2rem 3rem;
 }
@@ -1846,193 +1847,245 @@ input[type='checkbox'] {
     cursor: pointer;
 }
 
-.col-select { width: 2.6rem; }
-.col-time { width: 8.5rem; }
-.col-app { width: 8rem; }
-.col-page { width: auto; }
-.col-source { width: 9.5rem; }
-.col-device { width: 6.5rem; }
-.col-country { width: 5.5rem; }
-.col-client { width: 8rem; }
-.col-event { width: 7rem; }
-.col-status { width: 10.5rem; }
-.col-actions { width: 8.5rem; }
-
-.log-table .col-action { width: 11rem; }
-.log-table .col-app { width: 9rem; }
-.log-table .col-rows { width: 5rem; }
-.log-table .col-fields { width: auto; }
-.log-table .col-session { width: 7rem; }
-.log-table .col-ip { width: 11rem; }
-.tracking-table .col-app { width: 10rem; }
-.tracking-table .col-source { width: 9rem; }
-.tracking-table .col-outcome { width: 9.5rem; }
-.tracking-table .col-detail { width: auto; }
-.tracking-table .col-view { width: 7rem; }
-
 /*
- * Reflow (FRONTEND.md §12). A table answers to its own width, not the
- * viewport's: it drops optional columns, least useful first, and becomes cards
- * where even its essential columns no longer fit (views below 53rem, logs
- * below 46rem). Each threshold is the width at which the columns still shown
- * leave the flexible column (page, fields, or view) at least 13rem:
- *
- *   views, one app   always 39.6 (select, time, source, status, actions);
- *                    + event 7 from 60, country 5.5 from 65.5,
- *                    device 6.5 from 72, client 8 from 80
- *   views, All apps  the same plus app 8, so each step comes 8rem later;
- *                    source also steps aside between the cards and 61
- *   admin log        always 45.5; + ip 11 from 57, session 7 from 64
- *   tracking log     always 50 (time, app and site, request, outcome, detail);
- *                    + view 7 from 57
+ * Columns (FRONTEND.md §12: reflow, never scroll sideways). dataTable.js
+ * decides which of the admin's chosen columns fit the table's own width, in
+ * their order, and sets their widths; what does not fit is under each row,
+ * behind its "more" button. Below a card's width, each row is a card.
  */
-.table-wrap {
-    container: table / inline-size;
+
+.data-table th {
+    position: relative;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* One app's tab already names the app. */
-.views-table:not(.has-app) .col-app {
+.th-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* The draggable right edge of a column header. */
+.resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 11px;
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.resize-handle::after {
+    content: '';
+    position: absolute;
+    top: 25%;
+    bottom: 25%;
+    right: 3px;
+    width: 2px;
+    border-radius: 1px;
+    background: var(--border);
+    transition: background-color 0.15s;
+}
+
+.resize-handle:hover::after,
+.resize-handle:focus-visible::after,
+.resizing-column .resize-handle:active::after {
+    background: var(--primary);
+}
+
+.resize-handle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
+/* While an edge is dragged, the pointer and the text stay put. */
+body.resizing-column {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.data-table .col-select {
+    padding-left: 0.6rem;
+    padding-right: 0.3rem;
+}
+
+/* The "more" button's own 28px, and a little air. */
+.data-table .col-more {
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+}
+
+.col-actions {
+    white-space: nowrap;
+}
+
+/* What did not fit, under its row: labelled, in the admin's order. */
+.data-table tbody tr.row-more {
+    height: auto;
+    background: var(--code-bg);
+}
+
+.data-table tbody tr.row-more:hover {
+    background: var(--code-bg);
+}
+
+.more-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+    gap: 0.6rem 1.25rem;
+    padding: 0.2rem 0 0.3rem 2.4rem;
+}
+
+.more-list dt {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+}
+
+.more-list dd {
+    min-width: 0;
+    margin-bottom: 0.1rem;
+}
+
+/* Cards: below a table's width, each row stacks its fields, each labelled. */
+.data-table.cards thead {
     display: none;
 }
 
-@container table (width < 88rem) {
-    .views-table.has-app .col-client { display: none; }
+.data-table.cards,
+.data-table.cards tbody,
+.data-table.cards tr,
+.data-table.cards td {
+    display: block;
+    width: 100%;
 }
 
-@container table (width < 80rem) {
-    .views-table .col-client,
-    .views-table.has-app .col-device { display: none; }
+.data-table.cards tbody tr {
+    height: auto;
+    position: relative;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid var(--border);
 }
 
-@container table (width < 73.5rem) {
-    .views-table.has-app .col-country { display: none; }
+.data-table.cards td {
+    border: none;
+    padding: 0.15rem 0;
 }
 
-@container table (width < 72rem) {
-    .views-table .col-device { display: none; }
+.data-table.cards td[data-label] {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    /* From the top, not the baseline: a badge's baseline would otherwise make
+       a card with badges a few pixels taller than one without. */
+    align-items: start;
 }
 
-@container table (width < 68rem) {
-    .views-table.has-app .col-event { display: none; }
+.data-table.cards td[data-label]::before {
+    content: attr(data-label);
+    grid-row: 1 / span 2;
+    padding-top: 0.2rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
 }
 
-@container table (width < 65.5rem) {
-    .views-table .col-country { display: none; }
+.data-table.cards td[data-label] > * {
+    grid-column: 2;
 }
 
-@container table (width < 64rem) {
-    .log-table .col-session { display: none; }
+/* A badge keeps its own width; only text fills the value column. */
+.data-table.cards td[data-label] > .badge {
+    justify-self: start;
 }
 
-@container table (53rem <= width < 61rem) {
-    .views-table.has-app .col-source { display: none; }
+/* The left gutter of a views card holds its checkbox. */
+.views-table.cards tbody tr:not(.row-more) {
+    padding-left: 2.8rem;
 }
 
-@container table (width < 60rem) {
-    .views-table .col-event { display: none; }
+.views-table.cards td.col-select {
+    position: absolute;
+    left: 0.8rem;
+    top: 0.8rem;
+    width: auto;
+    padding: 0;
 }
 
-@container table (width < 57rem) {
-    .log-table .col-ip { display: none; }
+/* A card's status line is full width, so every badge fits on one line;
+   fixed, so a card with no badges is as tall as one with some. */
+.data-table.cards .badges {
+    height: 1.4rem;
 }
 
-@container table (width < 57rem) {
-    .tracking-table .col-view { display: none; }
+.data-table.cards .col-more .btn {
+    padding-left: 0;
 }
 
-@container table (width < 53rem) {
-    .views-table thead {
-        display: none;
-    }
-
-    .views-table,
-    .views-table tbody,
-    .views-table tr,
-    .views-table td {
-        display: block;
-        width: 100%;
-    }
-
-    /* The left gutter holds the row's checkbox. */
-    .views-table tbody tr {
-        height: auto;
-        position: relative;
-        padding: 0.6rem 0.8rem 0.6rem 2.8rem;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .views-table td {
-        border: none;
-        padding: 0.15rem 0;
-    }
-
-    .views-table td.col-select {
-        position: absolute;
-        left: 0.8rem;
-        top: 0.8rem;
-        width: auto;
-    }
-
-    /* A card's status line is full width, so every badge fits on one line;
-       fixed, so a card with no badges is as tall as one with some. */
-    .views-table .badges {
-        height: 1.4rem;
-    }
+.data-table.cards tr.row-more {
+    padding-top: 0;
 }
 
-/* Log rows have no checkbox, so their cards need no gutter. */
-@container table (width < 46rem) {
-    .log-table thead {
-        display: none;
-    }
-
-    .log-table,
-    .log-table tbody,
-    .log-table tr,
-    .log-table td {
-        display: block;
-        width: 100%;
-    }
-
-    .log-table tbody tr {
-        height: auto;
-        padding: 0.6rem 0.8rem;
-        border-bottom: 1px solid var(--border);
-    }
-
-    .log-table td {
-        border: none;
-        padding: 0.15rem 0;
-    }
+.data-table.cards .more-list {
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    row-gap: 0.3rem;
+    padding: 0;
 }
 
-@container table (width < 50rem) {
-    .tracking-table thead {
-        display: none;
-    }
+.views-table.cards .more-list {
+    padding-left: 2rem;
+}
 
-    .tracking-table,
-    .tracking-table tbody,
-    .tracking-table tr,
-    .tracking-table td {
-        display: block;
-        width: 100%;
-    }
+/* Choosing columns: a checkbox and two move buttons per column. */
+.column-chooser {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin-bottom: 0.75rem;
+}
 
-    .tracking-table tbody tr {
-        height: auto;
-        padding: 0.6rem 0.8rem;
-        border-bottom: 1px solid var(--border);
-    }
+.column-choice {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+}
 
-    .tracking-table td {
-        border: none;
-        padding: 0.15rem 0;
-    }
+.column-choice:hover {
+    background: var(--row-hover);
+}
 
-    .tracking-table .col-view {
-        display: block;
-    }
+.column-choice-label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+    padding: 0.3rem 0;
+    cursor: pointer;
+}
+
+.column-choice-note {
+    color: var(--text-muted);
+    font-size: 0.78rem;
+}
+
+.icon-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.toolbar-slot {
+    display: inline-flex;
 }
 
 .cell-primary {
@@ -2118,7 +2171,7 @@ input[type='checkbox'] {
 /* ---------- Footer ---------- */
 
 .app-footer {
-    max-width: 1440px;
+    max-width: 1920px;
     margin: 0 auto;
     padding: 1.5rem 2rem 2.5rem;
     border-top: 1px solid var(--border);
@@ -2160,10 +2213,16 @@ input[type='checkbox'] {
     color: var(--primary);
 }
 
+.footer-legal {
+    font-size: 0.75rem;
+}
+
+.footer-copyright a,
 .footer-credits a {
     color: inherit;
 }
 
+.footer-copyright a:hover,
 .footer-credits a:hover {
     color: var(--primary);
 }

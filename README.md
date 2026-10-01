@@ -234,9 +234,14 @@ every app together under **All apps**; the choice follows you between them.
 - **Views** is the data itself: every view and event recorded, one row each,
   the rows every Overview number is computed from. Filter by period, event
   type, and whether an admin changed a row; search by page, title, site,
-  source, campaign, note, event, or view ID; sort by any column. On narrower
-  screens the table drops its least useful columns first, and on a phone each
-  view becomes a card. From here you can:
+  source, campaign, note, event, or view ID; sort by any column. **Columns**
+  chooses which columns the table has, from everything a view stores, and their
+  order; drag a column's edge to resize it (arrow keys work too). The table
+  shows as many of your columns as fit its width, in your order, and keeps the
+  rest of each row one tap away under it, so a wide screen shows more and
+  nothing scrolls sideways. On a phone each view is a card of your first few
+  columns. The two logs choose their columns the same way, and the choices are
+  remembered in your browser. From here you can:
   - **select several views**, across pages and apps, and act on all at once;
   - **edit content fields**: page path, page title, referrer (the source is
     recalculated from it), device size, event type, and event data. What was
@@ -260,8 +265,8 @@ every app together under **All apps**; the choice follows you between them.
 - **Admin log** lists every sign-in and every change made here.
 
 The header links to this project's website and names the running version; the
-footer links to the documentation, changelog, source, and package, and credits
-the location data.
+footer links to the documentation, changelog, source, and package, carries the
+copyright and licence notice, and credits the location data.
 
 ### How the data is kept
 

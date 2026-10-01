@@ -34,9 +34,9 @@ for (const tab of ['overview', 'views', 'trash', 'tracking-log', 'admin-log']) {
 
 /**
  * Every width between the phone and desktop projects, where a table has the
- * least room: it reflows by dropping optional columns (or turning into cards),
- * never by squeezing the page column away, clipping a header or a timestamp,
- * or scrolling sideways.
+ * least room: it reflows by moving the columns that do not fit under each row
+ * (or turning into cards), never by squeezing the page column away, clipping
+ * a header or a timestamp, or scrolling sideways.
  */
 const SWEEP_WIDTHS = [1920, 1600, 1440, 1366, 1280, 1180, 1100, 1024, 961, 900, 800, 768, 721];
 /** The page column is what a view is about, so it keeps a readable width. */
@@ -130,6 +130,30 @@ test('the Overview on a phone keeps two tiles a row and every card one column wi
         return { firstRow: tops.filter((top) => top === tops[0]).length, cardColumns: lefts.size };
     });
     expect(columns).toEqual({ firstRow: 2, cardColumns: 1 });
+});
+
+test('on a phone each row is a card of the first chosen columns, labelled, with the rest under it', async ({ page, isMobile }) => {
+    test.skip(!isMobile, 'the phone project checks the phone layout');
+    await signIn(page);
+    const table = activePanel(page).locator('table');
+    await expect(table).toHaveClass(/cards/);
+    const first = rows(page).first();
+    await expect(first.locator('td[data-label]')).toHaveCount(5);
+    expect(await first.locator('td[data-label]').evaluateAll((cells) => cells.map((cell) => cell.dataset.label)))
+        .toEqual(['Time', 'App', 'Page', 'Source', 'Status']);
+    await first.getByRole('button', { name: 'Show 6 more fields' }).click();
+    await expect(activePanel(page).locator('tr.row-more dt')).toHaveText(['Event', 'Location', 'Device', 'Client', 'Engagement', 'Campaign']);
+    expect(await sidewaysOverflow(page)).toEqual([]);
+
+    // The chooser is a dialog that fits the phone, and reorders by buttons.
+    await activePanel(page).getByRole('button', { name: 'Columns' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Columns' });
+    await dialog.getByRole('button', { name: 'Move Event up' }).click();
+    await dialog.getByRole('button', { name: 'Move Event up' }).click();
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    expect(await rows(page).first().locator('td[data-label]').evaluateAll((cells) => cells.map((cell) => cell.dataset.label)))
+        .toEqual(['Time', 'App', 'Page', 'Event', 'Source']);
+    expect(await sidewaysOverflow(page)).toEqual([]);
 });
 
 test('the login screen never scrolls sideways', async ({ page }) => {

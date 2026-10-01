@@ -387,6 +387,22 @@ describe('Admin API', () => {
             expect(searched.body.views.map((v) => v.pageTitle)).toEqual(['Gamma']);
         });
 
+        test.each([
+            ['hostname', 'hostname', ['a.example', 'b.example']],
+            ['engagedMs', 'engagedMs', [10, 90000]],
+            ['campaign', 'utmCampaign', ['autumn', 'spring']],
+            ['language', 'language', ['de', 'en']],
+            ['os', 'os', ['Linux', 'macOS']],
+            ['title', 'pageTitle', ['Alpha', 'Beta']],
+        ])('sorts by %s, a column the table can now show', async (sort, field, [low, high]) => {
+            views[0][field] = high;
+            views[1][field] = low;
+            const { agent } = await login(app);
+            const ascending = await agent.get(`${API}/apps/${APP}/views`).query({ sort, order: 'asc', pageSize: 100 }).expect(200);
+            const values = ascending.body.views.map((view) => view[field]).filter((value) => value === low || value === high);
+            expect(values.indexOf(low)).toBeLessThan(values.indexOf(high));
+        });
+
         test('never returns the internal row number or the visitor hash', async () => {
             const { agent } = await login(app);
             const res = await agent.get(`${API}/apps/${APP}/views`).expect(200);

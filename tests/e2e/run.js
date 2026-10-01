@@ -990,6 +990,15 @@ async function verifyAnalysisScenario(db, admin) {
     check('a listing returns every stored field but the visitor hash',
         ['hostname', 'language', 'utmSource', 'utmCampaign', 'region', 'city', 'engagedMs', 'scrollDepth'].every((key) => key in view)
         && view.engagedMs === 5000 && !('visitorHash' in view), JSON.stringify(view));
+    // Every column the table can sort by, on the real engine.
+    const meta = await admin.call('GET', '/meta');
+    const unsortable = [];
+    for (const sort of meta.body?.sortFields || []) {
+        const sorted = await admin.call('GET', `/apps/scenario_app/views?sort=${sort}&order=asc`);
+        if (sorted.status !== 200 || sorted.body.total !== 8) unsortable.push(`${sort}: ${sorted.status}`);
+    }
+    check('a listing sorts by every key the server offers', (meta.body?.sortFields || []).length >= 15 && unsortable.length === 0,
+        unsortable.join(', '));
     const types = await admin.call('GET', '/apps/scenario_app/event-types');
     check('the event types of an app are listed', JSON.stringify(types.body?.eventTypes) === JSON.stringify(['click', 'pageview']),
         JSON.stringify(types.body));

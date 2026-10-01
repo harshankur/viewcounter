@@ -667,7 +667,7 @@ test.describe('every app together, and the table\'s filters', () => {
         await activePanel(page).getByRole('option', { name: 'Download' }).click();
         await expect(rows(page)).toHaveCount(1);
         await expect(rows(page).first()).toContainText('/downloads');
-        await expect(rows(page).first().locator('.col-event')).toHaveText('Download');
+        await expect(rows(page).first().locator('.col-event .cell-primary')).toHaveText('Download');
     });
 
     test('a batch can span apps', async ({ page }) => {
@@ -960,6 +960,165 @@ test.describe('the Tracking log', () => {
     });
 });
 
+test.describe('choosing, ordering, and sizing columns', () => {
+    const shown = (page) => activePanel(page).locator('thead th[data-column]').evaluateAll((cells) => cells.map((th) => th.dataset.column));
+    const chooser = (page) => page.getByRole('dialog', { name: 'Columns' });
+    const openChooser = async (page) => {
+        await activePanel(page).getByRole('button', { name: 'Columns' }).click();
+        await expect(chooser(page)).toBeVisible();
+    };
+    const headerWidth = (page, column) => activePanel(page).locator(`thead th[data-column="${column}"]`)
+        .evaluate((th) => Math.round(th.getBoundingClientRect().width));
+
+    test('a wider window shows more of the chosen columns; a narrower one keeps the rest under each row', async ({ page }) => {
+        await signIn(page);
+        const atDesktop = await shown(page);
+        expect(atDesktop.slice(0, 5)).toEqual(['time', 'app', 'page', 'source', 'status']);
+
+        await page.setViewportSize({ width: 1920, height: 900 });
+        await expect.poll(() => shown(page)).toEqual(
+            ['time', 'app', 'page', 'source', 'status', 'event', 'country', 'device', 'client', 'engagement', 'campaign']);
+        // Everything chosen fits, so there is nothing to expand.
+        await expect(activePanel(page).locator('.more-toggle')).toHaveCount(0);
+
+        await page.setViewportSize({ width: 1000, height: 900 });
+        await expect.poll(() => shown(page)).toEqual(['time', 'app', 'page', 'source']);
+        const first = row(page, FIRST);
+        await first.getByRole('button', { name: 'Show 7 more fields' }).click();
+        const more = activePanel(page).locator('tr.row-more').first();
+        await expect(more.locator('dt')).toHaveText(['Status', 'Event', 'Location', 'Device', 'Client', 'Engagement', 'Campaign']);
+        await expect(more.locator('dd.col-country')).toContainText('Germany');
+        await first.getByRole('button', { name: 'Hide 7 more fields' }).click();
+        await expect(activePanel(page).locator('tr.row-more')).toHaveCount(0);
+    });
+
+    test('the Columns dialog shows, hides, and reorders columns, and the choice is remembered', async ({ page }) => {
+        await signIn(page);
+        await openChooser(page);
+        await chooser(page).getByRole('checkbox', { name: 'Source' }).uncheck();
+        await chooser(page).getByRole('checkbox', { name: 'Language' }).check();
+        // Language moves up past Referrer, Site, Title, and Campaign, by keyboard.
+        const up = chooser(page).getByRole('button', { name: 'Move Language up' });
+        await up.focus();
+        for (let i = 0; i < 12; i++) await page.keyboard.press('Enter');
+        await expect(up).toBeFocused();
+        await chooser(page).getByRole('button', { name: 'Apply' }).click();
+
+        expect((await shown(page)).slice(0, 4)).toEqual(['time', 'app', 'language', 'page']);
+        expect(await shown(page)).not.toContain('source');
+        await expect(row(page, FIRST).locator('.col-language')).toHaveText('Unknown');
+
+        await page.reload();
+        await expect(rows(page).first()).toBeVisible();
+        expect((await shown(page)).slice(0, 4)).toEqual(['time', 'app', 'language', 'page']);
+
+        await openChooser(page);
+        await chooser(page).getByRole('button', { name: 'Reset to default' }).click();
+        await expect(chooser(page).getByRole('checkbox', { name: 'Source' })).toBeChecked();
+        await chooser(page).getByRole('button', { name: 'Apply' }).click();
+        expect((await shown(page)).slice(0, 4)).toEqual(['time', 'app', 'page', 'source']);
+    });
+
+    test('cancelling the dialog changes nothing, and at least one column must stay', async ({ page }) => {
+        await signIn(page);
+        const before = await shown(page);
+        await openChooser(page);
+        await chooser(page).getByRole('checkbox', { name: 'Page' }).uncheck();
+        await chooser(page).getByRole('button', { name: 'Cancel' }).click();
+        expect(await shown(page)).toEqual(before);
+
+        await openChooser(page);
+        for (const box of await chooser(page).getByRole('checkbox').all()) await box.uncheck();
+        await chooser(page).getByRole('button', { name: 'Apply' }).click();
+        await expect(chooser(page).getByRole('alert')).toHaveText('Choose at least one column.');
+        await expect(chooser(page)).toBeVisible();
+    });
+
+    test('a column the app tab makes pointless steps aside, and comes back', async ({ page }) => {
+        await signIn(page);
+        expect(await shown(page)).toContain('app');
+        await activePanel(page).getByRole('tab', { name: /^blog,/ }).click();
+        await expect.poll(() => shown(page)).not.toContain('app');
+        await openChooser(page);
+        await expect(chooser(page).locator('.column-choice[data-column="app"]')).toContainText('shown under All apps');
+    });
+
+    test('a column edge resizes by keyboard and by dragging, and resets on Enter', async ({ page }) => {
+        await signIn(page);
+        const handle = activePanel(page).getByRole('separator', { name: 'Width of the Source column' });
+        const start = await headerWidth(page, 'source');
+        await handle.focus();
+        await page.keyboard.press('ArrowRight');
+        await expect.poll(() => headerWidth(page, 'source')).toBe(start + 16);
+        await expect(activePanel(page).getByRole('separator', { name: 'Width of the Source column' })).toBeFocused();
+        await page.keyboard.press('Shift+ArrowLeft');
+        await expect.poll(() => headerWidth(page, 'source')).toBe(start + 16 - 64);
+
+        const box = await activePanel(page).getByRole('separator', { name: 'Width of the Source column' }).boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2, { steps: 4 });
+        await page.mouse.up();
+        await expect.poll(() => headerWidth(page, 'source')).toBe(start + 16 - 64 + 60);
+
+        // Remembered across a reload, then back to its default.
+        await page.reload();
+        await expect(rows(page).first()).toBeVisible();
+        expect(await headerWidth(page, 'source')).toBe(start + 16 - 64 + 60);
+        await activePanel(page).getByRole('separator', { name: 'Width of the Source column' }).focus();
+        await page.keyboard.press('Enter');
+        await expect.poll(() => headerWidth(page, 'source')).toBe(start);
+    });
+
+    test('a column made wider pushes the last one under the rows rather than off the screen', async ({ page }) => {
+        await signIn(page);
+        const before = await shown(page);
+        const handle = activePanel(page).getByRole('separator', { name: 'Width of the Time column' });
+        await handle.focus();
+        for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight');
+        await expect.poll(async () => (await shown(page)).length).toBeLessThan(before.length);
+        const overflow = await page.evaluate(() => document.scrollingElement.scrollWidth > document.scrollingElement.clientWidth);
+        expect(overflow).toBe(false);
+    });
+
+    test('a chosen column sorts the table when the server can sort by it', async ({ page }) => {
+        await signIn(page);
+        await openChooser(page);
+        await chooser(page).getByRole('checkbox', { name: 'Site' }).check();
+        const up = chooser(page).getByRole('button', { name: 'Move Site up' });
+        await up.focus();
+        for (let i = 0; i < 12; i++) await page.keyboard.press('Enter');
+        await chooser(page).getByRole('button', { name: 'Apply' }).click();
+        const site = activePanel(page).locator('thead th[data-column="site"]');
+        await site.getByRole('button', { name: /Site/ }).click();
+        await expect(site).toHaveAttribute('aria-sort', 'descending');
+        await expect(site.getByRole('button', { name: /Site/ })).toBeFocused();
+    });
+
+    test('the logs choose their columns too, each on its own', async ({ page }) => {
+        await signIn(page, 'tracking-log');
+        expect(await shown(page)).toEqual(['time', 'app', 'source', 'outcome', 'detail', 'view']);
+        await openChooser(page);
+        await chooser(page).getByRole('checkbox', { name: 'View' }).uncheck();
+        await chooser(page).getByRole('checkbox', { name: 'Requests' }).check();
+        await chooser(page).getByRole('button', { name: 'Apply' }).click();
+        expect(await shown(page)).toEqual(['time', 'app', 'source', 'outcome', 'detail', 'requests']);
+
+        await sectionTab(page, 'admin-log').click();
+        await expect(activePanel(page).locator('tbody tr').first()).toBeVisible();
+        expect(await shown(page)).toEqual(['time', 'action', 'app', 'rows', 'fields', 'session', 'ip']);
+    });
+
+    test('the selection survives the table refitting', async ({ page }) => {
+        await signIn(page);
+        await row(page, FIRST).getByRole('checkbox').check();
+        await page.setViewportSize({ width: 1000, height: 900 });
+        await expect.poll(() => shown(page)).toEqual(['time', 'app', 'page', 'source']);
+        await expect(row(page, FIRST).getByRole('checkbox')).toBeChecked();
+        await expect(activePanel(page).locator('.batch-count')).toHaveText('1 view selected');
+    });
+});
+
 test.describe('header and footer', () => {
     test('link to the website, and say which version is running', async ({ page }) => {
         const { version } = require('../../package.json');
@@ -974,6 +1133,15 @@ test.describe('header and footer', () => {
         await expect(footer.getByRole('link', { name: 'Source code' })).toHaveAttribute('href', 'https://github.com/harshankur/viewcounter');
         await expect(footer.getByRole('link', { name: 'npm package' })).toHaveAttribute('href', 'https://www.npmjs.com/package/@harshankur/viewcounter');
         await expect(footer).toContainText('This product includes GeoLite2 data created by MaxMind');
+    });
+
+    test('the footer carries the copyright notice, with its holder and licence linked', async ({ page }) => {
+        await signIn(page);
+        const footer = page.locator('#app-footer');
+        await expect(footer.locator('.footer-copyright')).toHaveText('© 2026 Harsh Ankur · MIT License');
+        await expect(footer.getByRole('link', { name: 'Harsh Ankur' })).toHaveAttribute('href', 'https://harshankur.com');
+        await expect(footer.getByRole('link', { name: 'MIT License' }))
+            .toHaveAttribute('href', 'https://github.com/harshankur/viewcounter/blob/master/LICENSE');
     });
 
     test('a failure in the page itself is named as one, not blamed on the server', async ({ page }) => {

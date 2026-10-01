@@ -11,12 +11,13 @@
 import { api } from './api.js';
 import { statTiles } from './charts.js';
 import { clampText } from './clamp.js';
+import { createDataTable } from './dataTable.js';
 import { el, replaceChildren } from './dom.js';
-import { formatHeadline, formatNumber, orNone } from './format.js';
+import { formatDate, formatHeadline, formatNumber, formatTime, orNone } from './format.js';
 import { icon } from './icons.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
-import { createPager, headerCell, messageRow, timeCell } from './table.js';
+import { createPager } from './table.js';
 import { TRACKING_LOG_REFRESH_MS } from './constants.js';
 
 /** Sentinel for "no filter" in a filter listbox. */
@@ -33,24 +34,38 @@ function filterListbox(label, allLabel, values, labelFor, onChange) {
     });
 }
 
+/** A cell of two lines: what matters, and a detail under it. */
+const two = (primary, secondary) => [
+    clampText(primary, { className: 'cell-primary' }),
+    clampText(secondary, { className: 'cell-secondary' }),
+];
+const one = (text, className = '') => [clampText(text, { className })];
+/** When something happened, to the second: logs order events moments apart. */
+const when = (value) => two(formatDate(value), formatTime(value, { seconds: true }));
+
 /**
  * A paged, filterable, read-only log table under a title and an explanation.
- * @param {{ title: string, intro: string, columns: string[], filters: object[], fetchPage: (query: object) => Promise<object>,
- *   renderRow: (entry: object) => HTMLElement, meta: object, reportError: (error: unknown) => void,
- *   emptyKey: string, notice?: string, above?: Node[], controls?: Node[], onLoad?: (query: object) => void,
- *   tableClassName?: string }} options
+ * Its columns can be chosen, ordered, and sized like those of the views table.
+ * @param {{ name: string, title: string, intro: string, columns: object[], rowKey: (entry: object) => string,
+ *   rowAttrs?: (entry: object) => object, filters: object[], fetchPage: (query: object) => Promise<object>,
+ *   meta: object, reportError: (error: unknown) => void, emptyKey: string, notice?: string, above?: Node[],
+ *   controls?: Node[], onLoad?: (query: object) => void, tableClassName?: string }} options
  */
 function createLogPanel({
-    title, intro, columns, filters, fetchPage, renderRow, meta, reportError, emptyKey, notice,
+    name, title, intro, columns, rowKey, rowAttrs, filters, fetchPage, meta, reportError, emptyKey, notice,
     above = [], controls = [], onLoad, tableClassName = '',
 }) {
     const state = { page: 1, pageSize: meta.pageSizeDefault, total: 0, entries: [], query: {}, seq: 0 };
 
-    const tbody = el('tbody');
-    const table = el('table', { className: `data-table log-table ${tableClassName}`.trim() }, [
-        el('thead', {}, [el('tr', {}, columns.map((key) => headerCell({ label: t(`logColumns.${key}`), className: `col-${key}` })))]),
-        tbody,
-    ]);
+    const grid = createDataTable({
+        storageKey: name,
+        className: `log-table ${tableClassName}`.trim(),
+        columns: columns.map((column) => ({ ...column, label: t(`logColumns.${column.id}`) })),
+        rowKey,
+        rowAttrs,
+        empty: () => t(emptyKey),
+    });
+    const { table } = grid;
     const pager = createPager((page) => {
         state.page = page;
         load();
@@ -58,7 +73,7 @@ function createLogPanel({
 
     const toolbar = el('div', { className: 'toolbar' }, [
         el('div', { className: 'toolbar-group' }, filters.map((filter) => filter.listbox.element)),
-        controls.length ? el('div', { className: 'toolbar-group' }, controls) : null,
+        el('div', { className: 'toolbar-group' }, [...controls, grid.chooserButton]),
     ]);
 
     const element = el('section', { className: 'panel', attrs: { 'aria-label': title } }, [
@@ -69,7 +84,7 @@ function createLogPanel({
         ...above,
         toolbar,
         notice ? el('p', { className: 'notice', text: notice }) : null,
-        el('div', { className: 'table-wrap' }, [table]),
+        grid.element,
         pager.element,
     ]);
 
@@ -82,9 +97,7 @@ function createLogPanel({
             if (seq !== state.seq) return;
             state.entries = result.entries;
             state.total = result.total;
-            replaceChildren(tbody, state.entries.length
-                ? state.entries.map(renderRow)
-                : [messageRow(columns.length, t(emptyKey))]);
+            grid.setRows(state.entries);
             pager.update(state.page, state.pageSize, state.total);
         } catch (error) {
             if (seq === state.seq) reportError(error);
@@ -115,27 +128,27 @@ export function createAdminLogPanel({ meta, appIds, reportError }) {
     appFilter.listbox = filterListbox(t('logs.filterApp'), t('logs.allApps'), appIds(), (id) => id,
         (value) => appFilter.onValue(value));
 
-    const renderRow = (entry) => el('tr', {}, [
-        timeCell(entry.createdAt, { seconds: true }),
-        el('td', { className: 'col-action' }, [clampText(tOr(`actions.${entry.action}`, entry.action))]),
-        el('td', { className: 'col-app' }, [clampText(orNone(entry.appId))]),
-        el('td', { className: 'col-rows' }, [clampText(formatNumber(entry.targetCount))]),
-        el('td', { className: 'col-fields' }, [clampText(
-            entry.fields.length ? entry.fields.map((field) => tOr(`fields.${field}`, field)).join(', ') : t('common.none'),
-        )]),
-        el('td', { className: 'col-session' }, [clampText(entry.sessionId ? entry.sessionId.slice(0, 8) : t('logs.system'), {
-            className: 'mono',
-        })]),
-        el('td', { className: 'col-ip' }, [clampText(orNone(entry.maskedIp), { className: 'mono' })]),
-    ]);
+    const columns = [
+        { id: 'time', width: 140, cell: (entry) => when(entry.createdAt) },
+        { id: 'action', width: 176, cell: (entry) => one(tOr(`actions.${entry.action}`, entry.action)) },
+        { id: 'app', width: 144, cell: (entry) => one(orNone(entry.appId)) },
+        { id: 'rows', width: 84, cell: (entry) => one(formatNumber(entry.targetCount)) },
+        {
+            id: 'fields', width: 240, minWidth: 160, grow: true,
+            cell: (entry) => one(entry.fields.length ? entry.fields.map((field) => tOr(`fields.${field}`, field)).join(', ') : t('common.none')),
+        },
+        { id: 'session', width: 116, cell: (entry) => one(entry.sessionId ? entry.sessionId.slice(0, 8) : t('logs.system'), 'mono') },
+        { id: 'ip', width: 170, cell: (entry) => one(orNone(entry.maskedIp), 'mono') },
+    ];
 
     return createLogPanel({
+        name: 'admin-log',
         title: t('tabs.adminLog'),
         intro: t('logs.adminIntro'),
-        columns: ['time', 'action', 'app', 'rows', 'fields', 'session', 'ip'],
+        columns,
+        rowKey: (entry) => entry.id,
         filters: [actionFilter, appFilter],
         fetchPage: api.adminLog,
-        renderRow,
         meta,
         reportError,
         emptyKey: 'logs.emptyAdmin',
@@ -205,14 +218,12 @@ export function createTrackingLogPanel({ meta, appIds, reportError, openView }) 
         }
     }
 
-    const outcomeCell = (entry) => {
+    const outcomeBadge = (entry) => {
         const counted = entry.requests > 1 ? ` ×${formatNumber(entry.requests)}` : '';
-        return el('td', { className: 'col-outcome' }, [
-            el('span', {
-                className: `badge ${OUTCOME_BADGE[entry.outcome] ?? 'badge-muted'}`,
-                text: `${tOr(`outcomes.${entry.outcome}`, entry.outcome)}${counted}`,
-            }),
-        ]);
+        return [el('span', {
+            className: `badge ${OUTCOME_BADGE[entry.outcome] ?? 'badge-muted'}`,
+            text: `${tOr(`outcomes.${entry.outcome}`, entry.outcome)}${counted}`,
+        })];
     };
 
     const detailText = (entry) => {
@@ -220,31 +231,30 @@ export function createTrackingLogPanel({ meta, appIds, reportError, openView }) 
         return [reason, entry.detail].filter(Boolean).join(': ') || t('common.none');
     };
 
-    const viewCell = (entry) => el('td', { className: 'col-view' }, [entry.viewId && entry.appId
+    const viewLink = (entry) => [entry.viewId && entry.appId
         ? el('button', {
             className: 'link-btn mono',
             attrs: { type: 'button', title: t('logs.openView'), 'aria-label': t('logs.openViewNamed', { id: entry.viewId }) },
             on: { click: () => openView(entry.appId, entry.viewId) },
         }, [el('span', { text: entry.viewId.slice(0, 8) }), icon('arrowRight')])
-        : clampText(t('common.none'))]);
+        : clampText(t('common.none'))];
 
-    const renderRow = (entry) => el('tr', { dataset: { outcome: entry.outcome } }, [
-        timeCell(entry.at, { seconds: true }),
-        el('td', { className: 'col-app' }, [
-            clampText(orNone(entry.appId), { className: 'cell-primary' }),
-            clampText(orNone(entry.hostname), { className: 'cell-secondary' }),
-        ]),
-        el('td', { className: 'col-source' }, [
-            clampText(tOr(`logSources.${entry.source}`, entry.source), { className: 'cell-primary' }),
+    const eventName = (entry) => (entry.eventType ? tOr(`eventTypes.${entry.eventType}`, entry.eventType) : t('common.none'));
+    const columns = [
+        { id: 'time', width: 140, cell: (entry) => when(entry.at) },
+        { id: 'app', width: 160, cell: (entry) => two(orNone(entry.appId), orNone(entry.hostname)) },
+        {
             // A page view's type goes without saying; an event names its type.
-            clampText(entry.eventType && entry.source === 'event' ? tOr(`eventTypes.${entry.eventType}`, entry.eventType) : t('common.none'), {
-                className: 'cell-secondary',
-            }),
-        ]),
-        outcomeCell(entry),
-        el('td', { className: 'col-detail' }, [clampText(detailText(entry))]),
-        viewCell(entry),
-    ]);
+            id: 'source', width: 144,
+            cell: (entry) => two(tOr(`logSources.${entry.source}`, entry.source), entry.source === 'event' ? eventName(entry) : t('common.none')),
+        },
+        { id: 'outcome', width: 152, cell: outcomeBadge },
+        { id: 'detail', width: 240, minWidth: 160, grow: true, cell: (entry) => one(detailText(entry)) },
+        { id: 'view', width: 112, cell: viewLink },
+        { id: 'site', width: 200, hidden: true, cell: (entry) => one(orNone(entry.hostname)) },
+        { id: 'event', width: 150, hidden: true, cell: (entry) => one(eventName(entry)) },
+        { id: 'requests', width: 104, hidden: true, cell: (entry) => one(formatNumber(entry.requests)) },
+    ];
 
     // Auto-refresh: for watching a site's views arrive after setting it up.
     let timer = null;
@@ -261,12 +271,14 @@ export function createTrackingLogPanel({ meta, appIds, reportError, openView }) 
     ]);
 
     const panel = createLogPanel({
+        name: 'tracking-log',
         title: t('tabs.trackingLog'),
         intro: t('logs.trackingIntro'),
-        columns: ['time', 'app', 'source', 'outcome', 'detail', 'view'],
+        columns,
+        rowKey: (entry) => entry.id,
+        rowAttrs: (entry) => ({ dataset: { outcome: entry.outcome } }),
         filters: [appFilter, sourceFilter, outcomeFilter],
         fetchPage: api.trackingLog,
-        renderRow,
         meta,
         reportError,
         emptyKey: 'logs.emptyTracking',

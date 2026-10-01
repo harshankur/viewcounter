@@ -10,20 +10,21 @@
 
 import { api } from './api.js';
 import { appEntries, createAppTabs } from './appTabs.js';
+import { regionName } from './charts.js';
 import { clampText } from './clamp.js';
+import { createDataTable } from './dataTable.js';
 import { el, replaceChildren, debounce, uniqueId } from './dom.js';
-import { formatDateTime, formatNumber, orNone } from './format.js';
+import { formatDate, formatDateTime, formatDuration, formatNumber, formatTime, orNone } from './format.js';
 import { icon } from './icons.js';
 import { t, tOr } from './i18n.js';
 import { createListbox } from './listbox.js';
 import { confirmModal } from './modal.js';
-import { createPager, createSegmented, headerCell, messageRow, timeCell } from './table.js';
+import { createPager, createSegmented } from './table.js';
 import { showToast, TOAST_TYPE } from './toast.js';
 import { openDetails, openEditor, openNoteEditor } from './viewDialogs.js';
 import { valueLabel } from './overview.js';
 import {
     ALL_APPS,
-    CLAMP_LINES,
     RANGE,
     MODIFIED_FILTER,
     SEARCH_DEBOUNCE_MS,
@@ -37,21 +38,88 @@ export const PANEL_MODE = Object.freeze({
     TRASH: 'trash',
 });
 
-/** Columns in display order; `sort` names the API sort key. */
-const COLUMNS = [
-    { key: 'timestamp', sort: 'timestamp', className: 'col-time' },
-    { key: 'app', className: 'col-app' },
-    { key: 'page', sort: 'page', className: 'col-page' },
-    { key: 'source', sort: 'source', className: 'col-source' },
-    { key: 'device', sort: 'deviceSize', className: 'col-device' },
-    { key: 'country', sort: 'country', className: 'col-country' },
-    { key: 'client', sort: 'browser', className: 'col-client' },
-    { key: 'event', sort: 'eventType', className: 'col-event' },
-    { key: 'status', className: 'col-status' },
-    { key: 'actions', className: 'col-actions' },
+/** Width of the row actions column: four icon buttons and their padding. */
+const ACTIONS_WIDTH = 148;
+
+/** A cell of two lines: what matters, and a detail under it. */
+const two = (primary, secondary) => [
+    clampText(primary, { className: 'cell-primary' }),
+    clampText(secondary, { className: 'cell-secondary' }),
 ];
-/** Plus the selection column. */
-const COLUMN_COUNT = COLUMNS.length + 1;
+/** A cell of one line. */
+const one = (text, className = 'cell-primary') => [clampText(text, { className })];
+const when = (value) => (value ? two(formatDate(value), formatTime(value)) : one(t('common.none')));
+
+/** A custom event's data in a line: its first few simple values. */
+function eventSummary(data) {
+    if (!data || typeof data !== 'object') return t('common.none');
+    const parts = Object.entries(data)
+        .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+        .slice(0, 3)
+        .map(([key, value]) => `${key}: ${value}`);
+    return parts.length ? parts.join(', ') : t('common.none');
+}
+
+/**
+ * Every column a views table can show, in default order. The ones marked
+ * `hidden` are there to be chosen; `sort` names the API sort key, used when
+ * the server offers it.
+ */
+const VIEW_COLUMNS = [
+    { id: 'time', width: 132, sort: 'timestamp', cell: (view) => when(view.timestamp) },
+    { id: 'deleted', width: 136, sort: 'deletedAt', trashOnly: true, cell: (view) => when(view.deletedAt) },
+    { id: 'app', width: 136, allAppsOnly: true, cell: (view) => one(view.appId, 'mono') },
+    {
+        id: 'page', width: 260, minWidth: 200, grow: true, sort: 'page',
+        cell: (view) => two(orNone(view.pagePath), view.hostname ? `${view.hostname} · ${orNone(view.pageTitle)}` : orNone(view.pageTitle)),
+    },
+    {
+        id: 'source', width: 144, sort: 'source',
+        cell: (view) => two(
+            view.sourceType ? tOr(`sources.${view.sourceType}`, view.sourceType) : t('common.none'),
+            orNone(view.utmCampaign ?? view.referrerDomain),
+        ),
+    },
+    { id: 'status', width: 150, minWidth: 110 },
+    {
+        id: 'event', width: 130, sort: 'eventType',
+        cell: (view) => two(view.eventType ? tOr(`eventTypes.${view.eventType}`, view.eventType) : t('common.none'), eventSummary(view.eventData)),
+    },
+    {
+        id: 'country', width: 140, sort: 'country',
+        cell: (view) => two(view.country ? regionName(view.country) : t('common.none'), orNone([view.city, view.region].filter(Boolean).join(', '))),
+    },
+    {
+        id: 'device', width: 104, sort: 'deviceSize',
+        cell: (view) => two(
+            view.deviceSize ? tOr(`deviceSizes.${view.deviceSize}`, view.deviceSize) : t('common.none'),
+            view.deviceType ? tOr(`deviceTypes.${view.deviceType}`, view.deviceType) : t('common.none'),
+        ),
+    },
+    { id: 'client', width: 124, sort: 'browser', cell: (view) => two(orNone(view.browser), orNone(view.os)) },
+    {
+        id: 'engagement', width: 130, sort: 'engagedMs',
+        cell: (view) => two(
+            formatDuration(view.engagedMs),
+            view.scrollDepth === null || view.scrollDepth === undefined ? t('common.none') : t('details.scrolled', { percent: view.scrollDepth }),
+        ),
+    },
+    {
+        id: 'campaign', width: 180, sort: 'campaign',
+        cell: (view) => two(orNone(view.utmCampaign), orNone([view.utmSource, view.utmMedium, view.utmTerm, view.utmContent].filter(Boolean).join(' · '))),
+    },
+    { id: 'title', width: 220, hidden: true, sort: 'title', cell: (view) => one(orNone(view.pageTitle)) },
+    { id: 'site', width: 180, hidden: true, sort: 'hostname', cell: (view) => one(orNone(view.hostname)) },
+    { id: 'referrer', width: 240, hidden: true, sort: 'referrer', cell: (view) => two(orNone(view.referrerDomain), orNone(view.referrer)) },
+    { id: 'language', width: 150, hidden: true, sort: 'language', cell: (view) => one(valueLabel('language', view.language)) },
+    { id: 'browser', width: 140, hidden: true, sort: 'browser', cell: (view) => two(orNone(view.browser), orNone(view.browserVersion)) },
+    { id: 'system', width: 140, hidden: true, sort: 'os', cell: (view) => two(orNone(view.os), orNone(view.osVersion)) },
+    { id: 'ip', width: 140, hidden: true, cell: (view) => one(orNone(view.maskedIp), 'mono') },
+    { id: 'session', width: 160, hidden: true, cell: (view) => one(orNone(view.sessionId), 'mono') },
+    { id: 'viewId', width: 130, hidden: true, cell: (view) => one(view.id, 'mono') },
+    { id: 'note', width: 220, hidden: true, cell: (view) => one(orNone(view.note)) },
+    { id: 'modified', width: 136, hidden: true, sort: 'modifiedAt', cell: (view) => when(view.adminModifiedAt) },
+];
 
 /**
  * @param {{ mode: string, meta: object, context: { apps: () => object[], appId: () => string,
@@ -186,6 +254,10 @@ export function createViewsPanel({ mode, meta, context }) {
         }));
     }
 
+    // Filled once the table exists: its "Columns" button sits with the other
+    // controls that change only how the rows are shown.
+    const columnsSlot = el('span', { className: 'toolbar-slot' });
+
     const toolbar = el('div', { className: 'toolbar' }, [
         el('div', { className: 'toolbar-group' }, [
             rangeFilter.element,
@@ -201,6 +273,7 @@ export function createViewsPanel({ mode, meta, context }) {
                 el('span', { className: 'switch-label', text: t('toolbar.showDeleted') }),
             ]),
             pageSizePicker.element,
+            columnsSlot,
         ]),
     ]);
 
@@ -238,9 +311,34 @@ export function createViewsPanel({ mode, meta, context }) {
         attrs: { type: 'checkbox', 'aria-label': t('table.selectPage') },
         on: { change: () => togglePage(selectAll.checked) },
     });
-    const thead = el('thead');
-    const tbody = el('tbody');
-    const table = el('table', { className: 'data-table views-table', attrs: { id: tableId } }, [thead, tbody]);
+
+    const allApps = () => context.appId() === ALL_APPS;
+    const grid = createDataTable({
+        storageKey: mode,
+        id: tableId,
+        className: 'views-table',
+        // The trash leads with when a view was deleted; elsewhere that is one more column to choose.
+        columns: VIEW_COLUMNS.map(({ sort, allAppsOnly, trashOnly, cell, ...column }) => ({
+            ...column,
+            label: t(`columns.${column.id}`),
+            hidden: trashOnly ? !isTrash : column.hidden,
+            sortKey: meta.sortFields.includes(sort) ? sort : undefined,
+            available: allAppsOnly ? allApps : undefined,
+            unavailableNote: allAppsOnly ? t('table.onlyAllApps') : undefined,
+            cell: column.id === 'status' ? statusCell : cell,
+        })),
+        rowKey: (view) => view.id,
+        rowAttrs: (view) => ({ className: isDeleted(view) ? 'row-deleted' : '', dataset: { viewId: view.id } }),
+        select: { header: () => selectAll, cell: selectCell },
+        actions: { label: t('columns.actions'), width: ACTIONS_WIDTH, cell: actionsCell },
+        sort: () => ({ key: state.sort, order: state.order }),
+        onSort,
+        empty: () => (isTrash ? t('table.emptyTrash') : t('table.empty')),
+    });
+    const { table } = grid;
+    grid.onRender(renderSelection);
+    columnsSlot.append(grid.chooserButton);
+
     const pager = createPager((page) => {
         state.page = page;
         load();
@@ -261,7 +359,7 @@ export function createViewsPanel({ mode, meta, context }) {
         retention,
         summary,
         batchBar,
-        el('div', { className: 'table-wrap' }, [table]),
+        grid.element,
         pager.element,
     ]);
 
@@ -311,19 +409,7 @@ export function createViewsPanel({ mode, meta, context }) {
         load();
     }
 
-    function renderHead() {
-        replaceChildren(thead, [el('tr', {}, [
-            el('th', { className: 'col-select', attrs: { scope: 'col' } }, [selectAll]),
-            ...COLUMNS.map((column) => headerCell({
-                label: t(`columns.${column.key}`),
-                sortKey: column.sort,
-                sort: state.sort,
-                order: state.order,
-                onSort,
-                className: column.className,
-            })),
-        ])]);
-    }
+    const isDeleted = (view) => view.deletedAt !== null && view.deletedAt !== undefined;
 
     function badge(key, className, title) {
         return el('span', { className: `badge ${className}`, text: t(key), attrs: title ? { title } : {} });
@@ -337,8 +423,7 @@ export function createViewsPanel({ mode, meta, context }) {
         }, [icon(iconName)]);
     }
 
-    function renderRow(view) {
-        const deleted = view.deletedAt !== null && view.deletedAt !== undefined;
+    function selectCell(view) {
         const checkbox = el('input', {
             attrs: {
                 type: 'checkbox',
@@ -347,15 +432,21 @@ export function createViewsPanel({ mode, meta, context }) {
             on: { change: (event) => toggleRow(view, event.currentTarget.checked) },
         });
         checkbox.checked = state.selection.has(view.id);
+        return checkbox;
+    }
 
-        const badges = [
-            deleted ? badge('status.deleted', 'badge-danger', formatDateTime(view.deletedAt)) : null,
+    function statusCell(view) {
+        return [el('div', { className: 'badges' }, [
+            isDeleted(view) ? badge('status.deleted', 'badge-danger', formatDateTime(view.deletedAt)) : null,
             view.adminModifiedAt ? badge('status.modified', 'badge-warning', formatDateTime(view.adminModifiedAt)) : null,
             view.note ? badge('status.note', 'badge-info', view.note) : null,
             view.isUnique ? null : badge('status.repeat', 'badge-muted'),
-        ];
+        ])];
+    }
 
-        const actions = [
+    function actionsCell(view) {
+        const deleted = isDeleted(view);
+        return el('div', { className: 'row-actions' }, [
             actionButton('info', 'rowActions.details', () => openDetails(view)),
             deleted ? null : actionButton('edit', 'rowActions.edit', () => editViews([view])),
             actionButton('note', 'rowActions.note', () => noteViews([view])),
@@ -363,39 +454,6 @@ export function createViewsPanel({ mode, meta, context }) {
                 ? actionButton('restore', 'rowActions.restore', () => restoreViews([view]))
                 : actionButton('trash', 'rowActions.delete', () => deleteViews([view]), 'danger'),
             deleted && isTrash ? actionButton('purge', 'rowActions.purge', () => purgeViews([view]), 'danger') : null,
-        ];
-
-        const source = view.sourceType ? tOr(`sources.${view.sourceType}`, view.sourceType) : t('common.none');
-
-        return el('tr', { className: deleted ? 'row-deleted' : '', dataset: { viewId: view.id } }, [
-            el('td', { className: 'col-select' }, [checkbox]),
-            timeCell(view.timestamp),
-            el('td', { className: 'col-app' }, [clampText(view.appId, { className: 'mono' })]),
-            el('td', { className: 'col-page' }, [
-                clampText(orNone(view.pagePath), { className: 'cell-primary' }),
-                clampText(view.hostname ? `${view.hostname} · ${orNone(view.pageTitle)}` : orNone(view.pageTitle), {
-                    lines: CLAMP_LINES.SINGLE, className: 'cell-secondary',
-                }),
-            ]),
-            el('td', { className: 'col-source' }, [
-                clampText(source, { className: 'cell-primary' }),
-                clampText(orNone(view.utmCampaign ?? view.referrerDomain), { className: 'cell-secondary' }),
-            ]),
-            el('td', { className: 'col-device' }, [
-                clampText(view.deviceSize ? tOr(`deviceSizes.${view.deviceSize}`, view.deviceSize) : t('common.none'), { className: 'cell-primary' }),
-                clampText(orNone(view.deviceType), { className: 'cell-secondary' }),
-            ]),
-            el('td', { className: 'col-country' }, [
-                clampText(orNone(view.country), { className: 'cell-primary' }),
-                clampText(orNone(view.city ?? view.region ?? view.language), { className: 'cell-secondary' }),
-            ]),
-            el('td', { className: 'col-client' }, [
-                clampText(orNone(view.browser), { className: 'cell-primary' }),
-                clampText(orNone(view.os), { className: 'cell-secondary' }),
-            ]),
-            el('td', { className: 'col-event' }, [clampText(view.eventType ? tOr(`eventTypes.${view.eventType}`, view.eventType) : t('common.none'))]),
-            el('td', { className: 'col-status' }, [el('div', { className: 'badges' }, badges)]),
-            el('td', { className: 'col-actions' }, [el('div', { className: 'row-actions' }, actions)]),
         ]);
     }
 
@@ -410,7 +468,7 @@ export function createViewsPanel({ mode, meta, context }) {
         selectAll.indeterminate = selectedOnPage > 0 && selectedOnPage < pageIds.length;
         selectAll.disabled = pageIds.length === 0;
 
-        for (const row of tbody.querySelectorAll('tr[data-view-id]')) {
+        for (const row of table.querySelectorAll('tbody tr[data-view-id]')) {
             const checkbox = row.querySelector('.col-select input');
             if (checkbox) checkbox.checked = state.selection.has(row.dataset.viewId);
         }
@@ -421,16 +479,10 @@ export function createViewsPanel({ mode, meta, context }) {
 
     /** Rebuild the table from state. After a sort, focus returns to its header. */
     function render() {
-        renderHead();
-        if (state.rows.length === 0) {
-            replaceChildren(tbody, [messageRow(COLUMN_COUNT, isTrash ? t('table.emptyTrash') : t('table.empty'))]);
-        } else {
-            replaceChildren(tbody, state.rows.map(renderRow));
-        }
-        renderSelection();
+        grid.setRows(state.rows);
         pager.update(state.page, state.pageSize, state.total);
         if (state.focusSort) {
-            thead.querySelector(`[data-sort-key="${state.focusSort}"]`)?.focus();
+            grid.sortButton(state.focusSort)?.focus();
             state.focusSort = null;
         }
 
@@ -470,8 +522,6 @@ export function createViewsPanel({ mode, meta, context }) {
             if (seq !== state.requestSeq) return;
             state.rows = result.views;
             state.total = result.total;
-            // Rows name their app only under All apps; one app's tab already does.
-            table.classList.toggle('has-app', appId === ALL_APPS);
             if (state.rows.length === 0 && state.page > 1 && state.total > 0) {
                 state.page = Math.max(1, Math.ceil(state.total / state.pageSize));
                 await load();

@@ -294,6 +294,13 @@ const ADMIN_SORT_COLUMNS = {
     eventType: 'event_type',
     source: 'source_type',
     browser: 'browser',
+    os: 'os',
+    title: 'page_title',
+    hostname: 'hostname',
+    referrer: 'referrer_domain',
+    campaign: 'utm_campaign',
+    language: 'language',
+    engagedMs: 'engaged_ms',
     modifiedAt: 'admin_modified_at',
     deletedAt: 'deleted_at',
 };

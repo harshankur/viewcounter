@@ -42,6 +42,11 @@ const SORT_FIELD = Object.fromEntries(
         timestamp: 'timestamp',
         country: 'country',
         browser: 'browser',
+        os: 'os',
+        hostname: 'hostname',
+        utm_campaign: 'utmCampaign',
+        language: 'language',
+        engaged_ms: 'engagedMs',
         admin_modified_at: 'adminModifiedAt',
         deleted_at: 'deletedAt',
     })[column]])
