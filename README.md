@@ -266,7 +266,7 @@ every app together under **All apps**; the choice follows you between them.
 
 The header links to this project's website and names the running version; the
 footer links to the documentation, changelog, source, and package, carries the
-copyright and licence notice, and credits the location data.
+copyright notice, and credits the location data.
 
 ### How the data is kept
 

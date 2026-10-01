@@ -58,7 +58,6 @@ export const LINKS = Object.freeze({
     SOURCE: 'https://github.com/harshankur/viewcounter',
     CHANGELOG: 'https://github.com/harshankur/viewcounter/blob/master/CHANGELOG.md',
     NPM: 'https://www.npmjs.com/package/@harshankur/viewcounter',
-    LICENSE: 'https://github.com/harshankur/viewcounter/blob/master/LICENSE',
 });
 
 /** The copyright notice in the footer, as the LICENSE file states it. */

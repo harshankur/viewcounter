@@ -670,7 +670,7 @@
         }
     },
     "footer": {
-        "product": "viewcounter {version}",
+        "product": "Version {version}",
         "links": "About viewcounter",
         "website": "Website",
         "docs": "Admin guide",
@@ -678,7 +678,6 @@
         "source": "Source code",
         "npm": "npm package",
         "credits": "Location data:",
-        "copyright": "© {year} {holder}",
-        "license": "MIT License"
+        "copyright": "{product} © {year} {holder}"
     }
 }

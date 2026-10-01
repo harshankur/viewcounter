@@ -1128,20 +1128,18 @@ test.describe('header and footer', () => {
         await expect(website).toHaveAttribute('rel', 'noopener noreferrer');
         await expect(page.locator('#app-version')).toHaveText(`v${version}`);
         const footer = page.locator('#app-footer');
-        await expect(footer).toContainText(`viewcounter ${version}`);
+        await expect(footer).toContainText(`Version ${version}`);
         await expect(footer.getByRole('link', { name: 'Admin guide' })).toHaveAttribute('href', 'https://viewcounter.harshankur.com/#admin');
         await expect(footer.getByRole('link', { name: 'Source code' })).toHaveAttribute('href', 'https://github.com/harshankur/viewcounter');
         await expect(footer.getByRole('link', { name: 'npm package' })).toHaveAttribute('href', 'https://www.npmjs.com/package/@harshankur/viewcounter');
         await expect(footer).toContainText('This product includes GeoLite2 data created by MaxMind');
     });
 
-    test('the footer carries the copyright notice, with its holder and licence linked', async ({ page }) => {
+    test('the footer carries the copyright notice, with its holder linked', async ({ page }) => {
         await signIn(page);
         const footer = page.locator('#app-footer');
-        await expect(footer.locator('.footer-copyright')).toHaveText('© 2026 Harsh Ankur · MIT License');
+        await expect(footer.locator('.footer-copyright')).toHaveText('ViewCounter © 2026 Harsh Ankur');
         await expect(footer.getByRole('link', { name: 'Harsh Ankur' })).toHaveAttribute('href', 'https://harshankur.com');
-        await expect(footer.getByRole('link', { name: 'MIT License' }))
-            .toHaveAttribute('href', 'https://github.com/harshankur/viewcounter/blob/master/LICENSE');
     });
 
     test('a failure in the page itself is named as one, not blamed on the server', async ({ page }) => {
