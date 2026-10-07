@@ -100,6 +100,42 @@ test('a single-page app navigation is a new page view, referred by the page it l
     expect(sent.views).toHaveLength(2);
 });
 
+test('a fragment listed in data-hash is its own page, and any other fragment is not', async ({ page, baseURL }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto(`/tracker-lab/start?hash=${encodeURIComponent('#spec/,#guide/')}#spec/config`);
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start#spec/config');
+
+    await page.waitForTimeout(100);
+    await page.evaluate(() => { window.location.hash = '#guide/install'; });
+    await expect.poll(() => sent.views.length).toBe(2);
+    expect(Object.fromEntries(sent.views[1].searchParams)).toMatchObject({
+        page: '/tracker-lab/start#guide/install', referrer: `${new URL(baseURL).origin}/tracker-lab/start#spec/config`,
+    });
+    // The page it left reported its engagement first.
+    await expect.poll(() => sent.engagement.length).toBe(1);
+
+    // A plain anchor is the same page: leaving a route for one is a view of the bare path, once.
+    await page.evaluate(() => { window.location.hash = '#features'; });
+    await expect.poll(() => sent.views.length).toBe(3);
+    expect(sent.views[2].searchParams.get('page')).toBe('/tracker-lab/start');
+    await page.evaluate(() => { window.location.hash = '#pricing'; });
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(3);
+});
+
+test('without data-hash, a fragment is never part of the page', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start#spec/config');
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start');
+    await page.evaluate(() => { window.location.hash = '#spec/other'; });
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(1);
+});
+
 test('a link to another site records only its hostname', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

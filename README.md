@@ -953,6 +953,7 @@ automated browsers.
 | `data-app` | required | The app ID the views belong to |
 | `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
 | `data-spa` | `true` | Treat history changes as page views |
+| `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page |
 | `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
 | `data-downloads` | `true` | Record clicks on downloads (pdf, zip, dmg, docx, and so on), as `download` events |
 | `data-respect-dnt` | `false` | Send nothing when the browser's Do Not Track is on |

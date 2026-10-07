@@ -220,7 +220,7 @@ function start(port = PORT) {
     });
     app.get(/^\/tracker-lab\//, (req, res) => {
         const attribute = (name) => {
-            const value = typeof req.query[name] === 'string' ? req.query[name].replace(/[^a-z0-9.,:-]/gi, '') : '';
+            const value = typeof req.query[name] === 'string' ? req.query[name].replace(/[^a-z0-9.,:#/-]/gi, '') : '';
             return value ? ` data-${name}="${value}"` : '';
         };
         res.type('html').send(`<!doctype html>
@@ -230,7 +230,7 @@ function start(port = PORT) {
   <a id="download" href="/files/report%20final.pdf">report</a>
   <a id="internal" href="/tracker-lab/other">internal</a>
   <div style="height: 4000px"></div>
-  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('outbound')}${attribute('downloads')}></script>
+  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('hash')}${attribute('outbound')}${attribute('downloads')}></script>
 </body></html>`);
     });
 

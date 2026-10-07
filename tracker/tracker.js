@@ -18,6 +18,8 @@
  *                                   only track on these hostnames (keeps dev
  *                                   servers and previews out of the data)
  *   data-spa="false"                do not treat history changes as page views
+ *   data-hash="#docs/,#spec/"       count a URL fragment that starts with one of
+ *                                   these as its own page (hash-routed pages)
  *   data-outbound="false"           do not record clicks on links to other sites
  *   data-downloads="false"          do not record clicks on downloads
  *   data-respect-dnt="true"         send nothing when Do Not Track is on
@@ -32,6 +34,7 @@
     const option = (name, fallback) => (script.dataset[name] === undefined ? fallback : script.dataset[name] !== 'false');
     const hosts = (script.dataset.hosts || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
     if (hosts.length && !hosts.includes(location.hostname.toLowerCase())) return;
+    const hashRoutes = (script.dataset.hash || '').split(',').map((prefix) => prefix.trim()).filter(Boolean);
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
     // Automated browsers are not visitors.
     if (navigator.webdriver) return;
@@ -59,9 +62,13 @@
         }
     };
 
+    /** The page on screen: its path, and its fragment when that is one of the site's own routes. */
+    const currentPage = () => location.pathname
+        + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');
+
     let view = null;
     let referrer = document.referrer ? originAndPath(document.referrer) : '';
-    let path = location.pathname;
+    let path = currentPage();
 
     /** Tell the server how long the current page was visible and how far it was scrolled. */
     function reportEngagement() {
@@ -83,7 +90,7 @@
         const params = new URLSearchParams({
             appId: app,
             deviceSize: deviceSize(),
-            page: location.pathname.slice(0, 500),
+            page: currentPage().slice(0, 500),
             title: document.title.slice(0, 200),
             referrer: referrer.slice(0, 500),
         });
@@ -122,7 +129,7 @@
                 appId: app,
                 eventType: eventType.slice(0, 50),
                 eventData: eventData && typeof eventData === 'object' ? eventData : undefined,
-                page: location.pathname.slice(0, 500),
+                page: currentPage().slice(0, 500),
                 title: document.title.slice(0, 200),
             }),
         }).catch(() => {});
@@ -131,9 +138,9 @@
     // A page change in a single-page app is a new page view, with the page it
     // came from as its referrer (which the server files as internal).
     function navigated() {
-        if (location.pathname === path) return;
+        if (currentPage() === path) return;
         referrer = `${location.origin}${path}`;
-        path = location.pathname;
+        path = currentPage();
         pageview();
     }
     if (option('spa', true)) {
@@ -147,6 +154,8 @@
         }
         addEventListener('popstate', navigated);
     }
+    // Asked for by name, so it does not wait on data-spa.
+    if (hashRoutes.length) addEventListener('hashchange', navigated);
 
     let scrollQueued = false;
     addEventListener('scroll', () => {

@@ -5,7 +5,19 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- The tracker script counts hash-routed pages: `data-hash="#docs/,#spec/"`
+  makes a URL fragment that starts with one of the listed prefixes its own
+  page, sent as the path plus the fragment, with a new page view (and the
+  engagement of the page left) each time it changes. Every other fragment is
+  still the same page.
+
 ### Changed
+
+- The documentation site counts its own views with the tracker script instead
+  of a hand-written request, so it also reports time on page, scroll depth,
+  links out, and downloads.
 
 - CI no longer downloads a browser or runs the admin UI's browser tests, in
   the test workflow or the release workflow, to save CI time. Both workflows
