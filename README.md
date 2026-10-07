@@ -220,8 +220,9 @@ every app together under **All apps**; the choice follows you between them.
     bounce rate, visit duration, pages per visit, time on page, scroll depth),
     each against the period before, with a sparkline; choose one to chart it
     over time, or read every number per period as a table;
-  - **Right now**: visitors in the last few minutes, views per minute over
-    the last half hour, and the pages open, refreshed while you look;
+  - **Right now**: visitors in the last few minutes (by a new view, or by the
+    tracker's report from a page still being read), views per minute over the
+    last half hour, and the pages open, refreshed while you look;
   - where visits come from (channels, referrers, referring pages, and every
     campaign tag), pages (top, entry with bounce rate, exit, titles, sites),
     locations (a world map, countries, regions, cities, languages), devices,
@@ -392,7 +393,10 @@ Content-Type: text/plain   # or application/json
 {"appId": "blog", "id": "<the id /registerView returned>", "ms": 42000, "scroll": 80}
 ```
 How long the page was visible (`ms`, up to 6 hours) and how much of it had been
-on screen (`scroll`, 0 to 100). A later report can only raise either. A report
+on screen (`scroll`, 0 to 100). A later report can only raise either. Each
+report also marks the view as seen just now, which keeps its visitor in the
+admin's **Right now** for the next few minutes; the tracker script sends one
+every half minute while the page is being read. A report
 for a view that is unknown, trashed, or older than a day changes nothing and is
 counted in the tracking log as refused. `text/plain` is accepted so
 `navigator.sendBeacon` can deliver it as the page closes, without a CORS
@@ -631,7 +635,7 @@ returned by any API.
 | **Device Size** | `deviceSize` | small, medium, large | Layout decisions |
 | **Browser, OS, and versions** | User-Agent, parsed in memory | Names and versions, such as Chrome 140 on macOS 15 | Compatibility |
 | **Device Type** | User-Agent | desktop, mobile, tablet, tv, console, wearable | Compatibility |
-| **Time on page, Scroll depth** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen | Whether pages are read |
+| **Time on page, Scroll depth, Last seen** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen; when the page last reported | Whether pages are read |
 | **Event Type, Event Data** | `/event` | Type name; JSON up to 4 kB, as your site sends it | Custom events |
 | **Session ID** | `sessionId` (optional) | As your site sends it | Your own grouping; the tracker never sends one |
 
@@ -943,7 +947,8 @@ One tag, anywhere in the page:
 It records a view of each page, including page changes in single-page apps
 (`history.pushState`, `replaceState`, and the back button, each referred by
 the page it left); how long each page was visible and how far it was
-scrolled; clicks on links to other sites (the other site's hostname only);
+scrolled, reported when the page is hidden or left and every half minute
+while it is being read; clicks on links to other sites (the other site's hostname only);
 clicks on downloads (the file name only); and the landing URL's campaign tags.
 It stores nothing on the device and sends no identifier, and it skips
 automated browsers.
@@ -954,6 +959,7 @@ automated browsers.
 | `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
 | `data-spa` | `true` | Treat history changes as page views |
 | `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page |
+| `data-heartbeat` | `true` | Report time on page every half minute while the page is visible and in use, not only when it is hidden or left. It keeps the visitor in the admin's **Right now** while they read one page, and saves the time of a tab the browser closes without warning. It stops after half an hour without any input |
 | `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
 | `data-downloads` | `true` | Record clicks on downloads (pdf, zip, dmg, docx, and so on), as `download` events |
 | `data-respect-dnt` | `false` | Send nothing when the browser's Do Not Track is on |

@@ -42,7 +42,9 @@ const ADMIN_COLUMNS = [
  * Columns 3.2 added for richer, still identifier-free analysis: which of the
  * app's sites and which language, the campaign tags of the landing URL, an
  * optional region and city (only with a city database configured), and how
- * long the page was visible and how far it was scrolled.
+ * long the page was visible and how far it was scrolled. 3.3 added
+ * `last_seen_at`: when the page last reported its engagement, which is how
+ * "right now" still counts a visitor who has been reading one page for a while.
  */
 const TRACKING_COLUMNS = [
     { name: 'hostname', ddl: `VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL` },
@@ -56,6 +58,7 @@ const TRACKING_COLUMNS = [
     { name: 'city', ddl: `VARCHAR(${FIELD_MAX_LENGTH.CITY}) DEFAULT NULL` },
     { name: 'engaged_ms', ddl: 'INT UNSIGNED DEFAULT NULL' },
     { name: 'scroll_depth', ddl: 'TINYINT UNSIGNED DEFAULT NULL' },
+    { name: 'last_seen_at', ddl: 'DATETIME DEFAULT NULL' },
 ];
 
 /** Indexes the admin columns need, keyed by index name. */
@@ -63,6 +66,7 @@ const ADMIN_INDEXES = {
     uq_public_id: 'UNIQUE INDEX `uq_public_id` (`public_id`)',
     idx_deleted_at: 'INDEX `idx_deleted_at` (`deleted_at`)',
     idx_admin_modified_at: 'INDEX `idx_admin_modified_at` (`admin_modified_at`)',
+    idx_last_seen_at: 'INDEX `idx_last_seen_at` (`last_seen_at`)',
 };
 
 /**

@@ -252,6 +252,8 @@ describe('DatabaseManager admin wiring', () => {
         const [update] = manager.pool.matching('UPDATE `blog`');
         expect(update.sql).toContain('engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?)');
         expect(update.sql).toContain('scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?)');
+        // Every report marks the view as seen now, which "right now" reads.
+        expect(update.sql).toContain('last_seen_at = NOW()');
         expect(update.sql).toContain(DatabaseManager.LIVE_ROW);
         expect(update.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)');
         expect(update.params).toEqual([1500, 40, 'v', 24]);

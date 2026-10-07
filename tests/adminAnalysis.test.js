@@ -415,11 +415,25 @@ describe('AdminRepository.realtime', () => {
             minutes: [{ minute: 28999999, views: 4 }],
             pages: [{ appId: 'blog', page: '/', visitors: 2 }],
         });
+        const charted = `timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_CHART_MINUTES} MINUTE)`;
+        const seen = `last_seen_at >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_VISITOR_MINUTES} MINUTE)`;
         for (const { sql } of pool.queries) {
-            expect(sql).toContain(`deleted_at IS NULL AND timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_CHART_MINUTES} MINUTE)`);
+            expect(sql).toContain(`deleted_at IS NULL AND (${charted} OR ${seen})`);
             expect(sql).toContain('UNION ALL');
         }
         expect(pool.queries[0].sql).toContain(`INTERVAL ${ANALYSIS.REALTIME_VISITOR_MINUTES} MINUTE`);
+    });
+
+    test('a visitor is here now by a recent view or by a recent engagement report of an older one', async () => {
+        const pool = createScriptedPool(() => [[]]);
+        await new AdminRepository(dbWith(pool)).realtime(['blog']);
+        const viewed = `timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_VISITOR_MINUTES} MINUTE)`;
+        const seen = `last_seen_at >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_VISITOR_MINUTES} MINUTE)`;
+        const [summary, minutes, pages] = pool.queries.map((query) => query.sql);
+        expect(summary).toContain(`COUNT(DISTINCT CASE WHEN (${viewed} OR ${seen}) THEN visitor_hash END)`);
+        expect(pages).toContain(`WHERE (${viewed} OR ${seen}) AND event_type =`);
+        // The chart is of views per minute: an old view still being read is not a new one.
+        expect(minutes).toContain(`FROM v WHERE timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_CHART_MINUTES} MINUTE) GROUP BY minute`);
     });
 
     test('no apps means no query', async () => {

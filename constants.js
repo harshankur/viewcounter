@@ -97,7 +97,7 @@ const DATABASE = {
     QUERY_TIMEOUT_MS: 5_000,
     CONNECT_TIMEOUT_MS: 10_000,
     DEFAULT_PORT: 3306,
-    SCHEMA_VERSION: 'schema_v5',
+    SCHEMA_VERSION: 'schema_v6',
     /** Rows given a public_id per statement when backfilling an old table. */
     BACKFILL_BATCH_SIZE: 500,
 };

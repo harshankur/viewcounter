@@ -548,9 +548,10 @@ class DatabaseManager {
     /**
      * Record how long a view's page was visible and how far it was scrolled.
      *
-     * A page reports this when it is hidden or left, possibly more than once
-     * (hidden, shown again, then left), each time with its running total, so
-     * the larger value always wins. Only a live view from the last
+     * A page reports this when it is hidden or left, and every half minute
+     * while it is being read, each time with its running total, so the larger
+     * value always wins. Each report also marks the view as seen just now,
+     * which is what keeps its visitor in "right now" between page views. Only a live view from the last
      * TRACKING.ENGAGE_WINDOW_HOURS is updated: an old or trashed view keeps
      * what it had.
      *
@@ -563,7 +564,8 @@ class DatabaseManager {
         const [result] = await this.pool.query(
             `UPDATE \`${appId}\`
              SET engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?),
-                 scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?)
+                 scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?),
+                 last_seen_at = NOW()
              WHERE public_id = ? AND ${LIVE_ROW}
                AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)`,
             [engagedMs, scrollDepth, viewId, TRACKING.ENGAGE_WINDOW_HOURS]

@@ -671,7 +671,7 @@ async function verifyMigration(db) {
     const [legacyCols] = await db.query(
         `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'legacy_app'`, [DB_NAME]);
     check('the legacy table gained the 3.2 tracking columns',
-        ['hostname', 'language', 'utm_source', 'utm_content', 'region', 'city', 'engaged_ms', 'scroll_depth']
+        ['hostname', 'language', 'utm_source', 'utm_content', 'region', 'city', 'engaged_ms', 'scroll_depth', 'last_seen_at']
             .every((c) => legacyCols.some((l) => l.COLUMN_NAME === c)));
 
     for (const table of ['_admin_log', '_view_log']) {
@@ -1011,6 +1011,26 @@ async function verifyAnalysisScenario(db, admin) {
     const live = await admin.call('GET', '/realtime');
     check('the realtime view runs on the real engine', live.status === 200 && typeof live.body?.visitors === 'number'
         && Array.isArray(live.body?.minutes), `got ${live.status}`);
+
+    // A view from an hour ago is no longer "right now", until its page reports again.
+    const reader = { origin: 'https://a.example', 'user-agent': RAW_UA, 'x-forwarded-for': '198.51.100.77' };
+    const reading = await req('GET', '/registerView?appId=tenant_a&deviceSize=large&page=/still-reading', { headers: reader });
+    await db.query('UPDATE `tenant_a` SET timestamp = DATE_SUB(NOW(), INTERVAL 1 HOUR) WHERE public_id = ?', [reading.body?.id]);
+    const pageOf = (result) => (result.body?.pages || []).find((entry) => entry.page === '/still-reading');
+    const before = await admin.call('GET', '/apps/tenant_a/realtime');
+    const beat = await fetch(`${BASE}/engage`, {
+        method: 'POST', headers: { ...reader, 'content-type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ appId: 'tenant_a', id: reading.body?.id, ms: 30000, scroll: 50 }),
+    });
+    const after = await admin.call('GET', '/apps/tenant_a/realtime');
+    const [[seen]] = await db.query('SELECT last_seen_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE) AS fresh FROM `tenant_a` WHERE public_id = ?', [reading.body?.id]);
+    check('an engagement report marks the view as seen now', beat.status === 204 && Number(seen?.fresh) === 1,
+        JSON.stringify({ status: beat.status, seen, view: reading.body }));
+    check('a visitor still reading an old view counts as here right now', before.status === 200 && after.status === 200
+        && !pageOf(before) && pageOf(after)?.visitors === 1,
+        JSON.stringify({ before: before.body, after: after.body }));
+    check('an old view still being read is not charted as a new view',
+        JSON.stringify(after.body?.minutes) === JSON.stringify(before.body?.minutes), JSON.stringify(after.body?.minutes));
     const weekly = await admin.call('GET', '/analytics?range=7d');
     check('a bounded range carries the previous period', weekly.status === 200 && Boolean(weekly.body?.previous)
         && typeof weekly.body.previous.views === 'number', JSON.stringify(weekly.body?.previous));

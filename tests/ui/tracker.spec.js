@@ -80,6 +80,66 @@ test('when the page is hidden, it reports how long it was visible and how far it
     expect(body.ms).toBeGreaterThanOrEqual(250);
 });
 
+test('while the page is being read, it reports every half minute, so the server knows the visitor is still there', async ({ page }) => {
+    await page.clock.install();
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start');
+    await expect.poll(() => sent.views.length).toBe(1);
+
+    await page.clock.runFor(31_000);
+    await expect.poll(() => sent.engagement.length).toBe(1);
+    expect(sent.engagement[0].body).toMatchObject({ appId: 'blog', id: VIEW_ID });
+    expect(sent.engagement[0].body.ms).toBeGreaterThanOrEqual(29_000);
+
+    await page.clock.runFor(30_000);
+    await expect.poll(() => sent.engagement.length).toBe(2);
+    expect(sent.engagement[1].body.ms).toBeGreaterThanOrEqual(59_000);
+});
+
+test('a hidden page sends no heartbeat, and neither does one left untouched for half an hour', async ({ page }) => {
+    await page.clock.install();
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start');
+    await expect.poll(() => sent.views.length).toBe(1);
+
+    // Untouched: it reports for half an hour, then stops.
+    await page.clock.runFor(29 * 60_000);
+    await expect.poll(() => sent.engagement.length).toBeGreaterThan(50);
+    await page.clock.runFor(2 * 60_000);
+    await page.waitForTimeout(200);
+    const whenIdle = sent.engagement.length;
+    await page.clock.runFor(5 * 60_000);
+    await page.waitForTimeout(200);
+    expect(sent.engagement).toHaveLength(whenIdle);
+
+    // Any input brings it back.
+    await page.mouse.move(40, 40);
+    await page.clock.runFor(31_000);
+    await expect.poll(() => sent.engagement.length).toBe(whenIdle + 1);
+
+    // Hidden: one report as it hides, then nothing.
+    await hide(page);
+    await expect.poll(() => sent.engagement.length).toBe(whenIdle + 2);
+    await page.clock.runFor(5 * 60_000);
+    await page.waitForTimeout(200);
+    expect(sent.engagement).toHaveLength(whenIdle + 2);
+});
+
+test('data-heartbeat="false" reports only when the page is hidden or left', async ({ page }) => {
+    await page.clock.install();
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start?heartbeat=false');
+    await expect.poll(() => sent.views.length).toBe(1);
+    await page.clock.runFor(5 * 60_000);
+    await page.waitForTimeout(200);
+    expect(sent.engagement).toHaveLength(0);
+    await hide(page);
+    await expect.poll(() => sent.engagement.length).toBe(1);
+});
+
 test('a single-page app navigation is a new page view, referred by the page it left', async ({ page, baseURL }) => {
     await asVisitor(page);
     const sent = await capture(page);

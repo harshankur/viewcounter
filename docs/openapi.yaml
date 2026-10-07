@@ -176,7 +176,10 @@ paths:
       summary: Report engagement with a page view
       description: >-
         How long the page was visible and how much of it had been on screen. A
-        later report can only raise either value. `text/plain` is accepted so
+        later report can only raise either value. Each report also marks the
+        view as seen just now, which keeps its visitor in the admin's "Right
+        now" for the next few minutes; the tracker script sends one every half
+        minute while the page is being read. `text/plain` is accepted so
         `navigator.sendBeacon` can deliver it as the page closes, without a CORS
         preflight. A report for a view that is unknown, trashed, or older than a
         day changes nothing and is counted in the tracking log as refused.

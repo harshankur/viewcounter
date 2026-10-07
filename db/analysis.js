@@ -436,12 +436,17 @@ function tallyEventProperties(rows) {
  * @param {string[]} appIds
  */
 async function runRealtime(pool, table, appIds) {
-    const branches = appIds.map((appId) => `SELECT ? AS app_id, visitor_hash, page_path, event_type, timestamp
+    const within = (column, minutes) => `${column} >= DATE_SUB(NOW(), INTERVAL ${minutes} MINUTE)`;
+    // A visitor is here now when a view of theirs was recorded, or last
+    // reported its engagement, in the last few minutes: someone reading one
+    // page for a quarter of an hour sends no new view, only those reports.
+    const recent = `(${within('timestamp', ANALYSIS.REALTIME_VISITOR_MINUTES)} OR ${within('last_seen_at', ANALYSIS.REALTIME_VISITOR_MINUTES)})`;
+    const charted = within('timestamp', ANALYSIS.REALTIME_CHART_MINUTES);
+    const branches = appIds.map((appId) => `SELECT ? AS app_id, visitor_hash, page_path, event_type, timestamp, last_seen_at
         FROM ${table(appId)}
-        WHERE deleted_at IS NULL AND timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_CHART_MINUTES} MINUTE)`);
+        WHERE deleted_at IS NULL AND (${charted} OR ${within('last_seen_at', ANALYSIS.REALTIME_VISITOR_MINUTES)})`);
     const cte = `WITH v AS (${branches.join(' UNION ALL ')})`;
     const params = [...appIds];
-    const recent = `timestamp >= DATE_SUB(NOW(), INTERVAL ${ANALYSIS.REALTIME_VISITOR_MINUTES} MINUTE)`;
 
     const [[summary = {}]] = await pool.query(`${cte}
         SELECT COUNT(DISTINCT CASE WHEN ${recent} THEN visitor_hash END) AS visitors,
@@ -449,7 +454,7 @@ async function runRealtime(pool, table, appIds) {
         FROM v`, params);
     const [minutes] = await pool.query(`${cte}
         SELECT FLOOR(UNIX_TIMESTAMP(timestamp) / 60) AS minute, COUNT(*) AS views
-        FROM v GROUP BY minute ORDER BY minute`, params);
+        FROM v WHERE ${charted} GROUP BY minute ORDER BY minute`, params);
     const [pages] = await pool.query(`${cte}
         SELECT app_id, page_path AS page, COUNT(DISTINCT visitor_hash) AS visitors
         FROM v WHERE ${recent} AND event_type = ${PAGEVIEW}

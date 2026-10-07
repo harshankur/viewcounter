@@ -4,7 +4,8 @@
  *   <script defer src="https://your-server/tracker.js" data-app="blog"></script>
  *
  * Records a view of each page (including page changes in single-page apps),
- * how long it was visible and how far it was scrolled, clicks on links to
+ * how long it was visible and how far it was scrolled (reported when the page
+ * is hidden or left, and every half minute while it is being read), clicks on links to
  * other sites and on downloads, and the campaign tags of the landing URL.
  * The page before is sent as its origin and path only.
  *
@@ -20,6 +21,8 @@
  *   data-spa="false"                do not treat history changes as page views
  *   data-hash="#docs/,#spec/"       count a URL fragment that starts with one of
  *                                   these as its own page (hash-routed pages)
+ *   data-heartbeat="false"          report time on page only when the page is
+ *                                   hidden or left, not while it is being read
  *   data-outbound="false"           do not record clicks on links to other sites
  *   data-downloads="false"          do not record clicks on downloads
  *   data-respect-dnt="true"         send nothing when Do Not Track is on
@@ -44,6 +47,9 @@
     const UTM = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
     const DOWNLOAD = /\.(pdf|zip|gz|tgz|rar|7z|dmg|exe|msi|pkg|deb|rpm|apk|iso|csv|xlsx?|docx?|pptx?|odt|ods|epub|mp3|mp4|mov|avi|wav)$/i;
     const MAX_ENGAGED_MS = 6 * 60 * 60 * 1000;
+    const HEARTBEAT_MS = 30 * 1000;
+    // A tab left open with nobody at it stops reporting after this long without input.
+    const IDLE_MS = 30 * 60 * 1000;
 
     const deviceSize = () => (innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large');
     /** How much of the page has been on screen, from 0 to 100. */
@@ -178,6 +184,20 @@
         }
     });
     addEventListener('pagehide', reportEngagement);
+
+    // While the page is being read, report as it goes: the server then knows the
+    // visitor is still there, and a tab the browser kills without warning (common
+    // on phones) loses half a minute of its time at most, not all of it.
+    if (option('heartbeat', true)) {
+        let lastInput = performance.now();
+        const active = () => { lastInput = performance.now(); };
+        for (const type of ['pointerdown', 'pointermove', 'keydown', 'scroll', 'touchstart']) {
+            addEventListener(type, active, { passive: true, capture: true });
+        }
+        setInterval(() => {
+            if (document.visibilityState === 'visible' && performance.now() - lastInput <= IDLE_MS) reportEngagement();
+        }, HEARTBEAT_MS);
+    }
 
     // Links out and downloads. Only the other site's hostname, or the file's
     // name, is recorded: never the whole URL, which can carry personal data.

@@ -7,6 +7,18 @@ All notable changes to this project are documented here. This project follows
 
 ### Added
 
+- A heartbeat. The tracker script now reports a page's time and scroll depth
+  every half minute while the page is visible and in use, not only when it is
+  hidden or left, and the server records when each view last reported
+  (`last_seen_at`, a new nullable column added on start, with its index).
+  Two things follow. The admin's **Right now** keeps counting a visitor who has
+  been reading one page for longer than a few minutes, where before they
+  dropped out until their next page view. And a tab the browser closes without
+  warning, common on phones, loses at most half a minute of its time instead of
+  all of it. The heartbeat stops after half an hour without any input, so a tab
+  left open with nobody at it does not count as a visitor, and
+  `data-heartbeat="false"` turns it off. Sites that call `/engage` themselves
+  get the same effect from each report.
 - The tracker script counts hash-routed pages: `data-hash="#docs/,#spec/"`
   makes a URL fragment that starts with one of the listed prefixes its own
   page, sent as the path plus the fragment, with a new page view (and the

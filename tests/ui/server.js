@@ -230,7 +230,7 @@ function start(port = PORT) {
   <a id="download" href="/files/report%20final.pdf">report</a>
   <a id="internal" href="/tracker-lab/other">internal</a>
   <div style="height: 4000px"></div>
-  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('hash')}${attribute('outbound')}${attribute('downloads')}></script>
+  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('hash')}${attribute('heartbeat')}${attribute('outbound')}${attribute('downloads')}></script>
 </body></html>`);
     });
 

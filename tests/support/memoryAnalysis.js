@@ -282,14 +282,17 @@ function memoryAnalysis(rows, previousRows, { spanDays, now = new Date() } = {})
 }
 
 /**
- * @param {object[]} liveRows live rows of the apps, from the last half hour
+ * @param {object[]} liveRows live rows of the apps
  * @param {Date} now
  */
 function memoryRealtime(liveRows, now) {
     const at = now.getTime();
-    const recent = liveRows.filter((row) => row.timestamp.getTime() >= at - ANALYSIS.REALTIME_VISITOR_MINUTES * MINUTE_MS);
+    const since = (date, minutes) => Boolean(date) && date.getTime() >= at - minutes * MINUTE_MS;
+    // Here now: a view recorded, or one that last reported its engagement, in the last few minutes.
+    const recent = liveRows.filter((row) => since(row.timestamp, ANALYSIS.REALTIME_VISITOR_MINUTES)
+        || since(row.lastSeenAt, ANALYSIS.REALTIME_VISITOR_MINUTES));
     const minutes = new Map();
-    for (const row of liveRows) {
+    for (const row of liveRows.filter((r) => since(r.timestamp, ANALYSIS.REALTIME_CHART_MINUTES))) {
         const minute = Math.floor(row.timestamp.getTime() / MINUTE_MS);
         minutes.set(minute, (minutes.get(minute) || 0) + 1);
     }

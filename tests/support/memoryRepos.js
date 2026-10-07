@@ -14,7 +14,6 @@ const crypto = require('crypto');
 const {
     ADMIN_RANGE_DAYS,
     ADMIN_SORT_COLUMNS,
-    ANALYSIS,
     MODIFIED_FILTER,
     SORT_ORDER,
     VIEW_STATUS,
@@ -88,6 +87,7 @@ function makeView(overrides = {}) {
         city: null,
         engagedMs: null,
         scrollDepth: null,
+        lastSeenAt: null,
         note: null,
         adminModifiedAt: null,
         deletedAt: null,
@@ -203,9 +203,7 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
         },
 
         async realtime(appIds) {
-            const since = now().getTime() - ANALYSIS.REALTIME_CHART_MINUTES * 60 * 1000;
-            const live = filtered(appIds, { status: VIEW_STATUS.ACTIVE }).filter((row) => row.timestamp.getTime() >= since);
-            return memoryRealtime(live, now());
+            return memoryRealtime(filtered(appIds, { status: VIEW_STATUS.ACTIVE }), now());
         },
 
         async updateContent(appId, ids, columnValues) {
