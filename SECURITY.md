@@ -6,16 +6,23 @@ Currently, the following versions of View Counter are supported with security up
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.3.x   | :white_check_mark: |
-| < 3.3   | :x:                |
+| 3.4.x   | :white_check_mark: |
+| < 3.4   | :x:                |
 
 Versions before 3.0 are not supported: the analytics read endpoints were
 unauthenticated and visitor hashes were derived without a server secret, which
 made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
-3.2.x is not patched further. 3.3 is a drop-in upgrade with no breaking change
-to the public API: its schema migration runs on startup and adds one nullable
-column and its index. See the changelog for the upgrade notes.
+3.3.x is not patched further. 3.4 is a drop-in upgrade with no breaking change
+to the public API: its schema migration runs on startup and adds one small
+table. From 3.4 a visitor hash is also keyed with a per-window salt that is
+deleted when the window ends, so a past window's hashes cannot be recomputed
+even with the server secret; exclude the `_visitor_salts` table from backups
+and mind the binary log, as the README explains. See the changelog for the
+upgrade notes.
+
+3.3 added one nullable column and its index, and updated `proxy-addr` for
+GHSA-jqcg-44mw-7w3h.
 
 3.2 stores referrers without their query string or fragment, which in 3.1
 could keep a token or email address from the page a visitor came from; it

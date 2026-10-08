@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.4.0]
+
+Makes the privacy claims exact and then stronger: visitor hashes can no longer
+be recomputed once their window is over, scroll depth is recorded only where a
+page scrolls, and the wording everywhere says what the software does and what
+remains the operator's. No public API is removed or renamed.
+
 Upgrading from 3.3:
 
 - Nothing to do for the schema: the first start creates one small table,

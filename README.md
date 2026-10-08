@@ -3,7 +3,7 @@
 [![Documentation](https://img.shields.io/badge/docs-viewcounter.harshankur.com-blueviolet)](https://viewcounter.harshankur.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Test Suite](https://github.com/harshankur/viewcounter/actions/workflows/test.yml/badge.svg)](https://github.com/harshankur/viewcounter/actions/workflows/test.yml)
-[![Tests](https://img.shields.io/badge/tests-1109%20passing-success)](TEST_REPORT.md)
+[![Tests](https://img.shields.io/badge/tests-1134%20passing-success)](TEST_REPORT.md)
 [![npm](https://img.shields.io/npm/v/@harshankur/viewcounter?logo=npm)](https://www.npmjs.com/package/@harshankur/viewcounter)
 [![provenance](https://img.shields.io/badge/provenance-signed-brightgreen?logo=github)](https://www.npmjs.com/package/@harshankur/viewcounter#provenance)
 

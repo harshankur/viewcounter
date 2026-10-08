@@ -1,7 +1,7 @@
 {
   "name": "@harshankur/viewcounter",
   "description": "A middleware backend server that registers views to my db server when requested to register a view from my other projects.",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "main": "index.js",
   "engines": {
     "node": ">=24"
