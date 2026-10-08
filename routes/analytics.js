@@ -155,6 +155,40 @@ function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
     });
 }
 
+/** Whether a request is an engagement report, the one tracking request a page repeats. */
+const isEngagement = (req) => trackingSourceFor(req.path) === VIEW_LOG_SOURCE.ENGAGE;
+
+/**
+ * The per-IP limiters: one budget for engagement reports, one for everything
+ * else, each of `max` requests per window.
+ *
+ * They are separate because a page being read reports its engagement every
+ * half minute. On one shared budget, a few dozen readers behind one address
+ * (an office, a campus) would use it up with those reports alone, and the page
+ * views of everyone at that address would be refused. Apart, reports can only
+ * ever crowd out other reports.
+ *
+ * @param {{ max: number, windowMs: number }} rateLimitConfig
+ * @param {(req: import('express').Request) => void} [onLimit] called for a refused request
+ * @returns {import('express').RequestHandler[]}
+ */
+function buildPerIpLimiters(rateLimitConfig, onLimit = () => {}) {
+    const { max, windowMs } = rateLimitConfig || {};
+    const limiter = (skip) => rateLimit({
+        windowMs,
+        limit: max,
+        message: { message: 'Too many requests, please try again later.' },
+        standardHeaders: true,
+        legacyHeaders: false,
+        skip,
+        handler: (req, res, next, options) => {
+            onLimit(req);
+            res.status(options.statusCode).json(options.message);
+        },
+    });
+    return [limiter(isEngagement), limiter((req) => !isEngagement(req))];
+}
+
 /**
  * Attach a request id used for correlating a client-visible error with the
  * server-side log line that has the real detail.
@@ -231,6 +265,11 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         onReject: (req, appId) => reject(req, REJECTION_REASON.ORIGIN_NOT_ALLOWED, { appId }),
     });
     const limitPerApp = buildPerAppLimiter(config.server?.rateLimit,
+        (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'app' }));
+    // Engagement reports draw on a per-app budget of their own, for the reason
+    // buildPerIpLimiters gives: an app with many readers must not have its
+    // views refused because of the reports those readers' pages send.
+    const limitEngagePerApp = buildPerAppLimiter(config.server?.rateLimit,
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'app' }));
     const trackingValidation = handleTrackingValidation(reject);
 
@@ -429,7 +468,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     router.post('/engage',
         express.text({ type: () => true, limit: TRACKING.ENGAGE_BODY_BYTES }),
         parseBeaconBody,
-        limitPerApp,
+        limitEngagePerApp,
         requireOrigin,
         validateEngage(config.allowed),
         trackingValidation,
@@ -641,4 +680,4 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     return router;
 }
 
-module.exports = { createAnalyticsRouter, handleRouteError, logContext, withRequestId, trackingSourceFor };
+module.exports = { createAnalyticsRouter, buildPerIpLimiters, handleRouteError, logContext, withRequestId, trackingSourceFor };

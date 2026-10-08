@@ -825,6 +825,15 @@ Two independent limits apply to writes:
   everyone else on the instance depends on. Keyed on `appId` alone, so it cannot
   be bypassed by rotating addresses. Set `0` to disable for single-tenant use.
 
+Each limit is applied twice, as two separate budgets of that size: one for
+engagement reports (`/engage`) and one for everything else. A page being read
+reports every half minute, so each open, active tab costs two reports a minute;
+on a shared budget, the readers behind one office address could have used it up
+and had their page views refused. Apart, reports can only crowd out other
+reports. With the defaults that is room for about 50 readers at once per
+address and 500 per app; raise the limits if you expect more, or a reader's
+time on page is only updated when their page is hidden or left.
+
 ### What is still yours to build
 
 Tenancy here is data isolation and quota, not a billing system. There is no
@@ -958,7 +967,7 @@ automated browsers.
 | `data-app` | required | The app ID the views belong to |
 | `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
 | `data-spa` | `true` | Treat history changes as page views |
-| `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page |
+| `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page. A matching fragment is stored whole as part of the page, so list only prefixes whose fragments carry nothing private. As a referrer, such a page is its path alone |
 | `data-heartbeat` | `true` | Report time on page every half minute while the page is visible and in use, not only when it is hidden or left. It keeps the visitor in the admin's **Right now** while they read one page, and saves the time of a tab the browser closes without warning. It stops after half an hour without any input |
 | `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
 | `data-downloads` | `true` | Record clicks on downloads (pdf, zip, dmg, docx, and so on), as `download` events |

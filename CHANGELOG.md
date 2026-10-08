@@ -19,11 +19,16 @@ All notable changes to this project are documented here. This project follows
   left open with nobody at it does not count as a visitor, and
   `data-heartbeat="false"` turns it off. Sites that call `/engage` themselves
   get the same effect from each report.
+- Engagement reports have rate-limit budgets of their own. `RATE_LIMIT_MAX`
+  (per address) and `APP_RATE_LIMIT_MAX` (per app) each now apply twice: once
+  to `/engage` and once to everything else. Heartbeats can therefore never use
+  up the budget page views depend on.
 - The tracker script counts hash-routed pages: `data-hash="#docs/,#spec/"`
   makes a URL fragment that starts with one of the listed prefixes its own
   page, sent as the path plus the fragment, with a new page view (and the
   engagement of the page left) each time it changes. Every other fragment is
-  still the same page.
+  still the same page. A matching fragment is stored whole, so list only
+  prefixes whose fragments carry nothing private.
 
 ### Changed
 
@@ -38,6 +43,12 @@ All notable changes to this project are documented here. This project follows
   against a real MySQL. The browser tests run locally: `npm run test:ui` on
   every change to `admin/` or `tracker/`, and the full `npm test` before a
   release.
+
+### Fixed
+
+- A page left before the server had answered its view (two quick navigations
+  in a single-page app) lost its time and scroll depth. It now reports them as
+  soon as the answer arrives.
 
 ## [3.2.0]
 

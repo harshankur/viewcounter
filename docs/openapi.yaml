@@ -64,7 +64,9 @@ paths:
           in: query
           schema:
             type: string
-          description: Path of the page (e.g., /blog/post-1).
+          description: >-
+            Path of the page (e.g., /blog/post-1). The tracker script appends the
+            URL fragment when it is one of the routes named in its `data-hash`.
         - name: title
           in: query
           schema:

@@ -161,6 +161,22 @@ describe('GET /registerView', () => {
         })]);
     });
 
+    test('engagement reports have a per-app budget of their own, so they never cost an app its views', async () => {
+        const { app } = build({ perAppMax: 2 });
+        const beat = () => request(app).post('/engage').set('User-Agent', CHROME).send({ appId: 'blog', id: VIEW_ID, ms: 1000, scroll: 10 });
+        const view = () => request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME);
+        await beat().expect(204);
+        await beat().expect(204);
+        await beat().expect(429);
+        // The views' budget is untouched by the three reports...
+        await view().expect(200);
+        await view().expect(200);
+        await view().expect(429);
+        // ...and another app's is untouched by both.
+        await request(app).post('/engage').set('User-Agent', CHROME).set('Origin', 'https://shop.example.com')
+            .send({ appId: 'shop', id: VIEW_ID, ms: 1000, scroll: 10 }).expect(204);
+    });
+
     test('the per-app budget running out is counted as rate limited', async () => {
         const { app, counted } = build({ perAppMax: 1 });
         await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
@@ -318,5 +334,38 @@ describe('GET /tracker.js', () => {
         const { app, counted } = build();
         await request(app).get('/tracker.js').expect(200);
         expect(await counted()).toEqual([]);
+    });
+});
+
+describe('buildPerIpLimiters', () => {
+    const { buildPerIpLimiters } = require('../routes/analytics');
+
+    function appWith(max) {
+        const limited = [];
+        const app = express();
+        app.use(buildPerIpLimiters({ windowMs: 60_000, max }, (req) => limited.push(req.path)));
+        app.all(/.*/, (req, res) => res.status(200).json({ ok: true }));
+        return { app, limited };
+    }
+
+    test('engagement reports and everything else each get the full budget', async () => {
+        const { app, limited } = appWith(2);
+        await request(app).post('/engage').expect(200);
+        await request(app).post('/engage').expect(200);
+        await request(app).post('/engage').expect(429);
+        // Readers' heartbeats used theirs up; a page view from the same address still counts.
+        await request(app).get('/registerView').expect(200);
+        await request(app).get('/stats/blog').expect(200);
+        await request(app).get('/registerView').expect(429);
+        // And the other way round: nothing else can use up the reports' budget.
+        expect(limited).toEqual(['/engage', '/registerView']);
+    });
+
+    test('a refused request gets the standard answer and headers', async () => {
+        const { app } = appWith(1);
+        await request(app).get('/registerView').expect(200);
+        const refused = await request(app).get('/registerView').expect(429);
+        expect(refused.body).toEqual({ message: 'Too many requests, please try again later.' });
+        expect(refused.headers['ratelimit-limit'] || refused.headers.ratelimit).toBeDefined();
     });
 });

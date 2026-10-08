@@ -47,6 +47,7 @@
     const UTM = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
     const DOWNLOAD = /\.(pdf|zip|gz|tgz|rar|7z|dmg|exe|msi|pkg|deb|rpm|apk|iso|csv|xlsx?|docx?|pptx?|odt|ods|epub|mp3|mp4|mov|avi|wav)$/i;
     const MAX_ENGAGED_MS = 6 * 60 * 60 * 1000;
+    const ENGAGE_WINDOW_MS = 24 * 60 * 60 * 1000;
     const HEARTBEAT_MS = 30 * 1000;
     // A tab left open with nobody at it stops reporting after this long without input.
     const IDLE_MS = 30 * 60 * 1000;
@@ -76,14 +77,18 @@
     let referrer = document.referrer ? originAndPath(document.referrer) : '';
     let path = currentPage();
 
-    /** Tell the server how long the current page was visible and how far it was scrolled. */
-    function reportEngagement() {
-        if (!view || !view.id) return;
-        const ms = Math.min(MAX_ENGAGED_MS, Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince)));
-        if (ms <= view.sentMs && view.scroll <= view.sentScroll) return;
-        view.sentMs = ms;
-        view.sentScroll = view.scroll;
-        const body = JSON.stringify({ appId: app, id: view.id, ms, scroll: view.scroll });
+    /**
+     * Tell the server how long a page was visible and how far it was scrolled.
+     * `alive` sends it even when neither has grown since the last report: that
+     * is the heartbeat saying the visitor is still there.
+     */
+    function reportEngagement(of = view, alive = false) {
+        if (!of || !of.id) return;
+        const ms = Math.min(MAX_ENGAGED_MS, Math.round(of.visibleMs + (of.visibleSince === null ? 0 : performance.now() - of.visibleSince)));
+        if (!alive && ms <= of.sentMs && of.scroll <= of.sentScroll) return;
+        of.sentMs = ms;
+        of.sentScroll = of.scroll;
+        const body = JSON.stringify({ appId: app, id: of.id, ms, scroll: of.scroll });
         // text/plain needs no CORS preflight, so the beacon survives the page closing.
         if (!(navigator.sendBeacon && navigator.sendBeacon(`${base}engage`, new Blob([body], { type: 'text/plain' })))) {
             fetch(`${base}engage`, { method: 'POST', body, keepalive: true, credentials: 'omit', headers: { 'Content-Type': 'text/plain' } })
@@ -92,7 +97,12 @@
     }
 
     function pageview() {
-        reportEngagement();
+        // The page being left stops counting here, and reports what it has.
+        if (view) {
+            if (view.visibleSince !== null) view.visibleMs += performance.now() - view.visibleSince;
+            view.visibleSince = null;
+            reportEngagement();
+        }
         const params = new URLSearchParams({
             appId: app,
             deviceSize: deviceSize(),
@@ -110,6 +120,7 @@
 
         const current = {
             id: null,
+            startedAt: Date.now(),
             visibleMs: 0,
             visibleSince: document.visibilityState === 'visible' ? performance.now() : null,
             scroll: seen(),
@@ -119,7 +130,12 @@
         view = current;
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
-            .then((result) => { if (result && result.id) current.id = result.id; })
+            .then((result) => {
+                if (!result || !result.id) return;
+                current.id = result.id;
+                // Left before the server answered: its report could not go then, so it goes now.
+                if (view !== current) reportEngagement(current);
+            })
             .catch(() => {});
     }
 
@@ -145,7 +161,8 @@
     // came from as its referrer (which the server files as internal).
     function navigated() {
         if (currentPage() === path) return;
-        referrer = `${location.origin}${path}`;
+        // Like every referrer, without the fragment: the server keeps an origin and a path.
+        referrer = `${location.origin}${path.split('#')[0]}`;
         path = currentPage();
         pageview();
     }
@@ -183,7 +200,7 @@
             view.visibleSince = performance.now();
         }
     });
-    addEventListener('pagehide', reportEngagement);
+    addEventListener('pagehide', () => reportEngagement());
 
     // While the page is being read, report as it goes: the server then knows the
     // visitor is still there, and a tab the browser kills without warning (common
@@ -195,7 +212,10 @@
             addEventListener(type, active, { passive: true, capture: true });
         }
         setInterval(() => {
-            if (document.visibilityState === 'visible' && performance.now() - lastInput <= IDLE_MS) reportEngagement();
+            if (!view || document.visibilityState !== 'visible' || performance.now() - lastInput > IDLE_MS) return;
+            // The server takes reports for a view for a day. A page open longer says no more.
+            if (Date.now() - view.startedAt > ENGAGE_WINDOW_MS) return;
+            reportEngagement(view, true);
         }, HEARTBEAT_MS);
     }
 

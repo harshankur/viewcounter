@@ -127,6 +127,69 @@ test('a hidden page sends no heartbeat, and neither does one left untouched for 
     expect(sent.engagement).toHaveLength(whenIdle + 2);
 });
 
+test('a heartbeat goes out even when nothing has grown, and stops once the view is a day old', async ({ page }) => {
+    await page.clock.install();
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start');
+    await expect.poll(() => sent.views.length).toBe(1);
+
+    // Hidden time adds nothing to the total, so the next report carries the same numbers: it still goes.
+    await page.clock.runFor(31_000);
+    await expect.poll(() => sent.engagement.length).toBe(1);
+    await hide(page);
+    await expect.poll(() => sent.engagement.length).toBe(2);
+    await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+        // Shown again, but frozen at the same total by pinning the clock the tracker reads.
+        const frozen = window.performance.now();
+        window.performance.now = () => frozen;
+    });
+    await page.mouse.move(30, 30);
+    await page.clock.runFor(31_000);
+    await expect.poll(() => sent.engagement.length).toBe(3);
+    expect(sent.engagement[2].body.ms).toBe(sent.engagement[1].body.ms);
+
+    // A day on, the server would refuse it, so it is not sent.
+    await page.clock.fastForward(25 * 60 * 60_000);
+    await page.waitForTimeout(200);
+    const dayOld = sent.engagement.length;
+    await page.mouse.move(60, 60);
+    await page.clock.runFor(2 * 60_000);
+    await page.waitForTimeout(200);
+    expect(sent.engagement).toHaveLength(dayOld);
+});
+
+test('a page left before the server answered still reports its time, once the answer arrives', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    const FIRST = '22222222-2222-4222-8222-222222222222';
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    let calls = 0;
+    await page.route('**/registerView?**', async (route) => {
+        calls += 1;
+        if (calls === 1) {
+            await held;
+            await route.fulfill({ json: { recorded: true, id: FIRST } });
+        } else {
+            await route.fulfill({ json: { recorded: true, id: VIEW_ID } });
+        }
+    });
+    await page.goto('/tracker-lab/start');
+    await page.waitForTimeout(300);
+    await page.evaluate(() => window.history.pushState({}, '', '/tracker-lab/next'));
+    await page.waitForTimeout(200);
+    expect(sent.engagement).toHaveLength(0);
+
+    release();
+    await expect.poll(() => sent.engagement.length).toBe(1);
+    expect(sent.engagement[0].body.id).toBe(FIRST);
+    expect(sent.engagement[0].body.ms).toBeGreaterThanOrEqual(250);
+    // It stopped counting when it was left, not when the answer came.
+    expect(sent.engagement[0].body.ms).toBeLessThan(450);
+});
+
 test('data-heartbeat="false" reports only when the page is hidden or left', async ({ page }) => {
     await page.clock.install();
     await asVisitor(page);
@@ -171,7 +234,8 @@ test('a fragment listed in data-hash is its own page, and any other fragment is 
     await page.evaluate(() => { window.location.hash = '#guide/install'; });
     await expect.poll(() => sent.views.length).toBe(2);
     expect(Object.fromEntries(sent.views[1].searchParams)).toMatchObject({
-        page: '/tracker-lab/start#guide/install', referrer: `${new URL(baseURL).origin}/tracker-lab/start#spec/config`,
+        // The page it came from is a referrer like any other: an origin and a path, no fragment.
+        page: '/tracker-lab/start#guide/install', referrer: `${new URL(baseURL).origin}/tracker-lab/start`,
     });
     // The page it left reported its engagement first.
     await expect.poll(() => sent.engagement.length).toBe(1);

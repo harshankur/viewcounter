@@ -1,14 +1,13 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 
 const { ADMIN, APP_NAME, PAYLOAD_LIMITS, REJECTION_REASON, SERVER } = require('./constants');
 const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions, countRefusedPreflights } = require('./middleware/security');
-const { createAnalyticsRouter, trackingSourceFor } = require('./routes/analytics');
+const { createAnalyticsRouter, buildPerIpLimiters, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 const { createDbSessionStore } = require('./db/adminSessionStore');
@@ -79,20 +78,10 @@ function createApp() {
     // endpoint taking a body and its payload is small.
     app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
 
-    app.use(rateLimit({
-        windowMs: config.server.rateLimit.windowMs,
-        limit: config.server.rateLimit.max,
-        message: { message: 'Too many requests, please try again later.' },
-        standardHeaders: true,
-        legacyHeaders: false,
-        // A tracking request turned away here is counted in the tracking log
-        // like any other refusal (in memory, written in batches).
-        handler: (req, res, next, options) => {
-            if (trackingSourceFor(req.path)) {
-                router.countRejection(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' });
-            }
-            res.status(options.statusCode).json(options.message);
-        },
+    // A tracking request turned away here is counted in the tracking log like
+    // any other refusal (in memory, written in batches).
+    app.use(buildPerIpLimiters(config.server.rateLimit, (req) => {
+        if (trackingSourceFor(req.path)) router.countRejection(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' });
     }));
 
     app.use(router);
