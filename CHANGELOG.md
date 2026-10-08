@@ -67,6 +67,11 @@ Upgrading from 3.2:
 
 ### Fixed
 
+- `proxy-addr`, which Express uses to work out the client address behind a
+  trusted proxy, is updated to 2.0.8 for GHSA-jqcg-44mw-7w3h: a trusted subnet
+  could be matched by an IPv4-mapped IPv6 address it should not have covered,
+  letting a client pass off a forwarded address as its own. Only deployments
+  with `TRUST_PROXY` set to a subnet were exposed.
 - A page left before the server had answered its view (two quick navigations
   in a single-page app) lost its time and scroll depth. It now reports them as
   soon as the answer arrives.
