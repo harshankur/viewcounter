@@ -9,6 +9,7 @@ const { createVisitorSaltStore } = require('../db/visitorSalt');
 const { ensureLogTables } = require('../db/adminSchema');
 const { createScriptedPool } = require('./support/scriptedPool');
 const { TEST_VISITOR_SECRET } = require('./jestSetup');
+const { PRIVACY } = require('../constants');
 
 const HOUR = 60 * 60 * 1000;
 const HEX_64 = /^[0-9a-f]{64}$/;
@@ -25,9 +26,14 @@ function saltPool() {
         }
         if (/^\s*SELECT/.test(sql)) return [rows.has(key) ? [{ salt: rows.get(key) }] : []];
         if (/^\s*DELETE/.test(sql)) {
-            // Same window length, another window: over. (Other lengths go by age, which MySQL judges.)
-            for (const other of [...rows.keys()]) if (other !== key && other.startsWith(`${params[0]}:`)) rows.delete(other);
-            return [{ affectedRows: 0 }];
+            // As MySQL would: every window that ended more than the grace ago.
+            const [grace, now] = params;
+            let deleted = 0;
+            for (const other of [...rows.keys()]) {
+                const [hours, windowId] = other.split(':').map(Number);
+                if ((windowId + 1) * hours * HOUR + grace <= now) { rows.delete(other); deleted += 1; }
+            }
+            return [{ affectedRows: deleted }];
         }
         return undefined;
     });
@@ -64,11 +70,90 @@ describe('the visitor salt store', () => {
         expect(second).toMatch(HEX_64);
         expect(second).not.toBe(first);
         expect([...rows.values()]).toEqual([second]);
-        const [, , deletion] = pool.matching('`_visitor_salts`').slice(-3);
-        expect(deletion.sql).toMatch(/^DELETE FROM `_visitor_salts`\s+WHERE \(rotation_hours = \? AND window_id <> \?\)/);
-        // A row of another window length is only removed once its own window has run out.
-        expect(deletion.sql).toContain('(rotation_hours <> ? AND created_at < DATE_SUB(NOW(), INTERVAL rotation_hours HOUR))');
-        expect(deletion.params).toEqual([24, PrivacyUtils.currentWindowId(24, monday + 24 * HOUR), 24]);
+        const deletion = pool.matching('DELETE FROM `_visitor_salts`').at(-1);
+        expect(deletion.sql).toContain('WHERE (window_id + 1) * rotation_hours * 3600000 + ? <= ?');
+        expect(deletion.params).toEqual([PRIVACY.SALT_GRACE_MS, monday + 24 * HOUR]);
+    });
+
+    test('a salt goes by the clock, a few minutes after its window, with no view needed to trigger it', async () => {
+        const { pool, rows } = saltPool();
+        const store = createVisitorSaltStore(() => pool);
+        const lastView = Date.UTC(2026, 9, 5, 20);
+        const midnight = Date.UTC(2026, 9, 6);
+        await store.current(24, lastView);
+
+        // Still Monday, and just after midnight within the grace: kept, so a
+        // second instance whose clock is a little behind reads the same salt.
+        expect(await store.prune(midnight - 1)).toBe(0);
+        expect(await store.prune(midnight + PRIVACY.SALT_GRACE_MS - 1)).toBe(0);
+        expect(rows.size).toBe(1);
+        // Nobody visits on Tuesday. The salt is gone all the same.
+        expect(await store.prune(midnight + PRIVACY.SALT_GRACE_MS)).toBe(1);
+        expect(rows.size).toBe(0);
+    });
+
+    test('a pruned window is forgotten in memory too: asked again, it gets a different salt', async () => {
+        const { pool } = saltPool();
+        const store = createVisitorSaltStore(() => pool);
+        const monday = Date.UTC(2026, 9, 5, 20);
+        const first = await store.current(24, monday);
+        await store.prune(Date.UTC(2026, 9, 6) + PRIVACY.SALT_GRACE_MS);
+        expect(await store.current(24, monday)).not.toBe(first);
+    });
+
+    test('a deletion never touches a window that is still running, whatever its length', async () => {
+        const { pool, rows } = saltPool();
+        const store = createVisitorSaltStore(() => pool);
+        const now = Date.UTC(2026, 9, 8, 10, 30);
+        const daily = await store.current(24, now);
+        const hourly = await store.current(1, now);
+        const nextHour = await store.current(1, now + HOUR);
+        // The hour that ended is gone; the day and the new hour are untouched.
+        expect([...rows.values()].sort()).toEqual([daily, nextHour].sort());
+        expect(hourly).not.toBe(nextHour);
+        expect(await store.current(24, now + HOUR)).toBe(daily);
+    });
+
+    test('page views and events use different window lengths, and neither costs the other its place', async () => {
+        const { pool } = saltPool();
+        const store = createVisitorSaltStore(() => pool);
+        const now = Date.UTC(2026, 9, 8, 10, 30);
+        const daily = await store.current(24, now);
+        const hourly = await store.current(0, now);
+        const asked = pool.queries.length;
+        for (let i = 0; i < 20; i += 1) {
+            expect(await store.current(24, now + i * 1000)).toBe(daily);
+            expect(await store.current(0, now + i * 1000)).toBe(hourly);
+        }
+        expect(pool.queries).toHaveLength(asked);
+    });
+
+    test('start prunes at once and on an interval, reports a failure and keeps going; stop ends it', async () => {
+        jest.useFakeTimers();
+        try {
+            const { pool } = saltPool();
+            const store = createVisitorSaltStore(() => pool);
+            const deletions = () => pool.matching('DELETE FROM `_visitor_salts`').length;
+            store.start(1000);
+            store.start(1000);
+            await jest.advanceTimersByTimeAsync(0);
+            expect(deletions()).toBe(1);
+            await jest.advanceTimersByTimeAsync(2000);
+            expect(deletions()).toBe(3);
+
+            const query = pool.query.bind(pool);
+            pool.query = async () => { throw new Error('gone away'); };
+            await jest.advanceTimersByTimeAsync(1000);
+            pool.query = query;
+            await jest.advanceTimersByTimeAsync(1000);
+            expect(deletions()).toBe(4);
+
+            store.stop();
+            await jest.advanceTimersByTimeAsync(5000);
+            expect(deletions()).toBe(4);
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     test('simultaneous first requests of a window share one read', async () => {
@@ -123,6 +208,11 @@ describe('PrivacyUtils.generateVisitorHash with a salt', () => {
 });
 
 describe('DatabaseManager.registerEvent', () => {
+    // A fixed moment, mid-window, so the expected hash never straddles an hour.
+    const NOW = Date.UTC(2026, 9, 8, 10, 30);
+    beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(NOW));
+    afterEach(() => jest.restoreAllMocks());
+
     function manager() {
         const { pool, rows } = saltPool();
         const db = new DatabaseManager({ mode: 'connect' });
@@ -138,9 +228,8 @@ describe('DatabaseManager.registerEvent', () => {
         await db.registerEvent('blog', view);
         const [salt] = [...rows.values()];
         const [insert] = pool.matching('INSERT INTO `blog`');
-        const now = Date.now();
-        const salted = PrivacyUtils.generateVisitorHash(view.ip, view.userAgent, TEST_VISITOR_SECRET, 0, now, salt);
-        const unsalted = PrivacyUtils.generateVisitorHash(view.ip, view.userAgent, TEST_VISITOR_SECRET, 0, now);
+        const salted = PrivacyUtils.generateVisitorHash(view.ip, view.userAgent, TEST_VISITOR_SECRET, 0, NOW, salt);
+        const unsalted = PrivacyUtils.generateVisitorHash(view.ip, view.userAgent, TEST_VISITOR_SECRET, 0, NOW);
         expect(insert.params).toContain(salted);
         expect(insert.params).not.toContain(unsalted);
         // The salt itself goes nowhere but its own table.
@@ -169,5 +258,18 @@ describe('the schema', () => {
         const [ddl] = pool.matching('CREATE TABLE IF NOT EXISTS `_visitor_salts`');
         expect(ddl.sql).toContain('PRIMARY KEY (`rotation_hours`, `window_id`)');
         expect(ddl.sql).toContain('`salt` CHAR(64) NOT NULL');
+    });
+});
+
+describe('the manager runs the pruning', () => {
+    test('migrate starts it and close stops it', async () => {
+        const db = new DatabaseManager({ mode: 'connect' });
+        db.pool = Object.assign(createScriptedPool((sql) => (sql.includes('information_schema') ? [[]] : undefined)), { end: async () => {} });
+        const start = jest.spyOn(db.visitorSalts, 'start').mockImplementation(() => {});
+        const stop = jest.spyOn(db.visitorSalts, 'stop');
+        await db.migrate([]);
+        expect(start).toHaveBeenCalledTimes(1);
+        await db.close();
+        expect(stop).toHaveBeenCalledTimes(1);
     });
 });

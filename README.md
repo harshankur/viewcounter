@@ -34,16 +34,23 @@ do for you:
   addresses, or account IDs there.
 - **Answer requests.** During its window (a day by default) a visitor hash is
   pseudonymous: whoever holds both the server secret and that window's salt
-  could tie it to a known address and browser. When the window ends the salt
-  is deleted and nobody can, you included. What remains is a masked address
+  could tie it to a known address and browser. A few minutes after the window
+  ends the salt is deleted and, as long as no copy of it survives (next point),
+  nobody can, you included. What remains is a masked address
   and coarse details. Treat it as personal data all the same: a visitor may
   ask what is held or ask for erasure, which the admin UI does
   ([Deleting, and GDPR](#deleting-and-gdpr)).
-- **Keep the salts out of your backups.** The `_visitor_salts` table holds the
-  current window's salt and nothing else. A backup that keeps old copies of it
-  keeps the one thing whose deletion makes old hashes untraceable, so exclude
-  it (`mysqldump --ignore-table=<database>._visitor_salts`). Restoring without
-  it is harmless: a new salt is made on the next view.
+- **Keep no copies of the salts.** The `_visitor_salts` table holds the salts
+  of the windows now running and nothing else. A copy of an old salt, wherever
+  it is, keeps the one thing whose deletion makes old hashes untraceable:
+  - **Backups**: exclude the table
+    (`mysqldump --ignore-table=<database>._visitor_salts`). Restoring without
+    it is harmless: a new salt is made on the next view.
+  - **The binary log**: MySQL 8 has it on by default and keeps 30 days, salts
+    included. If you do not replicate, turn it off (`skip-log-bin`) or leave
+    this database out of it (`binlog-ignore-db`); otherwise shorten
+    `binlog_expire_logs_seconds` to what you can accept. MariaDB has it off
+    unless you turned it on.
 
 This is a description of the software, not legal advice.
 
@@ -67,7 +74,7 @@ We believe in total transparency regarding your visitors' data:
 2. **Immediate Masking**: Before being saved, the IP is masked (IPv4 last octet zeroed; IPv6 interface identifier zeroed).
 3. **Keyed, Not Just Hashed**: The visitor identifier is an HMAC-SHA-256 keyed with a 32-byte server secret generated on first run and stored at mode `0600`. This matters: an *unkeyed* hash of an IP is reversible by exhausting the 2^32 IPv4 space, which takes about an hour on one CPU core. Without the secret, that search is infeasible.
 4. **Rotating**: The hash also mixes in a time window (`UNIQUE_VISITOR_WINDOW_HOURS`), so the same visitor hashes differently after each window and their visits cannot be linked over time.
-5. **Salted, and the salt is thrown away**: each window has its own random salt, kept in the `_visitor_salts` table only while the window lasts and deleted when the next one starts. From then on the hashes of that window cannot be recomputed from a known address and browser by anyone, the secret's holder included. The salt is useless without the server secret, which is never in the database.
+5. **Salted, and the salt is thrown away**: each window has its own random salt, kept in the `_visitor_salts` table only while the window lasts and deleted a few minutes after it ends, by a timer, whether or not anyone visits. From then on the hashes of that window cannot be recomputed from a known address and browser by anyone, the secret's holder included. The salt is useless without the server secret, which is never in the database.
 6. **Automated Guards**: [`tests/privacyFailSafe.test.js`](tests/privacyFailSafe.test.js) asserts that no raw IP or User-Agent reaches either the bound parameters *or* the SQL text of any statement, and that the hash is genuinely keyed. CI runs it on every push, so a change that started storing raw IPs would fail the build.
 
 ## ✨ Features
@@ -654,7 +661,7 @@ returned by any API.
 |-------|-----------|-----------|-----|
 | **Timestamp** | Server | When the view was recorded | Everything over time |
 | **Masked IP** | Request | IPv4 with the last octet zeroed, IPv6 with the interface identifier zeroed | Abuse investigation at network level, never a person |
-| **Visitor hash** | IP and User-Agent, with a secret | HMAC-SHA-256, keyed with a server secret, rotating every window | Unique views, visitors, and visits; never returned |
+| **Visitor hash** | IP and User-Agent, with a secret | HMAC-SHA-256, keyed with a server secret and the window's salt, rotating every window; the salt is deleted when the window ends | Unique views, visitors, and visits; never returned |
 | **Country** | IP, looked up in memory | Two-letter code | Where visitors are |
 | **Region, City** | IP, with an optional [city database](#location-data) | Names, such as Bavaria and Munich | Where visitors are, more finely |
 | **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list) | Which languages to write in |

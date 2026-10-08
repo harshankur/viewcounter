@@ -15,18 +15,23 @@ Upgrading from 3.3:
   changes when the salt is introduced. It happens once.
 - If you back up the database, exclude `_visitor_salts`
   (`mysqldump --ignore-table=<database>._visitor_salts`). Old copies of it
-  would keep the salts whose deletion is the point.
+  would keep the salts whose deletion is the point. The same goes for MySQL's
+  binary log, which is on by default in MySQL 8 and keeps 30 days: see "Keep
+  no copies of the salts" in the README.
 
 ### Added
 
 - **Visitor hashes can no longer be recomputed once their window is over, by
   anyone.** Each unique-visitor window now has its own random salt, mixed into
   every visitor hash, stored in the new `_visitor_salts` table while the window
-  lasts and deleted when the next one starts. Before, the server secret alone
+  lasts and deleted a few minutes after it ends, by a timer, whether or not
+  anyone visits. Before, the server secret alone
   was enough to recompute any past hash from a known address and browser.
   Counting is unchanged: a visitor was never recognised across windows. The
   salt is shared through the database, so a restart or a second instance
   within the window keeps telling the same visitors apart.
+  `PrivacyUtils.generateVisitorHash` takes the salt as an optional sixth
+  argument; without it the result is what it was.
 - `data-campaigns="false"` on the tracker script stops it sending the landing
   URL's `utm_*` tags.
 

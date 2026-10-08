@@ -205,6 +205,10 @@ class DatabaseManager {
                 logger.info(`Assigned public IDs to ${result.backfilled} existing row(s) in '${appId}'`);
             }
         }
+
+        // From here on the salts of ended visitor-hash windows are deleted on
+        // the clock, whether or not anyone visits.
+        this.visitorSalts.start();
     }
 
     /** @throws {Error} when a query is attempted before initialize() */
@@ -824,6 +828,7 @@ class DatabaseManager {
      * Gracefully close all connections
      */
     async close() {
+        this.visitorSalts.stop();
         if (this.pool) {
             await this.pool.end();
             this.pool = null;

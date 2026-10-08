@@ -57,10 +57,8 @@ class MockPool {
                 return [{ affectedRows: 1 }];
             }
             if (sqlLower.startsWith('select')) return [this.salts.has(key) ? [{ salt: this.salts.get(key) }] : []];
-            if (sqlLower.startsWith('delete')) {
-                for (const other of [...this.salts.keys()]) if (other !== key && other.startsWith(`${params[0]}:`)) this.salts.delete(other);
-                return [{ affectedRows: 0 }];
-            }
+            // Ended windows are deleted by the clock; none ends within a test.
+            if (sqlLower.startsWith('delete')) return [{ affectedRows: 0 }];
             return [[]];
         }
 

@@ -48,6 +48,7 @@ const WarningType = {
     TRACKING_LOG_WRITE_FAILED: 'TRACKING_LOG_WRITE_FAILED',
     ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
     TRASH_PURGE_FAILED: 'TRASH_PURGE_FAILED',
+    SALT_PRUNE_FAILED: 'SALT_PRUNE_FAILED',
 };
 
 /**
@@ -124,6 +125,8 @@ const WARNING_MESSAGES = {
         `Automatic view log pruning failed: ${info?.cause}`,
     [WarningType.TRASH_PURGE_FAILED]: (info) =>
         `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
+    [WarningType.SALT_PRUNE_FAILED]: (info) =>
+        `Could not delete the visitor salts of ended windows (it is tried again shortly): ${info?.cause}`,
 };
 
 /**

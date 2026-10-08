@@ -233,6 +233,38 @@ test('a page that fits its window reports its time but no scroll depth, until it
     expect(sent.engagement[1].body.scroll).toBeLessThan(70);
 });
 
+test('a short page reached from the bottom of a long one does not inherit its scroll depth', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    const SECOND = '33333333-3333-4333-8333-333333333333';
+    let calls = 0;
+    await page.route('**/registerView?**', async (route) => {
+        calls += 1;
+        await route.fulfill({ json: { recorded: true, id: calls === 1 ? VIEW_ID : SECOND } });
+    });
+    await page.goto('/tracker-lab/start');
+    await page.waitForTimeout(200);
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await page.waitForTimeout(200);
+
+    // As a single-page app does it: the address changes first, the new (short) page is drawn after.
+    await page.evaluate(() => {
+        window.history.pushState({}, '', '/tracker-lab/about');
+        for (const tall of document.querySelectorAll('div')) tall.remove();
+        window.scrollTo(0, 0);
+    });
+    await page.waitForTimeout(300);
+    await hide(page);
+
+    await expect.poll(() => sent.engagement.length).toBe(2);
+    const [left, about] = sent.engagement.map((report) => report.body);
+    // The long page was read to the end, and says so as it is left.
+    expect(left).toMatchObject({ id: VIEW_ID, scroll: 100 });
+    // The short page fits the window: time, and no depth.
+    expect(about.id).toBe(SECOND);
+    expect(about).not.toHaveProperty('scroll');
+});
+
 test('data-campaigns="false" sends none of the landing URL\'s campaign tags', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

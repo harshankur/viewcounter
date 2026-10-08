@@ -123,6 +123,14 @@ const PRIVACY = {
     /** Owner-only. The secret is what makes visitor hashes irreversible. */
     SECRET_FILE_MODE: 0o600,
     SECRET_FILENAME: '.visitor-secret',
+    /**
+     * How long after its window ended a visitor salt may still exist, so that
+     * instances whose clocks differ by a little agree on the window's salt
+     * right up to its end.
+     */
+    SALT_GRACE_MS: 5 * 60 * 1000,
+    /** How often ended windows' salts are looked for and deleted. */
+    SALT_PRUNE_INTERVAL_MS: 5 * 60 * 1000,
     /** Rejects a key short enough to be guessable. */
     MIN_API_KEY_LENGTH: 32,
     /**

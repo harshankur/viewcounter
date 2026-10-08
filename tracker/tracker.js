@@ -5,10 +5,11 @@
  * privacy-first view counter that the site runs on its own server. It is built
  * for GDPR compliance:
  *   - it sets no cookie and stores nothing on your device;
- *   - it sends no identifier;
- *   - the server never stores your IP address or your browser's user agent,
- *     only a masked address and a visitor hash that changes every day by
- *     default, so nothing it keeps identifies you directly.
+ *   - it sends nothing that identifies you or your device;
+ *   - the server never stores your IP address or your browser's user agent.
+ *     It keeps a masked address, a visitor hash that changes every day by
+ *     default, and coarse details such as your country, browser and system,
+ *     so nothing it keeps identifies you directly.
  * Check it yourself: the source is at https://github.com/harshankur/viewcounter
  * and the homepage at https://viewcounter.harshankur.com.
  *
@@ -123,11 +124,15 @@
 
     function pageview() {
         // The page being left stops counting here, and reports what it has.
+        // It is still the one on screen (a single-page app draws the next
+        // only after changing the address), so this is its last measure.
         if (view) {
             if (view.visibleSince !== null) view.visibleMs += performance.now() - view.visibleSince;
             view.visibleSince = null;
+            measure();
             reportEngagement();
         }
+        const first = !view;
         const params = new URLSearchParams({
             appId: app,
             deviceSize: deviceSize(),
@@ -155,7 +160,10 @@
             sentScroll: -1,
         };
         view = current;
-        measure();
+        // A page that has just loaded can be measured. After a navigation the
+        // old page is still on screen, and its depth is not the new one's:
+        // the new page is measured when it is scrolled, hidden, or reports.
+        if (first) measure();
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
             .then((result) => {

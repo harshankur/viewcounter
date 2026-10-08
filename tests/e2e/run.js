@@ -1036,18 +1036,21 @@ async function verifyAnalysisScenario(db, admin) {
         JSON.stringify(salts.map((row) => ({ ...row, salt: `${String(row.salt).length} chars` }))));
     const [hashed] = await db.query('SELECT COUNT(*) AS n FROM `tenant_a` WHERE visitor_hash = ? OR visitor_hash = ?', [salts[0]?.salt, VISITOR_SECRET]);
     check('neither the salt nor the secret is ever stored with a view', Number(hashed[0]?.n) === 0);
-    // A salt left by a window that is over is gone as soon as the next window's first view arrives.
-    // (This process has the current salt in memory, so the deletion is run as the store runs it.)
-    await db.query('INSERT INTO `_visitor_salts` (rotation_hours, window_id, salt, created_at) VALUES (24, 1, ?, NOW()), (6, 1, ?, DATE_SUB(NOW(), INTERVAL 7 HOUR)), (6, 2, ?, NOW())',
-        ['1'.repeat(64), '2'.repeat(64), '3'.repeat(64)]);
-    await db.query(`DELETE FROM \`_visitor_salts\`
-         WHERE (rotation_hours = ? AND window_id <> ?)
-            OR (rotation_hours <> ? AND created_at < DATE_SUB(NOW(), INTERVAL rotation_hours HOUR))`, [24, salts[0]?.window_id, 24]);
+    // Ended windows lose their salts by the clock, through the store itself, on the real engine.
+    const { createVisitorSaltStore } = require('../../db/visitorSalt');
+    const saltStore = createVisitorSaltStore(() => db);
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    const liveSix = Math.floor(Date.now() / SIX_HOURS);
+    await db.query('INSERT INTO `_visitor_salts` (rotation_hours, window_id, salt, created_at) VALUES (24, 1, ?, NOW()), (6, ?, ?, NOW()), (6, ?, ?, NOW())',
+        ['1'.repeat(64), liveSix - 1, '2'.repeat(64), liveSix, '3'.repeat(64)]);
+    await saltStore.prune(liveSix * SIX_HOURS + 6 * 60 * 1000);
     // (The embedded instance earlier in this run keeps an hourly salt of its own; it is live, so it stays.)
     const [left] = await db.query('SELECT rotation_hours, window_id FROM `_visitor_salts` WHERE rotation_hours IN (6, 24) ORDER BY rotation_hours, window_id');
-    check('ended windows lose their salts; another window length keeps its live one',
-        JSON.stringify(left.map((row) => [Number(row.rotation_hours), Number(row.window_id)])) === JSON.stringify([[6, 2], [24, Number(salts[0]?.window_id)]]),
+    check('ended windows lose their salts by the clock; running ones keep theirs, whatever their length',
+        JSON.stringify(left.map((row) => [Number(row.rotation_hours), Number(row.window_id)])) === JSON.stringify([[6, liveSix], [24, Number(salts[0]?.window_id)]]),
         JSON.stringify(left));
+    check('a second instance reads the salt the first one made', await saltStore.current(6) === '3'.repeat(64)
+        && await saltStore.current(24) === salts[0]?.salt);
     await db.query('DELETE FROM `_visitor_salts` WHERE rotation_hours = 6');
 
     // A view from an hour ago is no longer "right now", until its page reports again.
