@@ -33,6 +33,7 @@ const {
 } = require('./adminSchema');
 const LogRepository = require('./LogRepository');
 const AdminRepository = require('./AdminRepository');
+const { createVisitorSaltStore } = require('./visitorSalt');
 
 /**
  * Columns returned for a session lookup.
@@ -182,6 +183,7 @@ class DatabaseManager {
         this.mode = config.mode || 'connect';
         this.logs = new LogRepository(this);
         this.admin = new AdminRepository(this);
+        this.visitorSalts = createVisitorSaltStore(() => this.pool);
     }
 
     /**
@@ -457,12 +459,19 @@ class DatabaseManager {
 
         // Privacy boundary. Neither the raw IP nor the raw User-Agent is bound
         // into any statement below; only the masked address and the keyed,
-        // rotating hash derived from them.
+        // rotating hash derived from them. The hash is also salted with a
+        // value that is deleted when its window ends, so that afterwards not
+        // even the secret's holder can recompute it.
+        if (!visitorSecret) throw getError(ErrorType.SECRET_UNAVAILABLE);
+        const now = Date.now();
+        const salt = await this.visitorSalts.current(uniqueWindowHours, now);
         const hashedVisitor = PrivacyUtils.generateVisitorHash(
             ip,
             userAgent,
             visitorSecret,
             uniqueWindowHours,
+            now,
+            salt,
         );
         const maskedIp = PrivacyUtils.maskIP(ip);
 
@@ -556,7 +565,8 @@ class DatabaseManager {
      * what it had.
      *
      * @param {string} appId already validated
-     * @param {{ viewId: string, engagedMs: number, scrollDepth: number }} engagement
+     * @param {{ viewId: string, engagedMs: number, scrollDepth: number|null }} engagement
+     *     `scrollDepth` is null for a page that did not scroll, which leaves the stored depth as it was
      * @returns {Promise<boolean>} whether a view was updated
      */
     async addEngagement(appId, { viewId, engagedMs, scrollDepth }) {
@@ -564,11 +574,12 @@ class DatabaseManager {
         const [result] = await this.pool.query(
             `UPDATE \`${appId}\`
              SET engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?),
-                 scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?),
+                 scroll_depth = CASE WHEN ? IS NULL THEN scroll_depth
+                                     ELSE GREATEST(COALESCE(scroll_depth, 0), ?) END,
                  last_seen_at = NOW()
              WHERE public_id = ? AND ${LIVE_ROW}
                AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)`,
-            [engagedMs, scrollDepth, viewId, TRACKING.ENGAGE_WINDOW_HOURS]
+            [engagedMs, scrollDepth, scrollDepth, viewId, TRACKING.ENGAGE_WINDOW_HOURS]
         );
         return result.affectedRows > 0;
     }

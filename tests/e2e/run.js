@@ -1012,6 +1012,44 @@ async function verifyAnalysisScenario(db, admin) {
     check('the realtime view runs on the real engine', live.status === 200 && typeof live.body?.visitors === 'number'
         && Array.isArray(live.body?.minutes), `got ${live.status}`);
 
+    // A page that does not scroll reports its time alone, and the view keeps no depth.
+    const flat = await req('GET', '/registerView?appId=tenant_a&deviceSize=large&page=/fits-the-window',
+        { headers: { origin: 'https://a.example', 'user-agent': RAW_UA, 'x-forwarded-for': '198.51.100.78' } });
+    const report = (body) => fetch(`${BASE}/engage`, {
+        method: 'POST', headers: { origin: 'https://a.example', 'user-agent': RAW_UA, 'content-type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ appId: 'tenant_a', id: flat.body?.id, ...body }),
+    });
+    const depthOf = async () => (await db.query('SELECT engaged_ms, scroll_depth FROM `tenant_a` WHERE public_id = ?', [flat.body?.id]))[0][0];
+    const timeOnly = await report({ ms: 5000 });
+    const noDepth = await depthOf();
+    check('a report without scroll is accepted and stores no depth', timeOnly.status === 204
+        && Number(noDepth?.engaged_ms) === 5000 && noDepth?.scroll_depth === null, JSON.stringify(noDepth));
+    await report({ ms: 6000, scroll: 30 });
+    await report({ ms: 7000 });
+    const kept = await depthOf();
+    check('a later report without scroll leaves the depth it had', Number(kept?.engaged_ms) === 7000 && Number(kept?.scroll_depth) === 30,
+        JSON.stringify(kept));
+
+    // One salt for the current visitor-hash window, and nothing older.
+    const [salts] = await db.query('SELECT rotation_hours, window_id, salt FROM `_visitor_salts` WHERE rotation_hours = 24');
+    check('the visitor salts table holds exactly the current window\'s salt', salts.length === 1 && /^[0-9a-f]{64}$/.test(salts[0]?.salt || ''),
+        JSON.stringify(salts.map((row) => ({ ...row, salt: `${String(row.salt).length} chars` }))));
+    const [hashed] = await db.query('SELECT COUNT(*) AS n FROM `tenant_a` WHERE visitor_hash = ? OR visitor_hash = ?', [salts[0]?.salt, VISITOR_SECRET]);
+    check('neither the salt nor the secret is ever stored with a view', Number(hashed[0]?.n) === 0);
+    // A salt left by a window that is over is gone as soon as the next window's first view arrives.
+    // (This process has the current salt in memory, so the deletion is run as the store runs it.)
+    await db.query('INSERT INTO `_visitor_salts` (rotation_hours, window_id, salt, created_at) VALUES (24, 1, ?, NOW()), (6, 1, ?, DATE_SUB(NOW(), INTERVAL 7 HOUR)), (6, 2, ?, NOW())',
+        ['1'.repeat(64), '2'.repeat(64), '3'.repeat(64)]);
+    await db.query(`DELETE FROM \`_visitor_salts\`
+         WHERE (rotation_hours = ? AND window_id <> ?)
+            OR (rotation_hours <> ? AND created_at < DATE_SUB(NOW(), INTERVAL rotation_hours HOUR))`, [24, salts[0]?.window_id, 24]);
+    // (The embedded instance earlier in this run keeps an hourly salt of its own; it is live, so it stays.)
+    const [left] = await db.query('SELECT rotation_hours, window_id FROM `_visitor_salts` WHERE rotation_hours IN (6, 24) ORDER BY rotation_hours, window_id');
+    check('ended windows lose their salts; another window length keeps its live one',
+        JSON.stringify(left.map((row) => [Number(row.rotation_hours), Number(row.window_id)])) === JSON.stringify([[6, 2], [24, Number(salts[0]?.window_id)]]),
+        JSON.stringify(left));
+    await db.query('DELETE FROM `_visitor_salts` WHERE rotation_hours = 6');
+
     // A view from an hour ago is no longer "right now", until its page reports again.
     const reader = { origin: 'https://a.example', 'user-agent': RAW_UA, 'x-forwarded-for': '198.51.100.77' };
     const reading = await req('GET', '/registerView?appId=tenant_a&deviceSize=large&page=/still-reading', { headers: reader });

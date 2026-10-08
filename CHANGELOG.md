@@ -5,7 +5,39 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+Upgrading from 3.3:
+
+- Nothing to do for the schema: the first start creates one small table,
+  `_visitor_salts`, with the `CREATE` privilege earlier versions already
+  needed.
+- On the day of the upgrade, visitors already counted that day are counted
+  once more, and a visit in progress is split in two: every visitor hash
+  changes when the salt is introduced. It happens once.
+- If you back up the database, exclude `_visitor_salts`
+  (`mysqldump --ignore-table=<database>._visitor_salts`). Old copies of it
+  would keep the salts whose deletion is the point.
+
+### Added
+
+- **Visitor hashes can no longer be recomputed once their window is over, by
+  anyone.** Each unique-visitor window now has its own random salt, mixed into
+  every visitor hash, stored in the new `_visitor_salts` table while the window
+  lasts and deleted when the next one starts. Before, the server secret alone
+  was enough to recompute any past hash from a known address and browser.
+  Counting is unchanged: a visitor was never recognised across windows. The
+  salt is shared through the database, so a restart or a second instance
+  within the window keeps telling the same visitors apart.
+- `data-campaigns="false"` on the tracker script stops it sending the landing
+  URL's `utm_*` tags.
+
 ### Changed
+
+- **Scroll depth is recorded only for pages that scroll.** The tracker used to
+  report 100% for a page that fits its window, which said nothing about the
+  reader and raised the averages. It now sends no depth for such a page (until
+  the page grows and is scrolled), `/engage` accepts a report without `scroll`,
+  and such views stay out of the scroll averages and distribution. Depths
+  already stored are kept.
 
 - The wording of the privacy claims. The homepage, the README, and a new
   notice at the top of the tracker script now say ViewCounter is "built for

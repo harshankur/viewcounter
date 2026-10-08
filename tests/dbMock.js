@@ -47,6 +47,23 @@ class MockPool {
             return [[{ 1: 1 }]];
         }
 
+        // ---- `_visitor_salts`: the salt of the current visitor-hash window ---
+        // Real state, so the first writer's salt is the one everyone reads.
+        if (sqlLower.includes('`_visitor_salts`')) {
+            this.salts = this.salts || new Map();
+            const key = `${params[0]}:${params[1]}`;
+            if (sqlLower.includes('insert ignore')) {
+                if (!this.salts.has(key)) this.salts.set(key, params[2]);
+                return [{ affectedRows: 1 }];
+            }
+            if (sqlLower.startsWith('select')) return [this.salts.has(key) ? [{ salt: this.salts.get(key) }] : []];
+            if (sqlLower.startsWith('delete')) {
+                for (const other of [...this.salts.keys()]) if (other !== key && other.startsWith(`${params[0]}:`)) this.salts.delete(other);
+                return [{ affectedRows: 0 }];
+            }
+            return [[]];
+        }
+
         // ---- `_apps` tenant registry ---------------------------------------
         // Modelled with real state rather than canned rows, so idempotent
         // re-registration and the allowlist merge behave as they do in MySQL.

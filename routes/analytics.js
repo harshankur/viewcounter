@@ -480,7 +480,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                 const updated = await dbManager.addEngagement(appId, {
                     viewId: id,
                     engagedMs: Number(ms),
-                    scrollDepth: Number(scroll),
+                    scrollDepth: scroll === undefined || scroll === null ? null : Number(scroll),
                 });
                 if (!updated) reject(req, REJECTION_REASON.UNKNOWN_VIEW);
                 return res.status(HTTP_STATUS.NO_CONTENT).end();

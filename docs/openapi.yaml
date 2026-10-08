@@ -195,7 +195,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [appId, id, ms, scroll]
+              required: [appId, id, ms]
               properties:
                 appId:
                   type: string
@@ -211,6 +211,10 @@ paths:
                   type: integer
                   minimum: 0
                   maximum: 100
+                  description: >-
+                    Percent of the page that has been on screen. Leave it out
+                    for a page that fits its window: the view then keeps no
+                    scroll depth and stays out of the averages.
       responses:
         '204':
           description: Accepted

@@ -14,6 +14,7 @@ const {
     DATABASE,
     FIELD_MAX_LENGTH,
     TRACKING_REJECTIONS_TABLE,
+    VISITOR_SALTS_TABLE,
     VIEW_LOG_TABLE,
 } = require('../constants');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
@@ -60,6 +61,20 @@ const TRACKING_COLUMNS = [
     { name: 'scroll_depth', ddl: 'TINYINT UNSIGNED DEFAULT NULL' },
     { name: 'last_seen_at', ddl: 'DATETIME DEFAULT NULL' },
 ];
+
+/**
+ * The salt of the current visitor-hash window (db/visitorSalt.js). One row at
+ * a time: the rows of windows that have ended are deleted, which is the point.
+ */
+const VISITOR_SALTS_DDL = `
+    CREATE TABLE IF NOT EXISTS \`${VISITOR_SALTS_TABLE}\` (
+        \`rotation_hours\` INT UNSIGNED NOT NULL,
+        \`window_id\` BIGINT UNSIGNED NOT NULL,
+        \`salt\` CHAR(64) NOT NULL,
+        \`created_at\` DATETIME NOT NULL,
+        PRIMARY KEY (\`rotation_hours\`, \`window_id\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`;
 
 /** Indexes the admin columns need, keyed by index name. */
 const ADMIN_INDEXES = {
@@ -307,6 +322,7 @@ async function ensureLogTables(pool) {
     await pool.query(VIEW_LOG_DDL);
     await pool.query(TRACKING_REJECTIONS_DDL);
     await pool.query(ADMIN_SESSIONS_DDL);
+    await pool.query(VISITOR_SALTS_DDL);
 
     const viewLogColumns = await readColumns(pool, VIEW_LOG_TABLE);
     for (const column of VIEW_LOG_ADDED_COLUMNS) {
@@ -325,6 +341,7 @@ module.exports = {
     VIEW_LOG_ADDED_COLUMNS,
     TRACKING_REJECTIONS_DDL,
     ADMIN_SESSIONS_DDL,
+    VISITOR_SALTS_DDL,
     NEW_TABLE_ADMIN_COLUMNS,
     NEW_TABLE_ADMIN_INDEXES,
     backfillPublicIds,

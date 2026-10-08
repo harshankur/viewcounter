@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const DatabaseManager = require('../db/DatabaseManager');
 const PrivacyUtils = require('../utils/privacyUtils');
 const { TEST_VISITOR_SECRET } = require('./jestSetup');
+const { TEST_VISITOR_SALT } = require('./support/scriptedPool');
 
 // Matches full IPv4 (x.x.x.x) that has NOT been masked to a .0 final octet
 const RAW_IPV4_PATTERN = /^(?!.*\.\d{1,3}\.0$)\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
@@ -18,6 +19,7 @@ describe('Privacy Fail-Safe Verification', () => {
         query: jest.fn(async (sql, params = []) => {
             interceptedSql.push(sql);
             interceptedParams.push(...params);
+            if (/^\s*SELECT salt FROM `_visitor_salts`/.test(sql)) return [[{ salt: TEST_VISITOR_SALT }]];
             return [{ insertId: 1 }];
         }),
         execute: jest.fn(async (sql, params = []) => {
@@ -136,7 +138,7 @@ describe('Privacy Fail-Safe Verification', () => {
         const logIndex = interceptedSql.findIndex((sql) => sql.includes('`_view_log`'));
         expect(logIndex).toBeGreaterThan(-1);
         const logSql = interceptedSql[logIndex];
-        const hash = PrivacyUtils.generateVisitorHash(rawIP, rawUA, TEST_VISITOR_SECRET, 24);
+        const hash = PrivacyUtils.generateVisitorHash(rawIP, rawUA, TEST_VISITOR_SECRET, 24, Date.now(), TEST_VISITOR_SALT);
 
         for (const forbidden of [rawIP, '77.77.77.0', rawUA, hash]) {
             expect(logSql).not.toContain(forbidden);

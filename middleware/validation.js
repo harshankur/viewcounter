@@ -103,7 +103,9 @@ const validateEngage = (allowedValues) => [
         .matches(UUID_PATTERN).withMessage('id must be a view ID'),
     body('ms')
         .isInt({ min: 0, max: TRACKING.MAX_ENGAGED_MS }).withMessage(`ms must be an integer between 0 and ${TRACKING.MAX_ENGAGED_MS}`),
+    // Absent for a page that fits its window: there was nothing to scroll.
     body('scroll')
+        .optional({ values: 'null' })
         .isInt({ min: 0, max: 100 }).withMessage('scroll must be an integer between 0 and 100'),
 ];
 

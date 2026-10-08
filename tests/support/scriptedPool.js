@@ -22,9 +22,20 @@ function createScriptedPool(respond = () => undefined) {
     };
 }
 
+/** The salt a scripted pool answers with for the current visitor-hash window. */
+const TEST_VISITOR_SALT = '5'.repeat(64);
+
+/**
+ * Wrap a `respond` so the visitor-salt lookup of registerEvent is answered,
+ * leaving every other statement to the test's own script.
+ */
+function withVisitorSalt(respond = () => undefined) {
+    return (sql, params) => (/^\s*SELECT salt FROM `_visitor_salts`/.test(sql) ? [[{ salt: TEST_VISITOR_SALT }]] : respond(sql, params));
+}
+
 /** A DatabaseManager-shaped holder for a repository under test. */
 function dbWith(pool) {
     return { pool, assertReady() {} };
 }
 
-module.exports = { createScriptedPool, dbWith };
+module.exports = { createScriptedPool, dbWith, withVisitorSalt, TEST_VISITOR_SALT };

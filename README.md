@@ -32,12 +32,18 @@ do for you:
 - **Keep personal details out.** ViewCounter stores what you send in custom
   event data and the optional `sessionId` as given. Do not put names, email
   addresses, or account IDs there.
-- **Answer requests.** What is stored is pseudonymous, not anonymous: a masked
-  address and a visitor hash that changes every day by default, which only the
-  holder of the server secret could tie back to a known address and browser.
-  The law still treats that as personal data, so a visitor may ask what is held
-  or ask for erasure, which the admin UI does
+- **Answer requests.** During its window (a day by default) a visitor hash is
+  pseudonymous: whoever holds both the server secret and that window's salt
+  could tie it to a known address and browser. When the window ends the salt
+  is deleted and nobody can, you included. What remains is a masked address
+  and coarse details. Treat it as personal data all the same: a visitor may
+  ask what is held or ask for erasure, which the admin UI does
   ([Deleting, and GDPR](#deleting-and-gdpr)).
+- **Keep the salts out of your backups.** The `_visitor_salts` table holds the
+  current window's salt and nothing else. A backup that keeps old copies of it
+  keeps the one thing whose deletion makes old hashes untraceable, so exclude
+  it (`mysqldump --ignore-table=<database>._visitor_salts`). Restoring without
+  it is harmless: a new salt is made on the next view.
 
 This is a description of the software, not legal advice.
 
@@ -61,7 +67,8 @@ We believe in total transparency regarding your visitors' data:
 2. **Immediate Masking**: Before being saved, the IP is masked (IPv4 last octet zeroed; IPv6 interface identifier zeroed).
 3. **Keyed, Not Just Hashed**: The visitor identifier is an HMAC-SHA-256 keyed with a 32-byte server secret generated on first run and stored at mode `0600`. This matters: an *unkeyed* hash of an IP is reversible by exhausting the 2^32 IPv4 space, which takes about an hour on one CPU core. Without the secret, that search is infeasible.
 4. **Rotating**: The hash also mixes in a time window (`UNIQUE_VISITOR_WINDOW_HOURS`), so the same visitor hashes differently after each window and their visits cannot be linked over time.
-5. **Automated Guards**: [`tests/privacyFailSafe.test.js`](tests/privacyFailSafe.test.js) asserts that no raw IP or User-Agent reaches either the bound parameters *or* the SQL text of any statement, and that the hash is genuinely keyed. CI runs it on every push, so a change that started storing raw IPs would fail the build.
+5. **Salted, and the salt is thrown away**: each window has its own random salt, kept in the `_visitor_salts` table only while the window lasts and deleted when the next one starts. From then on the hashes of that window cannot be recomputed from a known address and browser by anyone, the secret's holder included. The salt is useless without the server secret, which is never in the database.
+6. **Automated Guards**: [`tests/privacyFailSafe.test.js`](tests/privacyFailSafe.test.js) asserts that no raw IP or User-Agent reaches either the bound parameters *or* the SQL text of any statement, and that the hash is genuinely keyed. CI runs it on every push, so a change that started storing raw IPs would fail the build.
 
 ## ✨ Features
 
@@ -415,7 +422,10 @@ Content-Type: text/plain   # or application/json
 {"appId": "blog", "id": "<the id /registerView returned>", "ms": 42000, "scroll": 80}
 ```
 How long the page was visible (`ms`, up to 6 hours) and how much of it had been
-on screen (`scroll`, 0 to 100). A later report can only raise either. Each
+on screen (`scroll`, 0 to 100). `scroll` is optional: leave it out for a page
+that fits its window, where there is nothing to scroll, and the view keeps no
+depth and stays out of the scroll averages. The tracker script does this
+itself. A later report can only raise either. Each
 report also marks the view as seen just now, which keeps its visitor in the
 admin's **Right now** for the next few minutes; the tracker script sends one
 every half minute while the page is being read. A report
@@ -657,7 +667,7 @@ returned by any API.
 | **Device Size** | `deviceSize` | small, medium, large | Layout decisions |
 | **Browser, OS, and versions** | User-Agent, parsed in memory | Names and versions, such as Chrome 140 on macOS 15 | Compatibility |
 | **Device Type** | User-Agent | desktop, mobile, tablet, tv, console, wearable | Compatibility |
-| **Time on page, Scroll depth, Last seen** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen; when the page last reported | Whether pages are read |
+| **Time on page, Scroll depth, Last seen** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen, empty for a page that fits its window; when the page last reported | Whether pages are read |
 | **Event Type, Event Data** | `/event` | Type name; JSON up to 4 kB, as your site sends it | Custom events |
 | **Session ID** | `sessionId` (optional) | As your site sends it | Your own grouping; the tracker never sends one |
 
@@ -688,7 +698,10 @@ This setting prevents counting the same visitor multiple times within a time win
 - If no: it is stored as a unique view
 
 The window is also how often the visitor hash rotates, so it bounds how long
-the same person counts as one visitor.
+the same person counts as one visitor. It is the lifetime of the window's salt
+as well: the longer the window, the longer a hash stays traceable by whoever
+holds the secret and the salt. A day is what privacy-first analytics commonly
+uses; lengthen it knowingly.
 
 **Examples:**
 - `24` (default): the same visitor counts once per day
@@ -714,7 +727,7 @@ because a browser on your site must be able to reach them. Everything that
 - ✅ **Authenticated, scoped read API**: every analytics endpoint requires `x-api-key`, compared in constant time, and each key is authorized against the specific `appId` requested. Fails closed when unconfigured.
 - ✅ **Separate admin tier**: provisioning apps uses its own credential; a read key cannot provision and an admin key cannot read.
 - ✅ **Per-tenant rate limits**: an `appId`-keyed budget alongside the per-IP limit.
-- ✅ **Keyed visitor hashing**: HMAC-SHA-256 with a persisted 32-byte server secret, rotating per window, so stored hashes are not reversible to an IP.
+- ✅ **Keyed visitor hashing**: HMAC-SHA-256 with a persisted 32-byte server secret and a per-window salt that is deleted when the window ends, so stored hashes are not reversible to an IP, and after their window not even recomputable.
 - ✅ **SQL injection prevention**: every value is a bound parameter; the only interpolated identifier is `appId`, gated by the allowlist.
 - ✅ **Explicit CORS allowlist**: no wildcard, and writes can be bound to registered origins per app.
 - ✅ **Proxy-aware IP derivation**: client-supplied forwarding headers are not trusted unless `TRUST_PROXY` says so.
@@ -991,6 +1004,7 @@ automated browsers.
 | `data-spa` | `true` | Treat history changes as page views |
 | `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page. A matching fragment is stored whole as part of the page, so list only prefixes whose fragments carry nothing private. As a referrer, such a page is its path alone |
 | `data-heartbeat` | `true` | Report time on page every half minute while the page is visible and in use, not only when it is hidden or left. It keeps the visitor in the admin's **Right now** while they read one page, and saves the time of a tab the browser closes without warning. It stops after half an hour without any input |
+| `data-campaigns` | `true` | Send the landing URL's `utm_*` tags with the view |
 | `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
 | `data-downloads` | `true` | Record clicks on downloads (pdf, zip, dmg, docx, and so on), as `download` events |
 | `data-respect-dnt` | `false` | Send nothing when the browser's Do Not Track is on |

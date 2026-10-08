@@ -17,7 +17,7 @@
  *   <script defer src="https://your-server/tracker.js" data-app="blog"></script>
  *
  * Records a view of each page (including page changes in single-page apps),
- * how long it was visible and how far it was scrolled (reported when the page
+ * how long it was visible and, on a page that scrolls, how far (reported when the page
  * is hidden or left, and every half minute while it is being read), clicks on links to
  * other sites and on downloads, and the campaign tags of the landing URL.
  * The page before is sent as its origin and path only.
@@ -36,6 +36,7 @@
  *                                   these as its own page (hash-routed pages)
  *   data-heartbeat="false"          report time on page only when the page is
  *                                   hidden or left, not while it is being read
+ *   data-campaigns="false"          do not send the landing URL's utm_* tags
  *   data-outbound="false"           do not record clicks on links to other sites
  *   data-downloads="false"          do not record clicks on downloads
  *   data-respect-dnt="true"         send nothing when Do Not Track is on
@@ -66,10 +67,19 @@
     const IDLE_MS = 30 * 60 * 1000;
 
     const deviceSize = () => (innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large');
-    /** How much of the page has been on screen, from 0 to 100. */
+    /**
+     * How much of the page has been on screen, from 0 to 100, or null for a
+     * page that fits the window: there is nothing to scroll, so "all of it"
+     * would say nothing about the reader.
+     */
     const seen = () => {
         const height = Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0);
-        return height <= 0 ? 100 : Math.min(100, Math.round(((scrollY + innerHeight) / height) * 100));
+        return height <= innerHeight + 1 ? null : Math.min(100, Math.round(((scrollY + innerHeight) / height) * 100));
+    };
+    /** Note how far the page on screen has been scrolled, if it scrolls at all (it may have grown since it loaded). */
+    const measure = () => {
+        const depth = view ? seen() : null;
+        if (depth !== null) view.scroll = Math.max(view.scroll === null ? 0 : view.scroll, depth);
     };
 
     /** A URL's origin and path: its query and fragment can carry tokens or emails. */
@@ -98,10 +108,12 @@
     function reportEngagement(of = view, alive = false) {
         if (!of || !of.id) return;
         const ms = Math.min(MAX_ENGAGED_MS, Math.round(of.visibleMs + (of.visibleSince === null ? 0 : performance.now() - of.visibleSince)));
-        if (!alive && ms <= of.sentMs && of.scroll <= of.sentScroll) return;
+        const scroll = of.scroll === null ? -1 : of.scroll;
+        if (!alive && ms <= of.sentMs && scroll <= of.sentScroll) return;
         of.sentMs = ms;
-        of.sentScroll = of.scroll;
-        const body = JSON.stringify({ appId: app, id: of.id, ms, scroll: of.scroll });
+        of.sentScroll = scroll;
+        // A page that never scrolled reports its time alone.
+        const body = JSON.stringify({ appId: app, id: of.id, ms, scroll: of.scroll === null ? undefined : of.scroll });
         // text/plain needs no CORS preflight, so the beacon survives the page closing.
         if (!(navigator.sendBeacon && navigator.sendBeacon(`${base}engage`, new Blob([body], { type: 'text/plain' })))) {
             fetch(`${base}engage`, { method: 'POST', body, keepalive: true, credentials: 'omit', headers: { 'Content-Type': 'text/plain' } })
@@ -125,10 +137,12 @@
         });
         // Only the campaign tags: the rest of a query string can carry
         // emails, tokens, or IDs, and never leaves the page.
-        const query = new URLSearchParams(location.search);
-        for (const key of UTM) {
-            const value = query.get(key);
-            if (value) params.set(key, value.slice(0, 100));
+        if (option('campaigns', true)) {
+            const query = new URLSearchParams(location.search);
+            for (const key of UTM) {
+                const value = query.get(key);
+                if (value) params.set(key, value.slice(0, 100));
+            }
         }
 
         const current = {
@@ -136,11 +150,12 @@
             startedAt: Date.now(),
             visibleMs: 0,
             visibleSince: document.visibilityState === 'visible' ? performance.now() : null,
-            scroll: seen(),
+            scroll: null,
             sentMs: 0,
-            sentScroll: 0,
+            sentScroll: -1,
         };
         view = current;
+        measure();
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
             .then((result) => {
@@ -199,7 +214,7 @@
         scrollQueued = true;
         requestAnimationFrame(() => {
             scrollQueued = false;
-            if (view) view.scroll = Math.max(view.scroll, seen());
+            measure();
         });
     }, { passive: true });
 
@@ -208,12 +223,13 @@
         if (document.visibilityState === 'hidden') {
             if (view.visibleSince !== null) view.visibleMs += performance.now() - view.visibleSince;
             view.visibleSince = null;
+            measure();
             reportEngagement();
         } else if (view.visibleSince === null) {
             view.visibleSince = performance.now();
         }
     });
-    addEventListener('pagehide', () => reportEngagement());
+    addEventListener('pagehide', () => { measure(); reportEngagement(); });
 
     // While the page is being read, report as it goes: the server then knows the
     // visitor is still there, and a tab the browser kills without warning (common
@@ -228,6 +244,7 @@
             if (!view || document.visibilityState !== 'visible' || performance.now() - lastInput > IDLE_MS) return;
             // The server takes reports for a view for a day. A page open longer says no more.
             if (Date.now() - view.startedAt > ENGAGE_WINDOW_MS) return;
+            measure();
             reportEngagement(view, true);
         }, HEARTBEAT_MS);
     }

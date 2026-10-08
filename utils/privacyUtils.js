@@ -61,8 +61,17 @@ class PrivacyUtils {
      * @returns {number}
      */
     static currentWindowId(rotationHours, now = Date.now()) {
-        const hours = Math.max(Number(rotationHours) || 0, MIN_ROTATION_HOURS);
-        return Math.floor(now / (hours * MS_PER_HOUR));
+        return Math.floor(now / (this.rotationHours(rotationHours) * MS_PER_HOUR));
+    }
+
+    /**
+     * The length of a rotation window, in hours: the unique-visitor window,
+     * and never less than MIN_ROTATION_HOURS.
+     * @param {number} rotationHours
+     * @returns {number}
+     */
+    static rotationHours(rotationHours) {
+        return Math.max(Number(rotationHours) || 0, MIN_ROTATION_HOURS);
     }
 
     /**
@@ -80,6 +89,10 @@ class PrivacyUtils {
      * @param {string} secret Server secret from utils/secretStore.js
      * @param {number} [rotationHours] Window length, defaults to the unique-visitor window
      * @param {number} [now] epoch millis, injectable for tests
+     * @param {string} [salt] The window's own salt (db/visitorSalt.js), which
+     *     is deleted when the window ends. With it, a hash cannot be recomputed
+     *     afterwards even by whoever holds the secret. Without it, the window
+     *     id alone separates the windows, and the secret holder still can.
      * @returns {string} HMAC-SHA-256 hex digest
      * @throws {Error} ErrorType.SECRET_UNAVAILABLE when no secret is supplied
      */
@@ -89,6 +102,7 @@ class PrivacyUtils {
         secret,
         rotationHours = SERVER.DEFAULT_UNIQUE_VISITOR_WINDOW_HOURS,
         now = Date.now(),
+        salt = '',
     ) {
         if (!secret) {
             // Failing closed is deliberate: silently hashing without the key
@@ -98,7 +112,8 @@ class PrivacyUtils {
         }
 
         const windowId = this.currentWindowId(rotationHours, now);
-        const input = `${ip}|${userAgent}|${windowId}`;
+        // The unsalted form is kept byte for byte, for callers that use this helper on its own.
+        const input = salt ? `${salt}|${ip}|${userAgent}|${windowId}` : `${ip}|${userAgent}|${windowId}`;
 
         return crypto.createHmac('sha256', secret).update(input).digest('hex');
     }

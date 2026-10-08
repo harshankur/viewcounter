@@ -17,7 +17,7 @@ const DatabaseManager = require('../db/DatabaseManager');
 const { purgeExpiredTrash, pruneViewLog, startRetention } = require('../db/retention');
 const { ADMIN_ACTION, DATABASE, VIEW_LOG_SOURCE } = require('../constants');
 const logger = require('../utils/logger');
-const { createScriptedPool } = require('./support/scriptedPool');
+const { createScriptedPool, withVisitorSalt } = require('./support/scriptedPool');
 const { createMemoryRepos } = require('./support/memoryRepos');
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -207,7 +207,7 @@ describe('log table DDL', () => {
 describe('DatabaseManager admin wiring', () => {
     const managerWith = (respond) => {
         const manager = new DatabaseManager({ mode: 'connect' });
-        manager.pool = createScriptedPool(respond);
+        manager.pool = createScriptedPool(withVisitorSalt(respond));
         return manager;
     };
 
@@ -251,12 +251,19 @@ describe('DatabaseManager admin wiring', () => {
         expect(await manager.addEngagement('blog', { viewId: 'v', engagedMs: 1500, scrollDepth: 40 })).toBe(true);
         const [update] = manager.pool.matching('UPDATE `blog`');
         expect(update.sql).toContain('engaged_ms = GREATEST(COALESCE(engaged_ms, 0), ?)');
-        expect(update.sql).toContain('scroll_depth = GREATEST(COALESCE(scroll_depth, 0), ?)');
+        expect(update.sql).toMatch(/scroll_depth = CASE WHEN \? IS NULL THEN scroll_depth\s+ELSE GREATEST\(COALESCE\(scroll_depth, 0\), \?\) END/);
         // Every report marks the view as seen now, which "right now" reads.
         expect(update.sql).toContain('last_seen_at = NOW()');
         expect(update.sql).toContain(DatabaseManager.LIVE_ROW);
         expect(update.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)');
-        expect(update.params).toEqual([1500, 40, 'v', 24]);
+        expect(update.params).toEqual([1500, 40, 40, 'v', 24]);
+    });
+
+    test('addEngagement with no scroll depth leaves the stored depth alone', async () => {
+        const manager = managerWith(() => [{ affectedRows: 1 }]);
+        await manager.addEngagement('blog', { viewId: 'v', engagedMs: 1500, scrollDepth: null });
+        // NULL selects the CASE branch that keeps the column as it is.
+        expect(manager.pool.matching('UPDATE `blog`')[0].params).toEqual([1500, null, null, 'v', 24]);
     });
 
     test('addEngagement reports when no view matched', async () => {

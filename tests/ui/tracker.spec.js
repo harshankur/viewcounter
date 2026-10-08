@@ -203,6 +203,47 @@ test('data-heartbeat="false" reports only when the page is hidden or left', asyn
     await expect.poll(() => sent.engagement.length).toBe(1);
 });
 
+test('a page that fits its window reports its time but no scroll depth, until it grows and is scrolled', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start?short=1');
+    await expect.poll(() => sent.views.length).toBe(1);
+    await page.waitForTimeout(300);
+
+    await hide(page);
+    await expect.poll(() => sent.engagement.length).toBe(1);
+    expect(sent.engagement[0].body).toMatchObject({ appId: 'blog', id: VIEW_ID });
+    expect(sent.engagement[0].body.ms).toBeGreaterThanOrEqual(250);
+    // Nothing to scroll: saying "all of it" would be a made-up number.
+    expect(sent.engagement[0].body).not.toHaveProperty('scroll');
+
+    // The page grows (content arrives) and the reader scrolls half of it.
+    await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        const more = document.createElement('div');
+        more.style.height = '6000px';
+        document.body.append(more);
+        window.scrollTo(0, (document.documentElement.scrollHeight - window.innerHeight) / 2);
+    });
+    await page.waitForTimeout(200);
+    await hide(page);
+    await expect.poll(() => sent.engagement.length).toBe(2);
+    expect(sent.engagement[1].body.scroll).toBeGreaterThan(40);
+    expect(sent.engagement[1].body.scroll).toBeLessThan(70);
+});
+
+test('data-campaigns="false" sends none of the landing URL\'s campaign tags', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start?campaigns=false&utm_source=newsletter&utm_medium=email&utm_campaign=launch&utm_term=t&utm_content=c');
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(Object.fromEntries(sent.views[0].searchParams)).toEqual({
+        appId: 'blog', deviceSize: 'large', page: '/tracker-lab/start', title: 'Tracker lab', referrer: '',
+    });
+    expect(sent.views[0].href).not.toMatch(/utm_|newsletter/);
+});
+
 test('a single-page app navigation is a new page view, referred by the page it left', async ({ page, baseURL }) => {
     await asVisitor(page);
     const sent = await capture(page);

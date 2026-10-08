@@ -245,6 +245,18 @@ describe('POST /engage', () => {
         expect(dbManager.addEngagement).toHaveBeenCalledWith('blog', { viewId: VIEW_ID, engagedMs: 42_000, scrollDepth: 75 });
     });
 
+    test('a report without a scroll depth is accepted and passes none on: the page did not scroll', async () => {
+        const { app, dbManager } = build();
+        const { scroll, ...timeOnly } = beacon; // eslint-disable-line no-unused-vars
+        await request(app).post('/engage').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME)
+            .send(JSON.stringify(timeOnly)).expect(204);
+        await request(app).post('/engage').set('User-Agent', CHROME).send({ ...timeOnly, scroll: null }).expect(204);
+        expect(dbManager.addEngagement).toHaveBeenCalledTimes(2);
+        for (const [, engagement] of dbManager.addEngagement.mock.calls) {
+            expect(engagement).toEqual({ viewId: VIEW_ID, engagedMs: 42_000, scrollDepth: null });
+        }
+    });
+
     test('accepts a JSON body too', async () => {
         const { app, dbManager } = build();
         await request(app).post('/engage').set('User-Agent', CHROME).send(beacon).expect(204);
