@@ -1,5 +1,18 @@
 /*!
- * viewcounter tracker, https://viewcounter.harshankur.com
+ * viewcounter tracker
+ *
+ * If you found this on a site you were visiting: this is viewcounter, a
+ * privacy-first view counter that the site runs on its own server. It is built
+ * for GDPR compliance:
+ *   - it sets no cookie and stores nothing on your device;
+ *   - it sends no identifier;
+ *   - the server never stores your IP address or your browser's user agent,
+ *     only a masked address and a visitor hash that changes every day by
+ *     default, so nothing it keeps identifies you directly.
+ * Check it yourself: the source is at https://github.com/harshankur/viewcounter
+ * and the homepage at https://viewcounter.harshankur.com.
+ *
+ * For site owners:
  *
  *   <script defer src="https://your-server/tracker.js" data-app="blog"></script>
  *
@@ -11,7 +24,7 @@
  *
  * It stores nothing on the visitor's device (no cookie, no localStorage, no
  * sessionStorage), so it needs no consent banner, and it sends no identifier:
- * the server tells repeat visits apart with a hash it rotates every day.
+ * the server tells repeat visits apart with a hash it rotates every day by default.
  *
  * Options, as attributes on the script tag:
  *   data-app="blog"                 required: the app ID the views belong to

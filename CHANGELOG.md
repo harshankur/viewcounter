@@ -5,6 +5,18 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+
+- The wording of the privacy claims. The homepage, the README, and a new
+  notice at the top of the tracker script now say ViewCounter is "built for
+  GDPR compliance" where they said "100% GDPR compliant", "no identifier on the
+  device" where they said "zero tracking IDs", and that what is stored does not
+  identify a person "directly". Nothing about what is collected or stored has
+  changed: the old wording promised the operator's part too, which software
+  cannot. The README gains a short list of what remains the operator's to do.
+- The tracker script opens with a notice for a visitor who finds it on a site:
+  what it is, why it is private, and where to read the source.
+
 ## [3.3.0]
 
 Knows who is on a site right now, and for how long: the tracker script reports

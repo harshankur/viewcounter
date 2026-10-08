@@ -12,12 +12,34 @@ A comprehensive Node.js/Express analytics server for tracking website views with
 ## 📖 Documentation
 Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for detailed API specifications, debugging tips, and integration guides.
 
-## 🛡️ GDPR Compliant & Privacy-First
-**100% GDPR Compliant By Design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
+## 🛡️ Built for GDPR Compliance, Privacy-First
+**Built for GDPR compliance, by design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
 - **Nothing on the visitor's device**: no cookie, no localStorage, no sessionStorage, and no identifier sent with a view, so the tracker needs no consent banner under the ePrivacy rules on device storage. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
 - **Data Sovereignty**: You own your data. Analytics never leave your private infrastructure.
-- **Minimal Collection**: records what analytics needs, each in a form that does not identify a person. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string are never stored.
+- **Minimal Collection**: records what analytics needs, each in a form that does not identify a person directly. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string are never stored.
 - **Bots left out**: crawlers, link previewers, and automated browsers are recognised and never stored, only counted per minute by name.
+
+### What is still yours to do
+
+ViewCounter does its part, and that is what "built for GDPR compliance" means.
+Compliance itself belongs to whoever runs it, and a few things no software can
+do for you:
+
+- **Say so.** Mention in your privacy notice that visits are counted, what is
+  recorded ([What Gets Tracked?](#what-gets-tracked)), and for how long.
+- **Have a legal basis.** For plain visit counting this is normally legitimate
+  interest; that judgement is yours to make and record.
+- **Keep personal details out.** ViewCounter stores what you send in custom
+  event data and the optional `sessionId` as given. Do not put names, email
+  addresses, or account IDs there.
+- **Answer requests.** What is stored is pseudonymous, not anonymous: a masked
+  address and a visitor hash that changes every day by default, which only the
+  holder of the server secret could tie back to a known address and browser.
+  The law still treats that as personal data, so a visitor may ask what is held
+  or ask for erasure, which the admin UI does
+  ([Deleting, and GDPR](#deleting-and-gdpr)).
+
+This is a description of the software, not legal advice.
 
 ### 🔄 Data Privacy Lifecycle
 ```mermaid
