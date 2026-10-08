@@ -65,6 +65,10 @@ Upgrading from 3.2:
   every change to `admin/` or `tracker/`, and the full `npm test` before a
   release.
 
+- Dependencies are at their latest patch releases: `express-rate-limit`
+  8.7.1, `mysql2` 3.24.5, and October's `geoip-country` data, with the test
+  tools (Jest, supertest, Playwright) alongside.
+
 ### Fixed
 
 - `proxy-addr`, which Express uses to work out the client address behind a
