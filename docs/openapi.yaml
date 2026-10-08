@@ -24,7 +24,7 @@ info:
     Provisioning (`POST /apps`) uses a separate **admin** credential
     (`ADMIN_API_KEYS`): a read key cannot provision, and an admin key cannot
     read analytics.
-  version: 3.2.0
+  version: 3.3.0
   contact:
     name: Harsh Ankur
     url: https://github.com/harshankur/viewcounter

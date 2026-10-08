@@ -5,6 +5,27 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.3.0]
+
+Knows who is on a site right now, and for how long: the tracker script reports
+while a page is being read, not only when it is left, and it can count
+hash-routed pages. No public API is removed or renamed.
+
+Upgrading from 3.2:
+
+- Nothing to do for the schema: the first start adds one nullable column,
+  `last_seen_at`, and its index to every app table, with the `ALTER` and
+  `INDEX` privileges 3.2 already needed. Existing rows are not changed.
+- Sites that load `/tracker.js` get the heartbeat with no change on their
+  side, as soon as the server is upgraded: two small requests a minute from
+  each page that is visible and in use. `data-heartbeat="false"` on the script
+  tag turns it off.
+- `RATE_LIMIT_MAX` and `APP_RATE_LIMIT_MAX` each now cover two separate
+  budgets of that size, one for `/engage` and one for everything else. The
+  defaults leave room for about 50 readers at once per address and 500 per
+  app before heartbeats are refused (page views are unaffected); raise them
+  if you expect more.
+
 ### Added
 
 - A heartbeat. The tracker script now reports a page's time and scroll depth
