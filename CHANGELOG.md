@@ -13,13 +13,28 @@ All notable changes to this project are documented here. This project follows
   figures do not fit: a single-page app that counts every step inside it needs
   more room per visitor than a blog. An app with its own per-address figure is
   counted on its own, so it neither uses up that address's budget for other
-  apps nor borrows from it. A malformed entry stops the server from starting.
+  apps nor borrows from it. Only tracking requests are limited as an app. A
+  malformed entry or an app listed twice stops the server from starting, and a
+  figure for an app that is not configured is warned about.
 
 ### Changed
 
+- **Zero means "no limit" in every rate limit setting.** `RATE_LIMIT_MAX=0`
+  used to refuse every request; it now switches the per-address limit off, as
+  `APP_RATE_LIMIT_MAX=0` always did for the per-app one.
 - The per-address limit on engagement reports now runs on the `/engage` route,
   after the report's body is read, so it knows the app and applies that app's
-  own figure. Its budget and behaviour are otherwise as before.
+  own figure. A report whose body cannot be read still counts against the
+  address.
+
+### Fixed
+
+- **A POST could be checked as one app and stored under another.** The origin
+  check and the per-app limit read the app from the query string first, while
+  `/event` and `/engage` validate and store the app named in the body. A
+  request naming a free app in its query and a site-bound app in its body got
+  past that app's origin binding and its request budget. Both now read the app
+  from where the route validates it: the body of a POST, the query of a GET.
 
 ## [3.4.0]
 

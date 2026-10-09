@@ -870,15 +870,22 @@ Two independent limits apply to writes:
 Either can be set for one app where the general figure does not fit it, as a
 list of `appId:number`:
 
-- `RATE_LIMIT_MAX_BY_APP=homepage:600`: requests a minute from one address to
-  that app. Such an app is counted on its own, so its traffic does not use up
-  the address's budget for your other apps, nor the other way round.
-- `APP_RATE_LIMIT_MAX_BY_APP=homepage:5000`: that app's whole budget. `0` lifts
-  the ceiling for it alone.
+- `RATE_LIMIT_MAX_BY_APP=homepage:600`: tracking requests a minute from one
+  address to that app. Such an app is counted on its own, so its traffic does
+  not use up the address's budget for your other apps, nor the other way round.
+- `APP_RATE_LIMIT_MAX_BY_APP=homepage:5000`: that app's whole budget.
 
 Use these for a site that records far more per visitor than the others, such
-as a single-page app that counts every step inside it. A malformed entry stops
-the server from starting, so a limit is never silently not applied.
+as a single-page app that counts every step inside it.
+
+- **Zero means no limit**, in all four settings: as a general figure it
+  switches that limit off, as an app's own figure it lifts it for that app.
+- **Only tracking requests** (`/registerView`, `/event`, `/engage`) are limited
+  as an app, and always as the app they are stored under. A read or admin call
+  is limited by the general figure whatever it names.
+- **Mistakes are not silent.** A malformed entry, or an app listed twice, stops
+  the server from starting. A figure for an app that is not configured is
+  logged as a warning at start, since it would otherwise never apply.
 
 Each limit is applied twice, as two separate budgets of that size: one for
 engagement reports (`/engage`) and one for everything else. A page being read
@@ -943,7 +950,10 @@ app.use('/analytics', createAnalyticsRouter({
     privacy: { visitorSecret: process.env.VISITOR_SECRET },
     server: {
       uniqueVisitorWindowHours: 24,
-      // omit to disable the per-app write budget
+      // perAppMax: the per-app write budget (omit to disable it).
+      // max: per address, applied by the router to engagement reports only;
+      //   every other request is yours to limit, as below.
+      // perAppMaxByApp / maxByApp: { appId: number } for apps with their own figures.
       rateLimit: { windowMs: 60000, perAppMax: 1000 },
     },
   },
@@ -953,8 +963,10 @@ app.use('/analytics', createAnalyticsRouter({
 Endpoints then live under the prefix: `POST /analytics/event`,
 `GET /analytics/stats/blog`, and so on.
 
-Two things the host application owns in this mode, because the router does not
-install them itself: `helmet()` and the CORS allowlist, and `trust proxy`. Set
+Three things the host application owns in this mode, because the router does
+not install them itself: `helmet()` and the CORS allowlist, a per-address rate
+limit (the router limits only engagement reports per address, and only when
+`rateLimit.max` is given), and `trust proxy`. Set
 `app.set('trust proxy', <hop count>)`, never `true`, or callers can forge
 their own IP through `X-Forwarded-For`.
 

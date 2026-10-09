@@ -71,6 +71,23 @@ function requestOrigin(req) {
 }
 
 /**
+ * The app a tracking request is for, read from the one place its route
+ * validates and stores: the query of a GET, the body of anything else.
+ *
+ * Everything that decides by app before validation (the origin check, the
+ * rate limits) must read it here. Reading "query, or else body" let a POST
+ * name one app in its query, be checked and limited as that app, and then be
+ * stored under the other app named in its body.
+ *
+ * @param {import('express').Request} req
+ * @returns {string} the appId, or '' when absent or not a string
+ */
+function requestedAppId(req) {
+    const appId = req.method === 'GET' ? req.query?.appId : req.body?.appId;
+    return typeof appId === 'string' ? appId : '';
+}
+
+/**
  * Bind writes for an appId to the site origins registered for it.
  *
  * Without this, any page anywhere could embed
@@ -92,8 +109,8 @@ function requireRegisteredOrigin(allowed, { onReject = () => {} } = {}) {
     const origins = allowed?.origins || {};
 
     return (req, res, next) => {
-        const appId = req.query.appId || req.body?.appId;
-        const registered = origins[appId];
+        const appId = requestedAppId(req);
+        const registered = Object.hasOwn(origins, appId) ? origins[appId] : undefined;
 
         if (!Array.isArray(registered) || registered.length === 0) {
             return next();
@@ -128,6 +145,7 @@ module.exports = {
     buildCorsOptions,
     countRefusedPreflights,
     requireRegisteredOrigin,
+    requestedAppId,
     requestOrigin,
     noStore,
 };

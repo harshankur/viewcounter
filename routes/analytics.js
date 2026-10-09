@@ -22,7 +22,7 @@ const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getClientIp, isValidIP, normalizeIp } = require('../utils/ipUtils');
 const { requireReadApiKey, requireAppScope, requireAdminApiKey, appsInScope } = require('../middleware/auth');
-const { requireRegisteredOrigin, requestOrigin, noStore } = require('../middleware/security');
+const { requireRegisteredOrigin, requestedAppId, requestOrigin, noStore } = require('../middleware/security');
 const { createRejectionCounter } = require('../db/rejectionCounter');
 const { hostnameOf, primaryLanguage, utmTags } = require('../utils/visitorContext');
 const {
@@ -162,15 +162,17 @@ function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
 /** Whether a request is an engagement report, the one tracking request a page repeats. */
 const isEngagement = (req) => trackingSourceFor(req.path) === VIEW_LOG_SOURCE.ENGAGE;
 
-/** The app a tracking request is for, once its query or body has been read. */
-const appOf = (req) => {
-    const appId = req.query?.appId || req.body?.appId;
-    return typeof appId === 'string' ? appId : '';
-};
+/**
+ * The app a request is limited as: for a tracking request, the app its route
+ * goes on to validate and store under; for anything else, none. A read or
+ * admin call cannot name an app to borrow that app's figures.
+ */
+const appOf = (req) => (trackingSourceFor(req.path) ? requestedAppId(req) : '');
 
 /**
  * A per-IP limiter: `max` requests per window from one address, or the app's
- * own figure (`maxByApp`) for requests to an app that has one.
+ * own figure (`maxByApp`) for tracking requests to an app that has one. Zero
+ * means no limit, as the general figure or as an app's own.
  *
  * There are two of these, with separate budgets: one for engagement reports
  * and one for everything else. A page being read reports its engagement every
@@ -187,29 +189,45 @@ const appOf = (req) => {
  * @param {{ max: number, windowMs: number, maxByApp?: Record<string, number> }} rateLimitConfig
  * @param {(req: import('express').Request) => void} [onLimit] called for a refused request
  * @param {{ engagement?: boolean }} [options] true for the limiter of engagement
- *     reports, which is mounted on that route, after its body has been read;
- *     false (the default) for the limiter of everything else, mounted app-wide
+ *     reports, which is mounted on that route so it can know the app; false
+ *     (the default) for the limiter of everything else, mounted app-wide
  * @returns {import('express').RequestHandler}
  */
 function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = false } = {}) {
-    const { max, windowMs, maxByApp = {} } = rateLimitConfig || {};
-    if (!max || max <= 0) return (req, res, next) => next();
-    const own = (req) => (Object.hasOwn(maxByApp, appOf(req)) ? maxByApp[appOf(req)] : null);
-
-    return rateLimit({
+    const { max = 0, windowMs, maxByApp = {} } = rateLimitConfig || {};
+    const ownFigure = (req) => (Object.hasOwn(maxByApp, appOf(req)) ? maxByApp[appOf(req)] : null);
+    const pass = (req, res, next) => next();
+    const shared = {
         windowMs,
-        limit: (req) => own(req) ?? max,
         message: { message: 'Too many requests, please try again later.' },
         standardHeaders: true,
         legacyHeaders: false,
-        // Engagement reports are limited on their own route, by the other limiter.
-        skip: (req) => !engagement && isEngagement(req),
-        keyGenerator: (req) => (own(req) === null ? ipKeyGenerator(req.ip) : `${ipKeyGenerator(req.ip)}|${appOf(req)}`),
         handler: (req, res, next, options) => {
             onLimit(req);
             res.status(options.statusCode).json(options.message);
         },
-    });
+    };
+
+    // The general budget keeps the library's own key (the address) and, with
+    // it, the library's checks for a misconfigured proxy.
+    const general = max > 0 ? rateLimit({ ...shared, limit: max }) : pass;
+    // Apps with a figure of their own: one counter per address and app.
+    const own = Object.values(maxByApp).some((value) => value > 0)
+        ? rateLimit({
+            ...shared,
+            limit: (req) => ownFigure(req),
+            keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${appOf(req)}`,
+        })
+        : pass;
+
+    return (req, res, next) => {
+        // The reports' limiter is the one on their route: POST /engage.
+        const isReport = isEngagement(req) && req.method === 'POST';
+        if (isReport !== engagement) return next();
+        const figure = ownFigure(req);
+        if (figure === null) return general(req, res, next);
+        return figure > 0 ? own(req, res, next) : next();
+    };
 }
 
 /**
@@ -296,6 +314,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'app' }));
     // Per address too. This one sits on the route, not app-wide with the
     // other, so it runs after the beacon's body is read and knows the app.
+    const readBeacon = express.text({ type: () => true, limit: TRACKING.ENGAGE_BODY_BYTES });
     const limitEngagePerIp = buildPerIpLimiter(config.server?.rateLimit,
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' }), { engagement: true });
     const trackingValidation = handleTrackingValidation(reject);
@@ -493,7 +512,10 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
      * far it was scrolled, sent by the tracker when the page is hidden or left.
      */
     router.post('/engage',
-        express.text({ type: () => true, limit: TRACKING.ENGAGE_BODY_BYTES }),
+        // A body that cannot be read (too large, say) still counts against
+        // the address before it is refused: the app is unknown, so by the
+        // general figure.
+        (req, res, next) => readBeacon(req, res, (error) => (error ? limitEngagePerIp(req, res, () => next(error)) : next())),
         parseBeaconBody,
         limitEngagePerIp,
         limitEngagePerApp,

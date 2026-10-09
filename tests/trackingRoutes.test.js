@@ -14,7 +14,7 @@ const VIEW_ID = '11111111-1111-4111-8111-111111111111';
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
-function build({ perAppMax = 0, perAppMaxByApp, registerEvent, city = null } = {}) {
+function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, city = null } = {}) {
     const dbManager = {
         healthCheck: async () => ({ healthy: true }),
         registerEvent: jest.fn(registerEvent || (async () => ({ duplicate: false, insertId: 7, publicId: VIEW_ID, isUnique: true }))),
@@ -29,7 +29,7 @@ function build({ perAppMax = 0, perAppMaxByApp, registerEvent, city = null } = {
         },
         auth: { readKeyScopes: {}, adminApiKeys: [] },
         privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
-        server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax, perAppMaxByApp } },
+        server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax, perAppMaxByApp, max, maxByApp } },
     };
     const router = createAnalyticsRouter({ config, dbManager, geo: { city } });
     const app = express();
@@ -367,10 +367,76 @@ describe('GET /tracker.js', () => {
     });
 });
 
+describe('a request is limited and checked as the app it is stored under', () => {
+    const event = (app, { query, body, origin }) => {
+        const call = request(app).post('/event').query(query || {}).set('User-Agent', CHROME).send({ eventType: 'click', ...body });
+        return origin ? call.set('Origin', origin) : call;
+    };
+
+    test('a POST that names another app in its query is still limited as the app in its body', async () => {
+        // blog has one request; shop has no ceiling at all.
+        const { app, dbManager } = build({ perAppMax: 1, perAppMaxByApp: { shop: 0 } });
+        await event(app, { query: { appId: 'shop' }, body: { appId: 'blog' } }).expect(200);
+        await event(app, { query: { appId: 'shop' }, body: { appId: 'blog' } }).expect(429);
+        expect(dbManager.registerEvent).toHaveBeenCalledTimes(1);
+        expect(dbManager.registerEvent.mock.calls[0][0]).toBe('blog');
+    });
+
+    test('nor can it borrow another app\'s room per address', async () => {
+        const { app } = build({ max: 1, maxByApp: { shop: 50 } });
+        const report = () => request(app).post('/engage').query({ appId: 'shop' }).set('User-Agent', CHROME)
+            .send({ appId: 'blog', id: VIEW_ID, ms: 1000, scroll: 10 });
+        await report().expect(204);
+        await report().expect(429);
+    });
+
+    test('the origin check reads the body too: an app bound to its sites cannot be written to by naming a free app in the query', async () => {
+        const { app, dbManager, counted } = build();
+        await event(app, { query: { appId: 'blog' }, body: { appId: 'shop' }, origin: 'https://evil.example.net' }).expect(403);
+        expect(dbManager.registerEvent).not.toHaveBeenCalled();
+        expect(await counted()).toEqual([expect.objectContaining({ reason: REJECTION_REASON.ORIGIN_NOT_ALLOWED, appId: 'shop' })]);
+        await event(app, { query: { appId: 'blog' }, body: { appId: 'shop' }, origin: 'https://shop.example.com' }).expect(200);
+    });
+
+    test('a GET is the app in its query, whatever a body says', async () => {
+        const { app } = build({ perAppMax: 1, perAppMaxByApp: { shop: 0 } });
+        const view = () => request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).send({ appId: 'shop' });
+        await view().expect(200);
+        await view().expect(429);
+    });
+});
+
+describe('the per-address limit on the real /engage route', () => {
+    const beacon = { appId: 'blog', id: VIEW_ID, ms: 1000, scroll: 10 };
+
+    test('a refused report is counted in the tracking log as rate limited by address', async () => {
+        const { app, counted } = build({ max: 1 });
+        const report = () => request(app).post('/engage').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME).send(JSON.stringify(beacon));
+        await report().expect(204);
+        await report().expect(429);
+        expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.ENGAGE, reason: REJECTION_REASON.RATE_LIMITED, detail: 'ip' })]);
+    });
+
+    test('a sendBeacon body names its app, so the app\'s own figure applies', async () => {
+        const { app } = build({ max: 1, maxByApp: { blog: 3 } });
+        const report = () => request(app).post('/engage').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME).send(JSON.stringify(beacon));
+        for (let i = 0; i < 3; i += 1) await report().expect(204);
+        await report().expect(429);
+    });
+
+    test('a body too large to read still counts against the address, and is refused for that once the budget is gone', async () => {
+        const { app } = build({ max: 2 });
+        const huge = () => request(app).post('/engage').set('Content-Type', 'text/plain').set('User-Agent', CHROME).send('x'.repeat(4096));
+        await huge().expect(413);
+        await huge().expect(413);
+        await huge().expect(429);
+    });
+});
+
 describe('buildPerIpLimiter', () => {
     const { buildPerIpLimiter } = require('../routes/analytics');
 
-    /** The two limiters as the service mounts them: one app-wide, one on /engage after its body is read. */
+    /** The two limiters as the service mounts them: one app-wide, one on POST /engage after its body is read. */
     function appWith(max, maxByApp) {
         const limited = [];
         const config = { windowMs: 60_000, max, maxByApp };
@@ -432,7 +498,39 @@ describe('buildPerIpLimiter', () => {
         await view(app, 'constructor').expect(429);
     });
 
-    test('no general figure means no per-address limit at all', async () => {
+    test('only a tracking request is limited as an app: a read or admin call cannot name one to borrow its room', async () => {
+        const { app } = appWith(1, { homepage: 50 });
+        await request(app).get('/stats/blog').query({ appId: 'homepage' }).expect(200);
+        await request(app).get('/apps').query({ appId: 'homepage' }).expect(429);
+        await request(app).post('/apps').send({ appId: 'homepage' }).expect(429);
+        await request(app).get('/tracker.js').query({ appId: 'homepage' }).expect(429);
+    });
+
+    test('anything on /engage that is not a report is limited with everything else', async () => {
+        const { app } = appWith(1);
+        await request(app).get('/engage').expect(200);
+        await request(app).put('/engage').send({ appId: 'blog' }).expect(429);
+        // The reports' own budget is untouched by those.
+        await beat(app, 'blog').expect(200);
+    });
+
+    test('zero means no limit: as the general figure, with apps\' own figures still applied', async () => {
+        const { app } = appWith(0, { homepage: 2 });
+        for (let i = 0; i < 5; i += 1) await view(app, 'blog').expect(200);
+        await view(app, 'homepage').expect(200);
+        await view(app, 'homepage').expect(200);
+        await view(app, 'homepage').expect(429);
+    });
+
+    test('zero means no limit: as one app\'s own figure, with the general one still applied to the rest', async () => {
+        const { app } = appWith(1, { homepage: 0 });
+        for (let i = 0; i < 5; i += 1) await view(app, 'homepage').expect(200);
+        for (let i = 0; i < 5; i += 1) await beat(app, 'homepage').expect(200);
+        await view(app, 'blog').expect(200);
+        await view(app, 'blog').expect(429);
+    });
+
+    test('no figure anywhere means no per-address limit at all', async () => {
         const { app } = appWith(0);
         for (let i = 0; i < 5; i += 1) await view(app, 'blog').expect(200);
     });

@@ -360,7 +360,7 @@ describe('hasConfigFiles()', () => {
 });
 
 describe('per-app rate limit figures', () => {
-    const build = (env) => new Config({ VISITOR_SECRET: VALID_SECRET, ...env });
+    const build = (env) => buildConfig(env);
 
     test('none by default', () => {
         const { rateLimit } = build({}).server;
@@ -382,5 +382,23 @@ describe('per-app rate limit figures', () => {
     ])('a malformed entry (%s) stops the start instead of being skipped', (entry) => {
         expect(() => build({ RATE_LIMIT_MAX_BY_APP: `blog:200,${entry}` })).toThrow(/RATE_LIMIT_MAX_BY_APP/);
         expect(() => build({ APP_RATE_LIMIT_MAX_BY_APP: entry })).toThrow(/APP_RATE_LIMIT_MAX_BY_APP/);
+    });
+
+    test('an app listed twice stops the start: which figure was meant is not ours to guess', () => {
+        expect(() => build({ RATE_LIMIT_MAX_BY_APP: 'homepage:600,homepage:50' })).toThrow(/listed twice/);
+    });
+
+    test('a figure for an app that is not configured is warned about, since it would never apply', () => {
+        const writes = [];
+        const logger = require('../utils/logger');
+        logger.configure({ level: logger.LogLevel.WARN, writer: (line) => writes.push(String(line)) });
+        try {
+            build({ NODE_ENV: 'development', ALLOWED_APP_IDS: 'homepage,blog', RATE_LIMIT_MAX_BY_APP: 'hompage:600,blog:200', APP_RATE_LIMIT_MAX_BY_APP: 'homepage:5000' }).validate();
+        } finally {
+            logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} });
+        }
+        const warned = writes.filter((line) => line.includes('RATE_LIMIT_UNKNOWN_APP'));
+        expect(warned).toHaveLength(1);
+        expect(warned[0]).toContain("RATE_LIMIT_MAX_BY_APP names 'hompage'");
     });
 });

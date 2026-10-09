@@ -62,6 +62,10 @@ function parseAppNumbers(raw, field) {
         if (rest.length || !isValidAppId(appId) || !/^\d+$/.test(value || '')) {
             throw getError(ErrorType.CONFIG_INVALID_VALUE, { field, reason: `'${entry}' is not appId:number, such as homepage:600` });
         }
+        // Two figures for one app is a mistake, and guessing which was meant is not ours to do.
+        if (Object.hasOwn(figures, appId)) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, { field, reason: `'${appId}' is listed twice` });
+        }
         figures[appId] = Number(value);
     }
     return figures;
@@ -414,6 +418,7 @@ class Config {
         void this.privacy.visitorSecret;
 
         this.validateAdmin();
+        this.warnAboutUnknownRateLimitApps();
 
         if (!this.server.isProduction) {
             this.warnAboutDevelopmentDefaults();
@@ -480,6 +485,21 @@ class Config {
     }
 
     /** Surface the same problems as warnings outside production. */
+    /**
+     * A per-app rate limit figure for an app this configuration does not
+     * list is most likely a typo, and would otherwise never apply without a
+     * word. It is a warning, not an error: an app may also be registered
+     * while the server runs.
+     */
+    warnAboutUnknownRateLimitApps() {
+        const { maxByApp = {}, perAppMaxByApp = {} } = this.server.rateLimit;
+        for (const [field, figures] of [['RATE_LIMIT_MAX_BY_APP', maxByApp], ['APP_RATE_LIMIT_MAX_BY_APP', perAppMaxByApp]]) {
+            for (const appId of Object.keys(figures)) {
+                if (!this.allowed.appId.includes(appId)) logWarning(WarningType.RATE_LIMIT_UNKNOWN_APP, { field, appId });
+            }
+        }
+    }
+
     warnAboutDevelopmentDefaults() {
         if (Object.keys(this.auth.readKeyScopes).length === 0) {
             logWarning(WarningType.READ_API_UNPROTECTED);
