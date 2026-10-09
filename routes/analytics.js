@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = rateLimit;
 const geoip = require('geoip-country');
 
 const {
@@ -132,21 +133,24 @@ function intQuery(req, name, fallback) {
  * @returns {import('express').RequestHandler}
  */
 function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
-    const { perAppMax, windowMs } = rateLimitConfig || {};
-    // Zero disables it, for single-tenant deployments where the per-IP limit
-    // is the only bound that means anything.
-    if (!perAppMax || perAppMax <= 0) return (req, res, next) => next();
+    const { perAppMax, windowMs, perAppMaxByApp = {} } = rateLimitConfig || {};
+    // An app's own figure wins over the general one; zero means no ceiling.
+    const limitOf = (req) => (Object.hasOwn(perAppMaxByApp, appOf(req)) ? perAppMaxByApp[appOf(req)] : perAppMax) || 0;
+    // Nothing set anywhere disables it, for single-tenant deployments where
+    // the per-IP limit is the only bound that means anything.
+    if (!(perAppMax > 0) && !Object.values(perAppMaxByApp).some((value) => value > 0)) return (req, res, next) => next();
 
     return rateLimit({
         windowMs,
-        limit: perAppMax,
+        limit: limitOf,
+        skip: (req) => limitOf(req) <= 0,
         standardHeaders: true,
         legacyHeaders: false,
         message: { message: 'This app has exceeded its request budget, please try again later.' },
         // A request with no appId lands in one shared bucket rather than
         // falling back to the IP, which would reintroduce the address-rotation
         // bypass this limiter exists to be immune to.
-        keyGenerator: (req) => String(req.query?.appId || req.body?.appId || '__unattributed__'),
+        keyGenerator: (req) => appOf(req) || '__unattributed__',
         validate: { keyGeneratorIpFallback: false },
         handler: (req, res, next, options) => {
             onLimit(req);
@@ -158,35 +162,54 @@ function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
 /** Whether a request is an engagement report, the one tracking request a page repeats. */
 const isEngagement = (req) => trackingSourceFor(req.path) === VIEW_LOG_SOURCE.ENGAGE;
 
+/** The app a tracking request is for, once its query or body has been read. */
+const appOf = (req) => {
+    const appId = req.query?.appId || req.body?.appId;
+    return typeof appId === 'string' ? appId : '';
+};
+
 /**
- * The per-IP limiters: one budget for engagement reports, one for everything
- * else, each of `max` requests per window.
+ * A per-IP limiter: `max` requests per window from one address, or the app's
+ * own figure (`maxByApp`) for requests to an app that has one.
  *
- * They are separate because a page being read reports its engagement every
+ * There are two of these, with separate budgets: one for engagement reports
+ * and one for everything else. A page being read reports its engagement every
  * half minute. On one shared budget, a few dozen readers behind one address
  * (an office, a campus) would use it up with those reports alone, and the page
  * views of everyone at that address would be refused. Apart, reports can only
  * ever crowd out other reports.
  *
- * @param {{ max: number, windowMs: number }} rateLimitConfig
+ * An app with its own figure is counted on its own, per address: a site that
+ * records far more per visitor than the others (every step inside a
+ * single-page app, say) gets the room it needs without loosening the limit
+ * for every other app, and without using up the address's budget for them.
+ *
+ * @param {{ max: number, windowMs: number, maxByApp?: Record<string, number> }} rateLimitConfig
  * @param {(req: import('express').Request) => void} [onLimit] called for a refused request
- * @returns {import('express').RequestHandler[]}
+ * @param {{ engagement?: boolean }} [options] true for the limiter of engagement
+ *     reports, which is mounted on that route, after its body has been read;
+ *     false (the default) for the limiter of everything else, mounted app-wide
+ * @returns {import('express').RequestHandler}
  */
-function buildPerIpLimiters(rateLimitConfig, onLimit = () => {}) {
-    const { max, windowMs } = rateLimitConfig || {};
-    const limiter = (skip) => rateLimit({
+function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = false } = {}) {
+    const { max, windowMs, maxByApp = {} } = rateLimitConfig || {};
+    if (!max || max <= 0) return (req, res, next) => next();
+    const own = (req) => (Object.hasOwn(maxByApp, appOf(req)) ? maxByApp[appOf(req)] : null);
+
+    return rateLimit({
         windowMs,
-        limit: max,
+        limit: (req) => own(req) ?? max,
         message: { message: 'Too many requests, please try again later.' },
         standardHeaders: true,
         legacyHeaders: false,
-        skip,
+        // Engagement reports are limited on their own route, by the other limiter.
+        skip: (req) => !engagement && isEngagement(req),
+        keyGenerator: (req) => (own(req) === null ? ipKeyGenerator(req.ip) : `${ipKeyGenerator(req.ip)}|${appOf(req)}`),
         handler: (req, res, next, options) => {
             onLimit(req);
             res.status(options.statusCode).json(options.message);
         },
     });
-    return [limiter(isEngagement), limiter((req) => !isEngagement(req))];
 }
 
 /**
@@ -271,6 +294,10 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     // views refused because of the reports those readers' pages send.
     const limitEngagePerApp = buildPerAppLimiter(config.server?.rateLimit,
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'app' }));
+    // Per address too. This one sits on the route, not app-wide with the
+    // other, so it runs after the beacon's body is read and knows the app.
+    const limitEngagePerIp = buildPerIpLimiter(config.server?.rateLimit,
+        (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' }), { engagement: true });
     const trackingValidation = handleTrackingValidation(reject);
 
     /** Views from these are counted in the tracking log and never stored. */
@@ -468,6 +495,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     router.post('/engage',
         express.text({ type: () => true, limit: TRACKING.ENGAGE_BODY_BYTES }),
         parseBeaconBody,
+        limitEngagePerIp,
         limitEngagePerApp,
         requireOrigin,
         validateEngage(config.allowed),
@@ -680,4 +708,4 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     return router;
 }
 
-module.exports = { createAnalyticsRouter, buildPerIpLimiters, handleRouteError, logContext, withRequestId, trackingSourceFor };
+module.exports = { createAnalyticsRouter, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };

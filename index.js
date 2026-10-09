@@ -7,7 +7,7 @@ const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions, countRefusedPreflights } = require('./middleware/security');
-const { createAnalyticsRouter, buildPerIpLimiters, trackingSourceFor } = require('./routes/analytics');
+const { createAnalyticsRouter, buildPerIpLimiter, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 const { createDbSessionStore } = require('./db/adminSessionStore');
@@ -80,7 +80,8 @@ function createApp() {
 
     // A tracking request turned away here is counted in the tracking log like
     // any other refusal (in memory, written in batches).
-    app.use(buildPerIpLimiters(config.server.rateLimit, (req) => {
+    // (Engagement reports have a limiter of their own, on their route.)
+    app.use(buildPerIpLimiter(config.server.rateLimit, (req) => {
         if (trackingSourceFor(req.path)) router.countRejection(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' });
     }));
 

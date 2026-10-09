@@ -190,7 +190,7 @@ than running on a guessable default:
 - `ADMIN_PASSWORD`: turns on the [admin UI](#admin-ui) at `/admin`. At least 16 characters. Unset means the admin UI does not exist.
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
-`RATE_LIMIT_MAX`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
+`RATE_LIMIT_MAX`, `RATE_LIMIT_MAX_BY_APP`, `APP_RATE_LIMIT_MAX_BY_APP`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
 `TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`, `ADMIN_SESSION_IDLE_TIMEOUT`,
 `ADMIN_SESSION_MAX_AGE`, `GEOIP_CITY_DB`.
 
@@ -866,6 +866,19 @@ Two independent limits apply to writes:
 - `APP_RATE_LIMIT_MAX`: per `appId`. Stops one tenant consuming the budget
   everyone else on the instance depends on. Keyed on `appId` alone, so it cannot
   be bypassed by rotating addresses. Set `0` to disable for single-tenant use.
+
+Either can be set for one app where the general figure does not fit it, as a
+list of `appId:number`:
+
+- `RATE_LIMIT_MAX_BY_APP=homepage:600`: requests a minute from one address to
+  that app. Such an app is counted on its own, so its traffic does not use up
+  the address's budget for your other apps, nor the other way round.
+- `APP_RATE_LIMIT_MAX_BY_APP=homepage:5000`: that app's whole budget. `0` lifts
+  the ceiling for it alone.
+
+Use these for a site that records far more per visitor than the others, such
+as a single-page app that counts every step inside it. A malformed entry stops
+the server from starting, so a limit is never silently not applied.
 
 Each limit is applied twice, as two separate budgets of that size: one for
 engagement reports (`/engage`) and one for everything else. A page being read

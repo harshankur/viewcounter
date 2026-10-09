@@ -358,3 +358,29 @@ describe('hasConfigFiles()', () => {
         }
     });
 });
+
+describe('per-app rate limit figures', () => {
+    const build = (env) => new Config({ VISITOR_SECRET: VALID_SECRET, ...env });
+
+    test('none by default', () => {
+        const { rateLimit } = build({}).server;
+        expect(rateLimit.maxByApp).toEqual({});
+        expect(rateLimit.perAppMaxByApp).toEqual({});
+    });
+
+    test('RATE_LIMIT_MAX_BY_APP and APP_RATE_LIMIT_MAX_BY_APP are read as appId:number lists', () => {
+        const { rateLimit } = build({
+            RATE_LIMIT_MAX_BY_APP: 'homepage:600, inscript-editor:300',
+            APP_RATE_LIMIT_MAX_BY_APP: 'homepage:5000,blog:0',
+        }).server;
+        expect(rateLimit.maxByApp).toEqual({ homepage: 600, 'inscript-editor': 300 });
+        expect(rateLimit.perAppMaxByApp).toEqual({ homepage: 5000, blog: 0 });
+    });
+
+    test.each([
+        'homepage', 'homepage:', 'homepage:many', 'homepage:-5', 'homepage:1.5', ':600', 'home page:600', 'homepage:600:1', '_apps:600',
+    ])('a malformed entry (%s) stops the start instead of being skipped', (entry) => {
+        expect(() => build({ RATE_LIMIT_MAX_BY_APP: `blog:200,${entry}` })).toThrow(/RATE_LIMIT_MAX_BY_APP/);
+        expect(() => build({ APP_RATE_LIMIT_MAX_BY_APP: entry })).toThrow(/APP_RATE_LIMIT_MAX_BY_APP/);
+    });
+});

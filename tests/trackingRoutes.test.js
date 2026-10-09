@@ -14,7 +14,7 @@ const VIEW_ID = '11111111-1111-4111-8111-111111111111';
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
-function build({ perAppMax = 0, registerEvent, city = null } = {}) {
+function build({ perAppMax = 0, perAppMaxByApp, registerEvent, city = null } = {}) {
     const dbManager = {
         healthCheck: async () => ({ healthy: true }),
         registerEvent: jest.fn(registerEvent || (async () => ({ duplicate: false, insertId: 7, publicId: VIEW_ID, isUnique: true }))),
@@ -29,7 +29,7 @@ function build({ perAppMax = 0, registerEvent, city = null } = {}) {
         },
         auth: { readKeyScopes: {}, adminApiKeys: [] },
         privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
-        server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax } },
+        server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax, perAppMaxByApp } },
     };
     const router = createAnalyticsRouter({ config, dbManager, geo: { city } });
     const app = express();
@@ -175,6 +175,24 @@ describe('GET /registerView', () => {
         // ...and another app's is untouched by both.
         await request(app).post('/engage').set('User-Agent', CHROME).set('Origin', 'https://shop.example.com')
             .send({ appId: 'shop', id: VIEW_ID, ms: 1000, scroll: 10 }).expect(204);
+    });
+
+    test('an app with its own budget uses that one; zero lifts the ceiling for it alone', async () => {
+        const { app } = build({ perAppMax: 1, perAppMaxByApp: { blog: 3, shop: 0 } });
+        const view = (appId, origin) => {
+            const call = request(app).get('/registerView').query({ appId, deviceSize: 'large' }).set('User-Agent', CHROME);
+            return origin ? call.set('Origin', origin) : call;
+        };
+        for (let i = 0; i < 3; i += 1) await view('blog').expect(200);
+        await view('blog').expect(429);
+        for (let i = 0; i < 5; i += 1) await view('shop', 'https://shop.example.com').expect(200);
+    });
+
+    test('own budgets work with no general one set', async () => {
+        const { app } = build({ perAppMax: 0, perAppMaxByApp: { blog: 1 } });
+        const view = () => request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME);
+        await view().expect(200);
+        await view().expect(429);
     });
 
     test('the per-app budget running out is counted as rate limited', async () => {
@@ -349,35 +367,73 @@ describe('GET /tracker.js', () => {
     });
 });
 
-describe('buildPerIpLimiters', () => {
-    const { buildPerIpLimiters } = require('../routes/analytics');
+describe('buildPerIpLimiter', () => {
+    const { buildPerIpLimiter } = require('../routes/analytics');
 
-    function appWith(max) {
+    /** The two limiters as the service mounts them: one app-wide, one on /engage after its body is read. */
+    function appWith(max, maxByApp) {
         const limited = [];
+        const config = { windowMs: 60_000, max, maxByApp };
         const app = express();
-        app.use(buildPerIpLimiters({ windowMs: 60_000, max }, (req) => limited.push(req.path)));
+        app.use(express.json());
+        app.use(buildPerIpLimiter(config, (req) => limited.push(req.path)));
+        app.post('/engage', buildPerIpLimiter(config, (req) => limited.push(req.path), { engagement: true }));
         app.all(/.*/, (req, res) => res.status(200).json({ ok: true }));
         return { app, limited };
     }
+    const view = (app, appId) => request(app).get('/registerView').query({ appId });
+    const beat = (app, appId) => request(app).post('/engage').send({ appId });
 
     test('engagement reports and everything else each get the full budget', async () => {
         const { app, limited } = appWith(2);
-        await request(app).post('/engage').expect(200);
-        await request(app).post('/engage').expect(200);
-        await request(app).post('/engage').expect(429);
+        await beat(app, 'blog').expect(200);
+        await beat(app, 'blog').expect(200);
+        await beat(app, 'blog').expect(429);
         // Readers' heartbeats used theirs up; a page view from the same address still counts.
-        await request(app).get('/registerView').expect(200);
+        await view(app, 'blog').expect(200);
         await request(app).get('/stats/blog').expect(200);
-        await request(app).get('/registerView').expect(429);
+        await view(app, 'blog').expect(429);
         // And the other way round: nothing else can use up the reports' budget.
         expect(limited).toEqual(['/engage', '/registerView']);
     });
 
     test('a refused request gets the standard answer and headers', async () => {
         const { app } = appWith(1);
-        await request(app).get('/registerView').expect(200);
-        const refused = await request(app).get('/registerView').expect(429);
+        await view(app, 'blog').expect(200);
+        const refused = await view(app, 'blog').expect(429);
         expect(refused.body).toEqual({ message: 'Too many requests, please try again later.' });
         expect(refused.headers['ratelimit-limit'] || refused.headers.ratelimit).toBeDefined();
+    });
+
+    test('an app with its own figure gets that much room per address, for views and for reports', async () => {
+        const { app } = appWith(1, { homepage: 3 });
+        for (let i = 0; i < 3; i += 1) await view(app, 'homepage').expect(200);
+        await view(app, 'homepage').expect(429);
+        for (let i = 0; i < 3; i += 1) await beat(app, 'homepage').expect(200);
+        await beat(app, 'homepage').expect(429);
+    });
+
+    test('its traffic is counted apart: it neither uses up the address\'s budget for other apps nor borrows from it', async () => {
+        const { app } = appWith(1, { homepage: 3 });
+        for (let i = 0; i < 3; i += 1) await view(app, 'homepage').expect(200);
+        // Three homepage views later, the address still has its one request for the blog...
+        await view(app, 'blog').expect(200);
+        await view(app, 'blog').expect(429);
+        // ...and the blog's refusals do not touch the homepage's own count, which is simply full.
+        await view(app, 'homepage').expect(429);
+    });
+
+    test('an own figure can be lower than the general one, and an unknown app gets the general one', async () => {
+        const { app } = appWith(2, { quiet: 1 });
+        await view(app, 'quiet').expect(200);
+        await view(app, 'quiet').expect(429);
+        await view(app, 'constructor').expect(200);
+        await view(app, 'constructor').expect(200);
+        await view(app, 'constructor').expect(429);
+    });
+
+    test('no general figure means no per-address limit at all', async () => {
+        const { app } = appWith(0);
+        for (let i = 0; i < 5; i += 1) await view(app, 'blog').expect(200);
     });
 });

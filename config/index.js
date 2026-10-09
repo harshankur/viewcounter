@@ -12,7 +12,7 @@ const {
     SCOPE_ALL,
     SERVER,
 } = require('../constants');
-const { filterValidAppIds } = require('../utils/appIdUtils');
+const { filterValidAppIds, isValidAppId } = require('../utils/appIdUtils');
 const { parseDuration, formatDuration } = require('../utils/durationUtils');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
 const { LogLevel } = require('../utils/logger');
@@ -45,6 +45,26 @@ function parseList(raw) {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+}
+
+/**
+ * Parse per-app figures, `appId:number` separated by commas
+ * (`homepage:600,shop:0`), into a map. A malformed entry is an error: a
+ * limit silently not applied is worse than a refusal to start.
+ * @param {string|undefined} raw
+ * @param {string} field the setting's name, for the error
+ * @returns {Record<string, number>}
+ */
+function parseAppNumbers(raw, field) {
+    const figures = {};
+    for (const entry of parseList(raw)) {
+        const [appId, value, ...rest] = entry.split(':').map((part) => part.trim());
+        if (rest.length || !isValidAppId(appId) || !/^\d+$/.test(value || '')) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, { field, reason: `'${entry}' is not appId:number, such as homepage:600` });
+        }
+        figures[appId] = Number(value);
+    }
+    return figures;
 }
 
 /** Parse an integer env var, falling back when absent or unparseable. */
@@ -130,6 +150,9 @@ class Config {
                 // Per-app ceiling on writes, so one tenant cannot exhaust the
                 // budget the others depend on.
                 perAppMax: parseIntOr(this.env.APP_RATE_LIMIT_MAX, SERVER.DEFAULT_APP_RATE_LIMIT_MAX),
+                // An app's own figures, where the general ones do not fit it.
+                maxByApp: parseAppNumbers(this.env.RATE_LIMIT_MAX_BY_APP, 'RATE_LIMIT_MAX_BY_APP'),
+                perAppMaxByApp: parseAppNumbers(this.env.APP_RATE_LIMIT_MAX_BY_APP, 'APP_RATE_LIMIT_MAX_BY_APP'),
             },
             uniqueVisitorWindowHours: parseIntOr(
                 this.env.UNIQUE_VISITOR_WINDOW_HOURS,

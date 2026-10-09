@@ -5,6 +5,22 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- Rate limits can be set per app. `RATE_LIMIT_MAX_BY_APP` (requests a minute
+  from one address) and `APP_RATE_LIMIT_MAX_BY_APP` (the app's whole budget)
+  take a list of `appId:number`, such as `homepage:600`, for apps the general
+  figures do not fit: a single-page app that counts every step inside it needs
+  more room per visitor than a blog. An app with its own per-address figure is
+  counted on its own, so it neither uses up that address's budget for other
+  apps nor borrows from it. A malformed entry stops the server from starting.
+
+### Changed
+
+- The per-address limit on engagement reports now runs on the `/engage` route,
+  after the report's body is read, so it knows the app and applies that app's
+  own figure. Its budget and behaviour are otherwise as before.
+
 ## [3.4.0]
 
 Makes the privacy claims exact and then stronger: visitor hashes can no longer
