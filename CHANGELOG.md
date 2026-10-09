@@ -5,6 +5,23 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.5.0]
+
+Rate limits per app, for sites that record more per visitor than the general
+figures allow, and a fix for requests that named two different apps. No public
+API is removed or renamed.
+
+Upgrading from 3.4:
+
+- Nothing to do for the schema; it does not change.
+- `RATE_LIMIT_MAX=0` now means "no per-address limit". It used to refuse every
+  request, so nobody can have been running with it; it is noted for
+  completeness.
+- A POST to `/event` or `/engage` is now checked and limited as the app named
+  in its body, which is the app it is stored under. The tracker script and the
+  documented requests have always sent it there. A client of your own that
+  sent a different `appId` in the query string was relying on the bug below.
+
 ### Added
 
 - Rate limits can be set per app. `RATE_LIMIT_MAX_BY_APP` (requests a minute

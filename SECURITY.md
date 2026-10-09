@@ -6,14 +6,20 @@ Currently, the following versions of View Counter are supported with security up
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.4.x   | :white_check_mark: |
-| < 3.4   | :x:                |
+| 3.5.x   | :white_check_mark: |
+| < 3.5   | :x:                |
 
 Versions before 3.0 are not supported: the analytics read endpoints were
 unauthenticated and visitor hashes were derived without a server secret, which
 made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
-3.3.x is not patched further. 3.4 is a drop-in upgrade with no breaking change
+3.4.x is not patched further. 3.5 is a drop-in upgrade with no schema change.
+It fixes a way past an app's origin binding and request budget: a POST to
+`/event` or `/engage` naming one app in its query string and another in its
+body was checked as the first and stored under the second. Earlier
+releases are affected where apps are bound to their sites; upgrade.
+
+3.4 was a drop-in upgrade with no breaking change
 to the public API: its schema migration runs on startup and adds one small
 table. From 3.4 a visitor hash is also keyed with a per-window salt that is
 deleted when the window ends, so a past window's hashes cannot be recomputed
