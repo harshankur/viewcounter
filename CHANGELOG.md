@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.5.1]
+
+Clears an error line that every time-on-page report left in the browser
+console of the site sending it. Nothing was lost and nothing needs doing to
+upgrade: no schema change, no setting to add.
+
 ### Fixed
 
 - Every engagement report left an `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`
