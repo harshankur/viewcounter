@@ -54,12 +54,19 @@ const TRACKING_PATHS = {
     '/engage': VIEW_LOG_SOURCE.ENGAGE,
 };
 
+const TRACKING_PATHS_LOWER = Object.fromEntries(Object.entries(TRACKING_PATHS).map(([path, source]) => [path.toLowerCase(), source]));
+
 /**
+ * Matched as the router matches its routes: whatever the letter case, with or
+ * without a trailing slash. `/Engage/` is served by the `/engage` route, so it
+ * must be counted, limited, and answered as one too.
+ *
  * @param {string} path a request path, relative to where the router is mounted
  * @returns {string|null} the tracking source, or null for any other endpoint
  */
 function trackingSourceFor(path) {
-    return Object.hasOwn(TRACKING_PATHS, path) ? TRACKING_PATHS[path] : null;
+    const key = String(path).toLowerCase().replace(/(.)\/$/, '$1');
+    return Object.hasOwn(TRACKING_PATHS_LOWER, key) ? TRACKING_PATHS_LOWER[key] : null;
 }
 
 /**
@@ -242,12 +249,22 @@ function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = f
  * sent it. Only the header changes: what a page may read of an answer is still
  * decided by CORS.
  *
- * @type {import('express').RequestHandler}
+ * @param {string} [mountPath] where the router is mounted in the host
+ *     application ('/analytics', say), for a copy placed ahead of the router;
+ *     omit it at the root or inside the router
+ * @returns {import('express').RequestHandler}
  */
-function allowFromOtherSites(req, res, next) {
-    if (trackingSourceFor(req.path)) res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-    next();
+function allowTrackingFromOtherSites(mountPath = '') {
+    const prefix = mountPath.replace(/\/+$/, '').toLowerCase();
+    return (req, res, next) => {
+        const path = req.path.toLowerCase().startsWith(`${prefix}/`) ? req.path.slice(prefix.length) : null;
+        if (path !== null && trackingSourceFor(path)) res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        next();
+    };
 }
+
+/** The same at the root: what the router and the standalone service use. */
+const allowFromOtherSites = allowTrackingFromOtherSites();
 
 /**
  * Attach a request id used for correlating a client-visible error with the
@@ -750,4 +767,4 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     return router;
 }
 
-module.exports = { createAnalyticsRouter, allowFromOtherSites, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };
+module.exports = { createAnalyticsRouter, allowFromOtherSites, allowTrackingFromOtherSites, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };

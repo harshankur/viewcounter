@@ -966,7 +966,19 @@ Endpoints then live under the prefix: `POST /analytics/event`,
 Three things the host application owns in this mode, because the router does
 not install them itself: `helmet()` and the CORS allowlist, a per-address rate
 limit (the router limits only engagement reports per address, and only when
-`rateLimit.max` is given), and `trust proxy`. Set
+`rateLimit.max` is given), and `trust proxy`.
+
+The router answers its tracking endpoints with
+`Cross-Origin-Resource-Policy: cross-origin` by itself, since other sites'
+pages call them. If something of yours ahead of the router can refuse a
+tracking request (a rate limiter, say), give those answers the same policy, or
+the sending page's console shows a blocked response for each:
+
+```javascript
+const { allowTrackingFromOtherSites } = require('@harshankur/viewcounter');
+app.use(helmet());
+app.use(allowTrackingFromOtherSites('/analytics')); // where the router is mounted
+``` Set
 `app.set('trust proxy', <hop count>)`, never `true`, or callers can forge
 their own IP through `X-Forwarded-For`.
 

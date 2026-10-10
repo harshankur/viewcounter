@@ -100,6 +100,17 @@ describe('API Endpoints - Integration Tests', () => {
             const res = await request(server).get('/health');
             expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
         });
+
+        test('a tracking request is answered cross-origin, also when it is refused before the router sees it', async () => {
+            // (Refused by validation, so this suite's later views are not disturbed.)
+            const view = await request(server).get('/registerView').query({ appId: 'test_app_1', deviceSize: 'gigantic' }).expect(422);
+            expect(view.headers['cross-origin-resource-policy']).toBe('cross-origin');
+            // Malformed JSON is refused by the body parser, ahead of the router.
+            const malformed = await request(server).post('/event').set('Content-Type', 'application/json').send('{"appId":').expect(400);
+            expect(malformed.headers['cross-origin-resource-policy']).toBe('cross-origin');
+            const wrongMethod = await request(server).post('/registerView').expect(404);
+            expect(wrongMethod.headers['cross-origin-resource-policy']).toBe('cross-origin');
+        });
     });
 
     describe('GET /registerView', () => {

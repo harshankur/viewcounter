@@ -14,7 +14,12 @@ All notable changes to this project are documented here. This project follows
   the API. The tracking endpoints (`/registerView`, `/event`, `/engage`) now
   answer with `Cross-Origin-Resource-Policy: cross-origin`, as the tracker
   script always has. What a page may read of an answer is still decided by
-  CORS.
+  CORS. An application that embeds the router gets this for the router's own
+  answers; for refusals of its own ahead of the router there is
+  `allowTrackingFromOtherSites(mountPath)`.
+- A tracking endpoint reached under another spelling that the router also
+  serves (`/Engage/`, `/REGISTERVIEW`) was not counted in the tracking log and
+  was rate limited as no app. It is now treated as the endpoint it is.
 
 ## [3.5.0]
 

@@ -397,6 +397,44 @@ describe('answers to other sites\' pages', () => {
         for (const answer of [view, invalid, tooLarge, limited, limitedAgain]) expect(answer.headers[POLICY]).toBe('cross-origin');
     });
 
+    test('the router sets it by itself, so an embedding application needs nothing for answers the router gives', async () => {
+        const built = build();
+        const app = express();
+        app.use(require('helmet')());
+        app.use('/analytics', built.app);
+        const answer = await request(app).post('/analytics/engage').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME)
+            .send(JSON.stringify({ appId: 'blog', id: VIEW_ID, ms: 1000 })).expect(204);
+        expect(answer.headers[POLICY]).toBe('cross-origin');
+        expect((await request(app).get('/analytics/health')).headers[POLICY]).toBe('same-origin');
+    });
+
+    test('a path the router serves under another spelling is answered the same: /Engage/, /REGISTERVIEW', async () => {
+        const { app, counted } = served();
+        const beacon = await request(app).post('/Engage/').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME)
+            .send(JSON.stringify({ appId: 'blog', id: VIEW_ID, ms: 1000 })).expect(204);
+        const view = await request(app).get('/REGISTERVIEW').query({ appId: 'nope', deviceSize: 'large' }).set('User-Agent', CHROME).expect(422);
+        expect(beacon.headers[POLICY]).toBe('cross-origin');
+        expect(view.headers[POLICY]).toBe('cross-origin');
+        // And it is counted as the endpoint it is.
+        expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.REGISTER_VIEW })]);
+    });
+
+    test('an embedding application can open its own refusals too, by naming where the router is mounted', async () => {
+        const { allowTrackingFromOtherSites } = require('../routes/analytics');
+        const app = express();
+        app.use(require('helmet')());
+        app.use(allowTrackingFromOtherSites('/analytics/'));
+        // The host's own limiter, ahead of the router, refusing everything.
+        app.use((req, res) => res.status(429).json({ message: 'slow down' }));
+        const policy = async (method, path) => (await request(app)[method](path)).headers[POLICY];
+        expect(await policy('post', '/analytics/engage')).toBe('cross-origin');
+        expect(await policy('get', '/Analytics/registerView')).toBe('cross-origin');
+        expect(await policy('get', '/analytics/stats/blog')).toBe('same-origin');
+        // The host's own routes of the same name, outside the mount, are not touched.
+        expect(await policy('post', '/engage')).toBe('same-origin');
+        expect(await policy('post', '/analyticsx/engage')).toBe('same-origin');
+    });
+
     test('nothing else is opened up: the health check and the read API stay same-origin', async () => {
         const { app } = served();
         for (const path of ['/health', '/stats/blog', '/apps']) {
