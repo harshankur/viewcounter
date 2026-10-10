@@ -231,6 +231,25 @@ function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = f
 }
 
 /**
+ * The tracking endpoints are called from other sites' pages, so their answers
+ * opt out of the same-origin resource policy helmet applies to everything
+ * else, as the tracker script itself does.
+ *
+ * It matters for the engagement beacon. `navigator.sendBeacon` is a "no-cors"
+ * request, the one kind a browser checks this header on: with `same-origin`
+ * the report was still delivered and stored, but every one of them left an
+ * ERR_BLOCKED_BY_RESPONSE.NotSameOrigin line in the console of the site that
+ * sent it. Only the header changes: what a page may read of an answer is still
+ * decided by CORS.
+ *
+ * @type {import('express').RequestHandler}
+ */
+function allowFromOtherSites(req, res, next) {
+    if (trackingSourceFor(req.path)) res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+}
+
+/**
  * Attach a request id used for correlating a client-visible error with the
  * server-side log line that has the real detail.
  */
@@ -328,6 +347,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     };
 
     router.use(withRequestId);
+    router.use(allowFromOtherSites);
 
     /**
      * Health check. Public, and deliberately reveals nothing but liveness.
@@ -730,4 +750,4 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     return router;
 }
 
-module.exports = { createAnalyticsRouter, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };
+module.exports = { createAnalyticsRouter, allowFromOtherSites, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };

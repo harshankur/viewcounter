@@ -367,6 +367,44 @@ describe('GET /tracker.js', () => {
     });
 });
 
+describe('answers to other sites\' pages', () => {
+    const POLICY = 'cross-origin-resource-policy';
+    /** The router as the service mounts it: behind helmet, which says same-origin by default. */
+    function served(options) {
+        const { allowFromOtherSites } = require('../routes/analytics');
+        const built = build(options);
+        const app = express();
+        app.use(require('helmet')());
+        app.use(allowFromOtherSites);
+        app.use(built.app);
+        return { ...built, app };
+    }
+
+    test('the engagement beacon is answered cross-origin, so the sending page logs no blocked response', async () => {
+        const { app } = served();
+        const answer = await request(app).post('/engage').set('Content-Type', 'text/plain;charset=UTF-8').set('User-Agent', CHROME)
+            .send(JSON.stringify({ appId: 'blog', id: VIEW_ID, ms: 1000 })).expect(204);
+        expect(answer.headers[POLICY]).toBe('cross-origin');
+    });
+
+    test('so are views and events, and every refusal of a tracking request', async () => {
+        const { app } = served({ max: 1 });
+        const view = await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
+        const invalid = await request(app).post('/event').set('User-Agent', CHROME).send({ appId: 'nope' }).expect(422);
+        const tooLarge = await request(app).post('/engage').set('Content-Type', 'text/plain').set('User-Agent', CHROME).send('x'.repeat(4096));
+        const limited = await request(app).post('/engage').set('User-Agent', CHROME).send({ appId: 'blog', id: VIEW_ID, ms: 1 });
+        const limitedAgain = await request(app).post('/engage').set('User-Agent', CHROME).send({ appId: 'blog', id: VIEW_ID, ms: 1 }).expect(429);
+        for (const answer of [view, invalid, tooLarge, limited, limitedAgain]) expect(answer.headers[POLICY]).toBe('cross-origin');
+    });
+
+    test('nothing else is opened up: the health check and the read API stay same-origin', async () => {
+        const { app } = served();
+        for (const path of ['/health', '/stats/blog', '/apps']) {
+            expect((await request(app).get(path)).headers[POLICY]).toBe('same-origin');
+        }
+    });
+});
+
 describe('a request is limited and checked as the app it is stored under', () => {
     const event = (app, { query, body, origin }) => {
         const call = request(app).post('/event').query(query || {}).set('User-Agent', CHROME).send({ eventType: 'click', ...body });

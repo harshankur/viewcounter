@@ -7,7 +7,7 @@ const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions, countRefusedPreflights } = require('./middleware/security');
-const { createAnalyticsRouter, buildPerIpLimiter, trackingSourceFor } = require('./routes/analytics');
+const { createAnalyticsRouter, allowFromOtherSites, buildPerIpLimiter, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 const { createDbSessionStore } = require('./db/adminSessionStore');
@@ -34,6 +34,9 @@ function createApp() {
 
     app.disable('x-powered-by');
     app.use(helmet());
+    // Straight after helmet, so that a tracking request refused further down
+    // (rate limited, body unreadable) is answered with the same policy.
+    app.use(allowFromOtherSites);
 
     // Trusting the proxy is needed before the admin router sees a request: it
     // decides whether the session cookie is marked Secure from req.secure.

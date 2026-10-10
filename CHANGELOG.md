@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Every engagement report left an `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`
+  line in the browser console of the site that sent it. The report was
+  delivered and stored all the same; only the server's answer was blocked,
+  because it carried the `same-origin` resource policy that suits the rest of
+  the API. The tracking endpoints (`/registerView`, `/event`, `/engage`) now
+  answer with `Cross-Origin-Resource-Policy: cross-origin`, as the tracker
+  script always has. What a page may read of an answer is still decided by
+  CORS.
+
 ## [3.5.0]
 
 Rate limits per app, for sites that record more per visitor than the general
