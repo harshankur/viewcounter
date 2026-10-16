@@ -25,11 +25,9 @@
         content="Privacy-first, self-hosted analytics for your website. Zero cookies, IP masking, and keyed hashing: built for GDPR compliance.">
     <meta name="twitter:image" content="https://viewcounter.harshankur.com/og-image.png">
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
-        rel="stylesheet">
+    <!-- Fonts are served from this site (fonts/), never from a font provider: loading them from
+         Google Fonts would hand every visitor's IP address to Google. -->
+    <link rel="stylesheet" href="fonts/fonts.css">
     <style>
         :root {
             --primary: #3ddc84;
@@ -703,6 +701,13 @@
             color: var(--primary);
         }
 
+        footer .legal {
+            display: flex;
+            justify-content: center;
+            gap: 1.25rem;
+            margin-bottom: 0.75rem;
+        }
+
         footer .prompt-char {
             color: var(--primary);
         }
@@ -1317,6 +1322,12 @@
     </main>
 
     <footer>
+        <!-- The legal pages are shared by every site on harshankur.com and live there; the privacy
+             link opens this site's own section. -->
+        <p class="legal">
+            <a href="https://harshankur.com/impressum" target="_blank" rel="noopener">Impressum</a>
+            <a href="https://harshankur.com/datenschutz#viewcounter" target="_blank" rel="noopener">Datenschutz</a>
+        </p>
         <p><span class="prompt-char">❯</span> echo "Built with ❤️ for the Open Source community." &amp;&amp; echo
             "ViewCounter © 2026 <a href="https://harshankur.com" target="_blank" rel="noopener">Harsh Ankur</a>"<span
                 class="footer-cursor"></span></p>
@@ -1331,7 +1342,11 @@
          removes the third-party trust entirely and keeps the page working
          without network access to the CDN.
          Licenses: redoc.standalone.js.LICENSE.txt
-         Refresh with:
+         One local change: the sidebar's "API docs by Redocly" credit fetched its
+         logo from cdn.redoc.ly on every visit, so the image is removed and only
+         the text link remains (the minified function that rendered
+         `src:"https://cdn.redoc.ly/redoc/logo-mini.svg"` now returns null).
+         Refresh with the command below, then make that change again:
            curl -o docs/redoc.standalone.js \
              https://cdn.redoc.ly/redoc/2.3.9/bundles/redoc.standalone.js -->
     <script src="redoc.standalone.js"></script>
