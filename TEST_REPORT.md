@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 10/18/2026, 12:26:50 AM  
+**Generated**: 10/18/2026, 12:44:40 AM  
 **Status**: ✅ EXCELLENT  
-**Overall Coverage**: 94.25%
+**Overall Coverage**: 94.28%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 95.18% (2334/2452) | ✅ |
-| **Branches** | 90.52% (1290/1425) | ✅ |
-| **Functions** | 95.74% (517/540) | ✅ |
-| **Lines** | 95.56% (2070/2166) | ✅ |
+| **Statements** | 95.21% (2346/2464) | ✅ |
+| **Branches** | 90.59% (1301/1436) | ✅ |
+| **Functions** | 95.75% (519/542) | ✅ |
+| **Lines** | 95.59% (2082/2178) | ✅ |
 
 ---
 
@@ -25,8 +25,8 @@
 | index.js | 65.48% | 30.43% | 33.33% | 69.15% |
 | index.js | 97.66% | 95.13% | 96.42% | 97.48% |
 | AdminRepository.js | 100% | 97.84% | 100% | 100% |
-| DatabaseManager.js | 89.84% | 80.18% | 93.33% | 89.72% |
-| LogRepository.js | 98.24% | 91.57% | 100% | 100% |
+| DatabaseManager.js | 90.19% | 81.66% | 93.54% | 90.1% |
+| LogRepository.js | 98.31% | 91.75% | 100% | 100% |
 | adminSchema.js | 100% | 100% | 100% | 100% |
 | adminSessionStore.js | 97.29% | 95.83% | 100% | 100% |
 | analysis.js | 95.31% | 79.38% | 97.67% | 98.07% |

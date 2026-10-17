@@ -1389,17 +1389,19 @@ reported twice: by the Worker as it serves the page, and by the tracker a
 moment later. They become one view, and each view records which side
 collected it (`collected_by`: `script`, `edge`, or `both`):
 
-- **The same visitor** is told by what both reports store alike: the masked
-  address (an IPv4 /24, an IPv6 /64) and the browser, its version, the
-  system, its version, and the device type. Not by the visitor hash, which is
-  made from the full address: a device with several IPv6 addresses (the
-  privacy addresses macOS, iOS, Windows, and Android use by default) sends
-  the page request from one and the tracker's request from another. A view
-  with the same hash is still preferred where there is one.
+- **The same visitor**, on IPv4, is the same visitor hash, made from the full
+  address and the user agent: a masked IPv4 address is a whole /24 (a
+  carrier's NAT pool, neighbours at one provider), far too wide to stand for
+  one visitor. On IPv6 it is what both reports store alike: the masked /64 and
+  the browser, its version, the system, its version, and the device type. Not
+  the hash there, because a device with several IPv6 addresses (the privacy
+  addresses macOS, iOS, Windows, and Android use by default) sends the page
+  request from one and the tracker's request from another.
 - **The tracker's view** looks for a view of the same page by the same visitor
   that the edge recorded around when the page was loaded (the tracker sends
   `age`, how long ago that was), within two minutes either side, and that
-  nothing has merged into yet; of several, the one nearest that moment. If
+  nothing has merged into yet; of several, the one nearest that moment (the
+  same hash only breaks a tie, so the same page in two tabs never crosses). If
   there is one, it fills in what only the page knows (its title, the window's
   size bucket, the session, a hash route) and marks it `both`, and
   `/registerView` answers with that view's `id`, so engagement attaches to it.
@@ -1421,13 +1423,18 @@ collected it (`collected_by`: `script`, `edge`, or `both`):
 - **Two reports arriving at the same instant** may each find nothing and both
   be stored. The window is short and `collected_by` tells them apart; it is
   accepted rather than locked against.
-- **Two people may be taken for one**: behind one IPv4 address (a NAT, an
-  office) or in one IPv6 /64, with the same browser and system versions,
-  opening the same page within the window. The tracker's view of one may then
-  complete the edge's view of the other, and the other's tracker view is
-  stored as its own: the count of views stays right, a title or a session may
-  land on the wrong one of the two. It is accepted; each view is merged at
-  most once.
+- **Two people in one IPv6 /64** (one household, say), with the same browser
+  and system versions, opening the same page within the window, may be taken
+  for one: the tracker's view of one may complete the edge's view of the
+  other. If the other's page load reached the edge too, its tracker view is
+  stored as its own and only a title or a session lands on the wrong one of
+  the two; if it did not (the page came from the browser's cache), two page
+  loads are counted as one. It is accepted; each view is merged at most once.
+  On IPv4 this cannot happen, since the hash must match.
+- **Page loads before consent stay edge-only**, with the hash of the address
+  the page request came from. On IPv6 that can differ from the tracker's, so
+  a visitor whose later loads merged can still appear as two visitors, or two
+  visits, in the analysis.
 - **Both sides must still see the same network.** A browser that reaches your
   site over IPv6 and the ViewCounter server over IPv4 (or the other way
   round) has two masked addresses, and its page load is two views. Serve both

@@ -280,6 +280,25 @@ describe('LogRepository', () => {
         expect(lines.join('\n')).toContain("Could not write the view register log entry for 'blog': gone");
     });
 
+    test('updateViewLogUniqueness rewrites one recent entry\'s outcome, through the (app, time) index', async () => {
+        const pool = createScriptedPool(() => [{ affectedRows: 1 }]);
+        expect(await new LogRepository(dbWith(pool)).updateViewLogUniqueness({
+            appId: 'blog', viewId: ID_A, isUnique: false, withinSeconds: 240,
+        })).toBe(true);
+        const [update] = pool.queries;
+        expect(update.sql).toContain(`UPDATE \`${VIEW_LOG_TABLE}\` SET is_unique = ?`);
+        expect(update.sql).toContain('WHERE app_id = ? AND created_at > DATE_SUB(NOW(3), INTERVAL ? SECOND) AND view_id = ?');
+        expect(update.params).toEqual([0, 'blog', 240, ID_A]);
+    });
+
+    test('a failed view-log update warns and returns false instead of throwing', async () => {
+        const pool = createScriptedPool(() => { throw new TypeError('locked'); });
+        expect(await new LogRepository(dbWith(pool)).updateViewLogUniqueness({
+            appId: 'blog', viewId: ID_A, isUnique: true, withinSeconds: 1,
+        })).toBe(false);
+        expect(lines.join('\n')).toContain("Could not write the view register log entry for 'blog': locked");
+    });
+
     test('listAdminLog filters, pages, and maps rows', async () => {
         const pool = createScriptedPool((sql) => (sql.includes('COUNT(*)') ? [[{ count: 3 }]] : [[{
             id: 'e', created_at: 't', action: 'a', session_id: 's', masked_ip: 'm', app_id: 'blog',

@@ -64,8 +64,9 @@ from your API keys and the admin password (the server warns when one is
 reused), and rotate it on the server and the Worker together if it may have
 leaked. Anyone holding it can add views to your apps, not read or change any.
 A page load reported by both the Worker and the tracker is merged into one
-view by what both already store, the masked address and the parsed browser
-and system, so the merge reads nothing more identifying than the rows hold.
+view by what both already store: on IPv4 the visitor hash, on IPv6 the masked
+/64 and the parsed browser and system. The merge reads nothing more
+identifying than the rows hold.
 
 ## Reporting a Vulnerability
 

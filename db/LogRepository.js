@@ -144,6 +144,29 @@ class LogRepository {
     }
 
     /**
+     * Say again whether a view in the log was a first view or a repeat, when a
+     * merge has decided its uniqueness afresh. Only a recent entry is looked
+     * for (`withinSeconds`), so the update reads a short stretch of the log by
+     * its (app, created_at) index. Never throws, like every log write.
+     *
+     * @param {{ appId: string, viewId: string, isUnique: boolean, withinSeconds: number }} entry
+     * @returns {Promise<boolean>} whether the write went through
+     */
+    async updateViewLogUniqueness({ appId, viewId, isUnique, withinSeconds }) {
+        try {
+            await this.pool.query(
+                `UPDATE \`${VIEW_LOG_TABLE}\` SET is_unique = ?
+                 WHERE app_id = ? AND created_at > DATE_SUB(NOW(3), INTERVAL ? SECOND) AND view_id = ?`,
+                [isUnique ? 1 : 0, appId, withinSeconds, viewId]
+            );
+            return true;
+        } catch (cause) {
+            logWarning(WarningType.VIEW_LOG_WRITE_FAILED, { appId, cause: cause.message });
+            return false;
+        }
+    }
+
+    /**
      * Remove view-log entries older than `days`, a batch at a time so no single
      * statement holds its locks for long. Ordered by the indexed `created_at`,
      * so each batch reads only what it deletes.

@@ -14,21 +14,26 @@ All notable changes to this project are documented here. This project follows
   was kept whole. Addresses are now expanded first and stored as their /64
   alone, in one written form (`2606:4700:0:0:0:0:0:0`), so the addresses of
   one network also always read alike. Rows stored before keep their masked
-  address as it was; an operator who wants them redone can erase or edit
-  them in the admin UI.
+  address as it was; an operator who wants them gone can move them to the
+  trash and erase them in the admin UI.
 - **A page load counted at the edge and by the tracker was often stored as two
-  views.** The two reports were matched by visitor hash, which is made from
-  the full address, and a device with several IPv6 addresses (the privacy
-  addresses macOS, iOS, Windows, and Android use by default) sends the page
-  request from one and the tracker's from another. They are now matched by
-  what both store alike: the masked address (the IPv4 /24 or IPv6 /64) and
-  the browser, system, their versions, and the device type, preferring a
-  view with the same hash where there is one. The merged view carries the
-  tracker's visitor hash, as the tracker's other views of the visit do, and
-  its uniqueness is decided again for that hash. Two people behind one
-  address or in one /64, with the same browser and system versions, opening
-  the same page within two minutes, may now be taken for one; each view is
-  still merged at most once. Views already stored twice stay as they are.
+  views on IPv6.** The two reports were matched by visitor hash, which is made
+  from the full address, and a device with several IPv6 addresses (the
+  privacy addresses macOS, iOS, Windows, and Android use by default) sends
+  the page request from one and the tracker's from another. On IPv6 they are
+  now matched by what both store alike: the masked /64 and the browser,
+  system, their versions, and the device type. On IPv4 the hash must still
+  match: a masked IPv4 address is a whole /24, a carrier's NAT pool or a
+  street of neighbours. Of several candidates, the one recorded nearest the
+  page's load wins, the same hash only breaking a tie. The merged view
+  carries the tracker's visitor hash, as the tracker's other views of the
+  visit do, and its uniqueness is decided again for that hash, in the row and
+  in the tracking log. Two people in one IPv6 /64 (one household, say) with
+  the same browser and system versions, opening the same page within two
+  minutes, may now be taken for one; each view is still merged at most once.
+  Page loads before consent stay edge-only with their own hash, so on IPv6 a
+  visitor can still appear as two visitors or visits in the analysis when only
+  some of their loads merged. Views already stored twice stay as they are.
 
 ## [3.6.0]
 

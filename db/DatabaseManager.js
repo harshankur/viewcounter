@@ -21,6 +21,22 @@ const {
  * restored counts again, without any stored aggregate needing to be rebuilt.
  */
 const LIVE_ROW = 'deleted_at IS NULL';
+
+/**
+ * How much older than the merge window a merged view's tracking-log entry may
+ * be: written a moment after the view, on another clock than its timestamp.
+ */
+const VIEW_LOG_SLACK_SECONDS = 60;
+
+/**
+ * Whether a masked address is an IPv6 network (a /64), rather than an IPv4
+ * /24, plain or IPv4-mapped.
+ * @param {string} maskedIp
+ * @returns {boolean}
+ */
+function isIPv6Network(maskedIp) {
+    return typeof maskedIp === 'string' && maskedIp.includes(':') && !maskedIp.includes('.');
+}
 const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getError, logWarning, ErrorType, WarningType } = require('../utils/errorUtils');
@@ -599,35 +615,36 @@ class DatabaseManager {
      *  - the Worker's report, arriving after the tracker's (rare), only marks
      *    the view as seen by both.
      *
-     * The same visitor is told by what both reports store alike: the masked
-     * address (an IPv4 /24, an IPv6 /64) and the browser, its version, the
-     * system, its version, and the device type, compared null-safely. Not by
-     * the visitor hash, which is made from the full address: a device with
-     * several IPv6 addresses (privacy addresses, on by default on every major
-     * system) sends the page request from one and the tracker's from another.
-     * A view with the same hash is still preferred. The page is compared
-     * without a fragment, which only the tracker sends (for hash-routed
-     * pages).
+     * The same visitor, on IPv6, is told by what both reports store alike:
+     * the masked /64 and the browser, its version, the system, its version,
+     * and the device type, compared null-safely. Not by the visitor hash,
+     * which is made from the full address: a device with several IPv6
+     * addresses (privacy addresses, on by default on every major system)
+     * sends the page request from one and the tracker's from another. On
+     * IPv4 the hash must match as well: a masked IPv4 address is a whole /24,
+     * far too wide to stand for one visitor. The page is compared without a
+     * fragment, which only the tracker sends (for hash-routed pages).
      *
      * The tracker knows when its page was loaded (`pageAgeSeconds` ago), so
      * its view takes the edge view recorded nearest that moment, within the
      * window either side of it: with the same page open in two tabs each view
      * finds its own page load, and a later load is never a candidate. The
      * edge cannot know which view it follows, and takes the newest within the
-     * window.
+     * window. On either side, the same hash only breaks a tie: preferred
+     * first, it could take the other tab's view.
      *
      * A merged view carries the tracker's visitor hash: the tracker's other
      * views of the visit (a single-page app's navigations, its events) carry
      * it too, so visits and visitors read as one. When the hash changes, the
      * view's uniqueness is decided again for the hash it now has, as the
      * tracker's own view would have been, so `is_unique` always describes the
-     * hash beside it.
+     * hash beside it, and the tracking log is told when that flips.
      *
      * The view log gains no entry: no view was added. Two reports arriving at
      * the same instant may each find nothing and both be stored, and two
-     * people behind one IPv4 address (a NAT) or in one IPv6 /64, with the same
-     * browser and system versions, opening the same page within the window,
-     * may have their views merged with each other's. Both are accepted: the
+     * people in one IPv6 /64, with the same browser and system versions,
+     * opening the same page within the window, may have their views merged
+     * with each other's. Both are accepted: the
      * window is short, and each view is merged at most once (the claim below
      * takes it only while it is still unmerged).
      *
@@ -649,11 +666,16 @@ class DatabaseManager {
         const maskedIp = truncate(client.maskedIp, FIELD_MAX_LENGTH.MASKED_IP);
         if (!storedPath || !maskedIp) return null;
         const counterpart = fromScript ? COLLECTED_BY.EDGE : COLLECTED_BY.SCRIPT;
+        // Only an IPv6 device changes address between two requests of one page
+        // load. A masked IPv4 address is a whole /24 (a carrier's NAT pool,
+        // neighbours at one provider), far too wide to stand for one visitor:
+        // there the hash, made from the full address, must match.
+        const byNetwork = isIPv6Network(maskedIp);
         // Compared as stored: the same truncation, and NULL equal to NULL.
         const samePageLoad = `masked_ip = ? AND browser <=> ? AND browser_version <=> ? AND os <=> ?
                AND os_version <=> ? AND device_type <=> ?
                AND collected_by = ? AND event_type = ? AND ${LIVE_ROW}
-               AND SUBSTRING_INDEX(page_path, '#', 1) = ?`;
+               AND SUBSTRING_INDEX(page_path, '#', 1) = ?${byNetwork ? '' : ' AND visitor_hash = ?'}`;
         const sameParams = [
             maskedIp,
             truncate(client.browser, FIELD_MAX_LENGTH.BROWSER),
@@ -664,6 +686,7 @@ class DatabaseManager {
             counterpart,
             EVENT_TYPE.PAGEVIEW,
             storedPath.split('#')[0],
+            ...(byNetwork ? [] : [hashedVisitor]),
         ];
 
         const [rows] = fromScript
@@ -671,23 +694,24 @@ class DatabaseManager {
                 `SELECT id, public_id, is_unique, visitor_hash FROM \`${appId}\`
                  WHERE ${samePageLoad}
                    AND timestamp BETWEEN DATE_SUB(NOW(), INTERVAL ? SECOND) AND DATE_SUB(NOW(), INTERVAL ? SECOND)
-                 ORDER BY visitor_hash = ? DESC,
-                          ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC, id DESC
+                 ORDER BY ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC,
+                          visitor_hash = ? DESC, id DESC
                  LIMIT 1`,
-                [...sameParams, pageAgeSeconds + mergeWindowSeconds, pageAgeSeconds - mergeWindowSeconds, hashedVisitor, pageAgeSeconds]
+                [...sameParams, pageAgeSeconds + mergeWindowSeconds, pageAgeSeconds - mergeWindowSeconds, pageAgeSeconds, hashedVisitor]
             )
             : await this.pool.query(
                 `SELECT id, public_id, is_unique, visitor_hash FROM \`${appId}\`
                  WHERE ${samePageLoad}
                    AND timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)
-                 ORDER BY visitor_hash = ? DESC, id DESC
+                 ORDER BY timestamp DESC, visitor_hash = ? DESC, id DESC
                  LIMIT 1`,
                 [...sameParams, mergeWindowSeconds, hashedVisitor]
             );
         const row = rows[0];
         if (!row) return null;
 
-        let isUnique = row.is_unique === 1 || row.is_unique === true;
+        const wasUnique = row.is_unique === 1 || row.is_unique === true;
+        let isUnique = wasUnique;
         // Claimed only if it is still unmerged, so two reports cannot both take it.
         let result;
         if (fromScript) {
@@ -717,6 +741,17 @@ class DatabaseManager {
             );
         }
         if (!(result?.affectedRows > 0)) return null;
+
+        // The tracking log files the view as recorded or repeat; it says what the view now is.
+        if (isUnique !== wasUnique) {
+            await this.logs.updateViewLogUniqueness({
+                appId,
+                viewId: row.public_id,
+                isUnique,
+                // The entry was written with the view, within the window before the page's load.
+                withinSeconds: pageAgeSeconds + mergeWindowSeconds + VIEW_LOG_SLACK_SECONDS,
+            });
+        }
 
         return { duplicate: !isUnique, insertId: row.id, publicId: row.public_id, isUnique, merged: true };
     }
@@ -1005,3 +1040,4 @@ module.exports.SESSION_COLUMNS = SESSION_COLUMNS;
 module.exports.appTableDDL = appTableDDL;
 module.exports.APP_REGISTRY_DDL = APP_REGISTRY_DDL;
 module.exports.LIVE_ROW = LIVE_ROW;
+module.exports.isIPv6Network = isIPv6Network;

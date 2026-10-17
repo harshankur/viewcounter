@@ -538,7 +538,7 @@ describe('one page load reported by both sides is one view', () => {
     };
     const mergeSelect = (manager) => manager.pool.matching(MERGE_SELECT)[0];
     /** The tracker's own visitor hash, as the lookup bound it to prefer it. */
-    const trackerHash = (manager) => mergeSelect(manager).params.at(-2);
+    const trackerHash = (manager) => mergeSelect(manager).params.at(-1);
 
     test('the same visitor is told by the masked address and the browser, null-safely, not by the hash', async () => {
         const manager = managerFinding(null);
@@ -547,8 +547,8 @@ describe('one page load reported by both sides is one view', () => {
         expect(select.sql).toMatch(/masked_ip = \? AND browser <=> \? AND browser_version <=> \? AND os <=> \?\s+AND os_version <=> \? AND device_type <=> \?/);
         expect(select.sql).not.toMatch(/WHERE visitor_hash = \?/);
         expect(select.params.slice(0, 9)).toEqual([MASKED, 'Chrome', '141.0.0.0', 'macOS', '15.6', 'desktop', COLLECTED_BY.EDGE, 'pageview', '/post']);
-        // A view with the same hash first, where there is one.
-        expect(select.sql).toContain('ORDER BY visitor_hash = ? DESC');
+        // A view with the same hash breaks a tie, where there is one.
+        expect(select.sql).toMatch(/ASC,\s+visitor_hash = \? DESC, id DESC/);
         expect(trackerHash(manager)).toMatch(/^[0-9a-f]{64}$/);
     });
 
@@ -570,8 +570,9 @@ describe('one page load reported by both sides is one view', () => {
         expect(select.sql).toContain("SUBSTRING_INDEX(page_path, '#', 1) = ?");
         // Around when the page was loaded (now, without an age), the window either side.
         expect(select.sql).toContain('timestamp BETWEEN DATE_SUB(NOW(), INTERVAL ? SECOND) AND DATE_SUB(NOW(), INTERVAL ? SECOND)');
-        expect(select.sql).toMatch(/ORDER BY visitor_hash = \? DESC,\s+ABS\(TIMESTAMPDIFF\(SECOND, timestamp, DATE_SUB\(NOW\(\), INTERVAL \? SECOND\)\)\) ASC, id DESC/);
-        expect(select.params.slice(9)).toEqual([120, -120, trackerHash(manager), 0]);
+        // Nearest to the page's load first; the same hash only breaks a tie.
+        expect(select.sql).toMatch(/ORDER BY ABS\(TIMESTAMPDIFF\(SECOND, timestamp, DATE_SUB\(NOW\(\), INTERVAL \? SECOND\)\)\) ASC,\s+visitor_hash = \? DESC, id DESC/);
+        expect(select.params.slice(9)).toEqual([120, -120, 0, trackerHash(manager)]);
 
         // The hash changed, so uniqueness is decided again, for the new hash and without this view.
         const [seen] = manager.pool.matching('SELECT id FROM `blog`').filter((q) => q.sql.includes('id <> ?'));
@@ -595,7 +596,7 @@ describe('one page load reported by both sides is one view', () => {
     test('the same hash keeps the view\'s uniqueness as it was, without asking again', async () => {
         const manager = new DatabaseManager({ mode: 'connect' });
         manager.pool = createScriptedPool(withVisitorSalt((sql, params) => {
-            if (isMergeSelect(sql)) return [[{ id: 5, public_id: VIEW, is_unique: 0, visitor_hash: params.at(-2) }]];
+            if (isMergeSelect(sql)) return [[{ id: 5, public_id: VIEW, is_unique: 0, visitor_hash: params.at(-1) }]];
             if (/^\s*UPDATE `blog`/.test(sql)) return [{ affectedRows: 1 }];
             return [[]];
         }));
@@ -610,9 +611,9 @@ describe('one page load reported by both sides is one view', () => {
         const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.EDGE, pageTitle: null, sessionId: null }));
         expect(result).toMatchObject({ merged: true, publicId: VIEW, duplicate: true, isUnique: false });
         const select = mergeSelect(manager);
-        // The edge cannot know which view it follows: the newest in the window, its own hash first.
+        // The edge cannot know which view it follows: the newest in the window, its own hash breaking a tie.
         expect(select.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)');
-        expect(select.sql).toContain('ORDER BY visitor_hash = ? DESC, id DESC');
+        expect(select.sql).toContain('ORDER BY timestamp DESC, visitor_hash = ? DESC, id DESC');
         expect(select.params.slice(6)).toEqual([COLLECTED_BY.SCRIPT, 'pageview', '/post', 120, expect.stringMatching(/^[0-9a-f]{64}$/)]);
         const [update] = manager.pool.matching('UPDATE `blog`');
         expect(update.sql).toMatch(/SET collected_by = \? WHERE id = \? AND collected_by = \?/);
@@ -661,22 +662,23 @@ describe('one page load reported by both sides is one view', () => {
         await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 300 }));
         // From 420 to 180 seconds ago, nearest to 300 seconds ago: a load since then is never a candidate.
         const params = mergeSelect(manager).params;
-        expect([params[9], params[10], params[12]]).toEqual([420, 180, 300]);
+        expect(params.slice(9, 12)).toEqual([420, 180, 300]);
     });
 
     test('a page just loaded looks as far forward as back, so a report from a slightly fast clock still counts', async () => {
         const manager = managerFinding(null);
         await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 2 }));
         const params = mergeSelect(manager).params;
-        expect([params[9], params[10], params[12]]).toEqual([122, -118, 2]);
+        expect(params.slice(9, 12)).toEqual([122, -118, 2]);
     });
 
     /**
      * A table of edge views, answering the tracker side's merge lookup as its
      * SQL does: the same masked address and browser (NULL equal to NULL), the
-     * same page, unmerged, within the bounds; the same hash first, then
-     * nearest to the page's load, then newest. Its uniqueness check and its
-     * claim work on the same rows.
+     * same page, unmerged, within the bounds, and for an IPv4 address the same
+     * hash; nearest to the page's load first, then the same hash, then
+     * newest. Its uniqueness check, its claim, and the tracking log's update
+     * work on the same rows.
      */
     function managerWithEdgeViews(views) {
         const rows = views.map((row) => ({ collected_by: COLLECTED_BY.EDGE, page_path: '/post', ...row }));
@@ -684,14 +686,17 @@ describe('one page load reported by both sides is one view', () => {
         const same = (a, b) => (a ?? null) === (b ?? null);
         manager.pool = createScriptedPool(withVisitorSalt((sql, params) => {
             if (isMergeSelect(sql) && sql.includes('BETWEEN')) {
-                const [maskedIp, browser, browserVersion, os, osVersion, deviceType, side, , path, earliest, latest, hash, anchor] = params;
+                const [maskedIp, browser, browserVersion, os, osVersion, deviceType, side, , path] = params;
+                const required = sql.includes('AND visitor_hash = ?') ? params[9] : null;
+                const [earliest, latest, anchor, hash] = params.slice(-4);
                 const found = rows
                     .filter((row) => row.masked_ip === maskedIp && same(row.browser, browser) && same(row.browser_version, browserVersion)
                         && same(row.os, os) && same(row.os_version, osVersion) && same(row.device_type, deviceType)
                         && row.collected_by === side && row.page_path.split('#')[0] === path
+                        && (required === null || row.visitor_hash === required)
                         && row.age <= earliest && row.age >= latest)
-                    .sort((a, b) => Number(b.visitor_hash === hash) - Number(a.visitor_hash === hash)
-                        || Math.abs(a.age - anchor) - Math.abs(b.age - anchor) || b.id - a.id);
+                    .sort((a, b) => Math.abs(a.age - anchor) - Math.abs(b.age - anchor)
+                        || Number(b.visitor_hash === hash) - Number(a.visitor_hash === hash) || b.id - a.id);
                 return [found.slice(0, 1)];
             }
             if (/^\s*SELECT id FROM `blog`/.test(sql)) {
@@ -709,9 +714,15 @@ describe('one page load reported by both sides is one view', () => {
                 rows.push({ id: rows.length + 100, collected_by: params.at(-1), visitor_hash: params[2] });
                 return [{ insertId: rows.length + 99 }];
             }
+            if (/^\s*UPDATE `_view_log` SET is_unique = \?/.test(sql)) {
+                const [isUnique, appId, withinSeconds, viewId] = params;
+                logUpdates.push({ isUnique, appId, withinSeconds, viewId });
+                return [{ affectedRows: 1 }];
+            }
             return [[]];
         }));
-        return { manager, rows };
+        const logUpdates = [];
+        return { manager, rows, logUpdates };
     }
     const edgeView = (row) => ({ masked_ip: MASKED, browser: 'Chrome', browser_version: '141.0.0.0', os: 'macOS', os_version: '15.6',
         device_type: 'desktop', is_unique: 1, visitor_hash: 'e'.repeat(64), ...row });
@@ -742,14 +753,14 @@ describe('one page load reported by both sides is one view', () => {
         expect(rows).toHaveLength(2);
     });
 
-    test('of two candidates, the one with the tracker\'s own hash wins over a nearer one', async () => {
+    test('of two loads equally near, the one with the tracker\'s own hash breaks the tie', async () => {
         const { manager } = managerWithEdgeViews([]);
         // Learn the tracker's hash from a first lookup, then seed the table with it.
         await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 50, pagePath: '/seed' }));
         const hash = trackerHash(manager);
         const { manager: second } = managerWithEdgeViews([
-            edgeView({ id: 1, public_id: 'nearer', age: 50 }),
-            edgeView({ id: 2, public_id: 'same-hash', age: 100, visitor_hash: hash }),
+            edgeView({ id: 1, public_id: 'same-hash', age: 50, visitor_hash: hash }),
+            edgeView({ id: 2, public_id: 'newer', age: 50 }),
         ]);
         expect((await second.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 50 }))).publicId).toBe('same-hash');
     });
@@ -775,5 +786,124 @@ describe('one page load reported by both sides is one view', () => {
         const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 300 }));
         expect(result.merged).toBe(false);
         expect(rows).toHaveLength(2);
+    });
+});
+
+describe('which page load a tracker view takes, and what the tracking log says after', () => {
+    const CHROME = { browser: 'Chrome', browserVersion: '141.0.0.0', os: 'macOS', osVersion: '15.6', deviceType: 'desktop' };
+    const tracker = (overrides) => ({
+        deviceSize: 'medium', pagePath: '/post', pageTitle: 'A post', ...CHROME, collectedBy: COLLECTED_BY.SCRIPT,
+        uniqueWindowHours: 24, visitorSecret: 'a'.repeat(64), mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS, ...overrides,
+    });
+    /** A manager over the given rows, answering as the SQL does, recording the merge lookups and log updates. */
+    function managerOver(rows) {
+        const manager = new DatabaseManager({ mode: 'connect' });
+        const logUpdates = [];
+        const same = (a, b) => (a ?? null) === (b ?? null);
+        manager.pool = createScriptedPool(withVisitorSalt((sql, params) => {
+            if (sql.trim().startsWith('SELECT id, public_id, is_unique, visitor_hash FROM `blog`')) {
+                const [maskedIp, browser, browserVersion, os, osVersion, deviceType, side, , path] = params;
+                const required = sql.includes('AND visitor_hash = ?') ? params[9] : null;
+                const [earliest, latest, anchor, hash] = params.slice(-4);
+                return [rows
+                    .filter((row) => row.masked_ip === maskedIp && same(row.browser, browser) && same(row.browser_version, browserVersion)
+                        && same(row.os, os) && same(row.os_version, osVersion) && same(row.device_type, deviceType)
+                        && row.collected_by === side && row.page_path === path
+                        && (required === null || row.visitor_hash === required) && row.age <= earliest && row.age >= latest)
+                    .sort((a, b) => Math.abs(a.age - anchor) - Math.abs(b.age - anchor)
+                        || Number(b.visitor_hash === hash) - Number(a.visitor_hash === hash) || b.id - a.id)
+                    .slice(0, 1)];
+            }
+            if (/^\s*SELECT id FROM `blog`/.test(sql)) {
+                const [hash, , , exceptId] = params;
+                return [rows.filter((row) => row.visitor_hash === hash && row.id !== exceptId).slice(0, 1)];
+            }
+            if (/^\s*UPDATE `blog`/.test(sql)) {
+                const [side, , , , , hash, isUnique, id, counterpart] = params;
+                const row = rows.find((candidate) => candidate.id === id && candidate.collected_by === counterpart);
+                if (!row) return [{ affectedRows: 0 }];
+                Object.assign(row, { collected_by: side, visitor_hash: hash, is_unique: isUnique });
+                return [{ affectedRows: 1 }];
+            }
+            if (/^\s*UPDATE `_view_log` SET is_unique = \?/.test(sql)) {
+                logUpdates.push(params);
+                return [{ affectedRows: 1 }];
+            }
+            if (sql.includes('INSERT INTO `blog`')) {
+                rows.push({ id: 1000 + rows.length, collected_by: params.at(-1), visitor_hash: params[2], masked_ip: params[1] });
+                return [{ insertId: 1000 + rows.length }];
+            }
+            return [[]];
+        }));
+        return { manager, logUpdates };
+    }
+    const edgeRow = (row) => ({ browser: 'Chrome', browser_version: '141.0.0.0', os: 'macOS', os_version: '15.6', device_type: 'desktop',
+        collected_by: COLLECTED_BY.EDGE, page_path: '/post', is_unique: 1, ...row });
+    /** The hash the tracker's view at `ip` carries, read from a lookup that finds nothing. */
+    async function hashOf(ip) {
+        const { manager } = managerOver([]);
+        await manager.registerEvent('blog', tracker({ ip }));
+        return manager.pool.matching('SELECT id, public_id, is_unique, visitor_hash FROM `blog`')[0].params.at(-1);
+    }
+
+    test('an IPv4 /24 is never one visitor: another address in it, with the same browser, is not merged', async () => {
+        const rows = [edgeRow({ id: 1, public_id: 'neighbour', masked_ip: '203.0.113.0', visitor_hash: 'n'.repeat(64), age: 3 })];
+        const { manager } = managerOver(rows);
+        const result = await manager.registerEvent('blog', tracker({ ip: '203.0.113.77', pageAgeSeconds: 3 }));
+        expect(result.merged).toBe(false);
+        expect(rows[0].collected_by).toBe(COLLECTED_BY.EDGE);
+        const select = manager.pool.matching('SELECT id, public_id, is_unique, visitor_hash FROM `blog`')[0];
+        expect(select.sql).toContain("SUBSTRING_INDEX(page_path, '#', 1) = ? AND visitor_hash = ?");
+    });
+
+    test('an IPv4 view with the same hash merges as before', async () => {
+        const hash = await hashOf('203.0.113.77');
+        const rows = [edgeRow({ id: 1, public_id: 'same', masked_ip: '203.0.113.0', visitor_hash: hash, age: 3 })];
+        const { manager } = managerOver(rows);
+        expect((await manager.registerEvent('blog', tracker({ ip: '203.0.113.77', pageAgeSeconds: 3 }))).publicId).toBe('same');
+    });
+
+    test('an IPv4-mapped address is IPv4 too', () => {
+        expect(DatabaseManager.isIPv6Network('203.0.113.0')).toBe(false);
+        expect(DatabaseManager.isIPv6Network('::ffff:203.0.113.0')).toBe(false);
+        expect(DatabaseManager.isIPv6Network('2a02:8109:b22a:a500:0:0:0:0')).toBe(true);
+        expect(DatabaseManager.isIPv6Network(null)).toBe(false);
+    });
+
+    test('two tabs, where the other tab\'s load shares the tracker\'s hash: the nearest load still wins', async () => {
+        const ip = '2a02:8109:b22a:a500:1:2:3:4';
+        const hash = await hashOf(ip);
+        const masked = '2a02:8109:b22a:a500:0:0:0:0';
+        const rows = [
+            edgeRow({ id: 1, public_id: 'tab-one', masked_ip: masked, visitor_hash: 'o'.repeat(64), age: 200 }),
+            edgeRow({ id: 2, public_id: 'tab-two', masked_ip: masked, visitor_hash: hash, age: 10 }),
+        ];
+        const { manager } = managerOver(rows);
+        expect((await manager.registerEvent('blog', tracker({ ip, pageAgeSeconds: 199 }))).publicId).toBe('tab-one');
+        expect((await manager.registerEvent('blog', tracker({ ip, pageAgeSeconds: 9 }))).publicId).toBe('tab-two');
+        expect(rows).toHaveLength(2);
+    });
+
+    test('a merge that turns a first view into a repeat says so in the tracking log', async () => {
+        const ip = '2a02:8109:b22a:a500:1:2:3:4';
+        const hash = await hashOf(ip);
+        const masked = '2a02:8109:b22a:a500:0:0:0:0';
+        // The tracker's hash already viewed a page today, so the edge's first view becomes a repeat.
+        const rows = [
+            edgeRow({ id: 1, public_id: 'edge-view', masked_ip: masked, visitor_hash: 'p'.repeat(64), age: 4 }),
+            { id: 2, public_id: 'earlier', visitor_hash: hash, collected_by: COLLECTED_BY.BOTH, page_path: '/', masked_ip: masked, age: 3000 },
+        ];
+        const { manager, logUpdates } = managerOver(rows);
+        const result = await manager.registerEvent('blog', tracker({ ip, pageAgeSeconds: 4 }));
+        expect(result).toMatchObject({ merged: true, publicId: 'edge-view', isUnique: false });
+        expect(logUpdates).toEqual([[0, 'blog', 4 + TRACKING.MERGE_WINDOW_SECONDS + 60, 'edge-view']]);
+    });
+
+    test('a merge that leaves the view as it was writes nothing to the log', async () => {
+        const ip = '2a02:8109:b22a:a500:1:2:3:4';
+        const rows = [edgeRow({ id: 1, public_id: 'edge-view', masked_ip: '2a02:8109:b22a:a500:0:0:0:0', visitor_hash: 'p'.repeat(64), age: 4 })];
+        const { manager, logUpdates } = managerOver(rows);
+        expect((await manager.registerEvent('blog', tracker({ ip, pageAgeSeconds: 4 }))).isUnique).toBe(true);
+        expect(logUpdates).toEqual([]);
     });
 });
