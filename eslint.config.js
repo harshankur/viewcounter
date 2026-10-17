@@ -24,7 +24,7 @@ module.exports = [
     js.configs.recommended,
 
     {
-        files: ['**/*.js'],
+        files: ['**/*.js', '**/*.cjs'],
         languageOptions: {
             ecmaVersion: 2024,
             sourceType: 'commonjs',
@@ -183,6 +183,25 @@ module.exports = [
     },
 
     {
+        // The edge Worker, deployed on its own from edge/ to the Workers
+        // runtime, whose globals are the web's. Its logic is CommonJS so the
+        // repository's Jest can load it; the entry point is an ES module.
+        // The general rules above apply here too: no console, no bare Errors.
+        files: ['edge/**/*.js', 'edge/**/*.cjs'],
+        languageOptions: {
+            globals: { fetch: 'readonly', Request: 'readonly', Response: 'readonly', Headers: 'readonly', AbortSignal: 'readonly' },
+        },
+    },
+    {
+        files: ['edge/**/*.js'],
+        languageOptions: { sourceType: 'module' },
+    },
+    {
+        files: ['edge/**/*.cjs'],
+        languageOptions: { sourceType: 'commonjs' },
+    },
+
+    {
         // The E2E runner is a standalone Node script, not a Jest test.
         files: ['tests/e2e/**'],
         languageOptions: {
@@ -203,6 +222,11 @@ module.exports = [
                 beforeEach: 'readonly',
                 afterAll: 'readonly',
                 afterEach: 'readonly',
+                // Node's web APIs, for the edge Worker's tests.
+                Request: 'readonly',
+                Response: 'readonly',
+                AbortSignal: 'readonly',
+                DOMException: 'readonly',
             },
         },
         rules: {

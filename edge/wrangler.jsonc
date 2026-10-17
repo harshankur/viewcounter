@@ -1,0 +1,41 @@
+// viewcounter edge Worker: counts page views server to server, without
+// anything running in the visitor's browser (see src/index.js).
+//
+// Deployed with Cloudflare Workers Builds, root directory "edge/", or by hand
+// with `npx wrangler deploy` from this folder.
+//
+// The secret is not here: set it in the dashboard (Workers, viewcounter-edge,
+// Settings, Variables and Secrets) or with `npx wrangler secret put EDGE_SECRET`,
+// to the same value as the server's EDGE_SECRET.
+//
+// The routes and SITES below are the viewcounter author's own sites. Anyone
+// else replaces both with their own: a route for each site the Worker should
+// stand in front of (its zone must be on Cloudflare, with the DNS record
+// proxied), and SITES mapping each hostname to the app ID its views are
+// stored under. The site of every app must be in that app's `origins` in the
+// server's allowed.json, or its reports are refused.
+{
+    "name": "viewcounter-edge",
+    "main": "src/index.js",
+    "compatibility_date": "2026-10-01",
+    // No usage data to Cloudflare from wrangler, and no other way in than the routes.
+    "send_metrics": false,
+    "workers_dev": false,
+    "preview_urls": false,
+    "vars": {
+        "VIEWCOUNTER_URL": "https://views.harshankur.com",
+        // hostname -> appId, or hostname -> [{ prefix, app }]: the longest matching prefix wins.
+        "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":\"blog\",\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":\"lidpractice\"}"
+    },
+    "routes": [
+        { "pattern": "harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "viewcounter.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "officeparser.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "inscript.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "inscript-editor.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "blog.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "balloonpop.harshankur.com/*", "zone_name": "harshankur.com" },
+        { "pattern": "pdfstitch.com/*", "zone_name": "pdfstitch.com" },
+        { "pattern": "lidpractice.de/*", "zone_name": "lidpractice.de" }
+    ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "viewcounter-edge",
+  "private": true,
+  "description": "Cloudflare Worker that reports page views to viewcounter's POST /edge/view, server to server.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  }
+}
