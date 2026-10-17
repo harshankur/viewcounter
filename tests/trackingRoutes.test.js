@@ -976,3 +976,30 @@ describe('a page load the edge and the tracker both report', () => {
     });
 });
 
+describe('GET /consent.js', () => {
+    test('is JavaScript other sites may load, cached for an hour, like the tracker', async () => {
+        const { app } = build();
+        const res = await request(app).get('/consent.js').expect(200);
+        expect(res.headers['content-type']).toMatch(/^application\/javascript/);
+        expect(res.headers['cross-origin-resource-policy']).toBe('cross-origin');
+        expect(res.headers['cache-control']).toBe('public, max-age=3600');
+        expect(res.text).toContain('window.viewcounterConsent');
+        await request(app).get('/consent.js').set('If-None-Match', res.headers.etag).expect(304);
+    });
+
+    test('keeps only the answer on the device: no cookie, no session storage, no IndexedDB', async () => {
+        const { app } = build();
+        const { text } = await request(app).get('/consent.js').expect(200);
+        const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+        expect(code).not.toMatch(/document\.cookie|sessionStorage|indexedDB/);
+        // localStorage, under the one per-app key.
+        expect(code.match(/localStorage\.\w+\(/g)).toEqual(['localStorage.getItem(', 'localStorage.setItem(']);
+        expect(code).toContain('`viewcounter-consent:${app}`');
+    });
+
+    test('loading it is not a tracking request', async () => {
+        const { app, counted } = build();
+        await request(app).get('/consent.js').expect(200);
+        expect(await counted()).toEqual([]);
+    });
+});

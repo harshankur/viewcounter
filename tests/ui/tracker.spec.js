@@ -5,35 +5,14 @@
  */
 
 const { test, expect } = require('@playwright/test');
+const { TRACKED_VIEW_ID, captureTracking, asVisitor } = require('./helpers');
 
-const VIEW_ID = '11111111-1111-4111-8111-111111111111';
+const VIEW_ID = TRACKED_VIEW_ID;
 
 test.skip(({ isMobile }) => isMobile, 'one browser profile is enough for the tracker');
 
 /** Record every tracker request; answer page views with a view ID. */
-async function capture(page) {
-    const sent = { views: [], engagement: [], events: [] };
-    await page.route('**/registerView?**', async (route) => {
-        sent.views.push(new URL(route.request().url()));
-        await route.fulfill({ json: { message: 'Success!', duplicate: false, recorded: true, id: VIEW_ID } });
-    });
-    await page.route('**/engage', async (route) => {
-        sent.engagement.push({ body: JSON.parse(route.request().postData()), type: route.request().headers()['content-type'] });
-        await route.fulfill({ status: 204 });
-    });
-    await page.route('**/event', async (route) => {
-        sent.events.push(JSON.parse(route.request().postData()));
-        await route.fulfill({ json: { recorded: true } });
-    });
-    await page.route('https://elsewhere.example/**', (route) => route.fulfill({ body: 'elsewhere' }));
-    await page.route('**/files/**', (route) => route.fulfill({ body: 'pdf' }));
-    return sent;
-}
-
-/** A real visitor, not an automated browser (which the tracker skips). */
-async function asVisitor(page) {
-    await page.addInitScript(() => Object.defineProperty(window.Navigator.prototype, 'webdriver', { get: () => false }));
-}
+const capture = captureTracking;
 
 const hide = (page) => page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
@@ -50,6 +29,8 @@ test('a page view carries the app, page, title, size, and only the campaign tags
     expect(params).toEqual({
         appId: 'blog', deviceSize: 'large', page: '/tracker-lab/start', title: 'Tracker lab', referrer: '',
         utm_source: 'newsletter', utm_medium: 'email', utm_campaign: 'launch',
+        // How long the page had been open, in whole seconds.
+        age: expect.stringMatching(/^\d+$/),
     });
     expect(sent.views[0].href).not.toMatch(/secret|a%40b|email=a/);
 });
@@ -271,7 +252,7 @@ test('data-campaigns="false" sends none of the landing URL\'s campaign tags', as
     await page.goto('/tracker-lab/start?campaigns=false&utm_source=newsletter&utm_medium=email&utm_campaign=launch&utm_term=t&utm_content=c');
     await expect.poll(() => sent.views.length).toBe(1);
     expect(Object.fromEntries(sent.views[0].searchParams)).toEqual({
-        appId: 'blog', deviceSize: 'large', page: '/tracker-lab/start', title: 'Tracker lab', referrer: '',
+        appId: 'blog', deviceSize: 'large', page: '/tracker-lab/start', title: 'Tracker lab', referrer: '', age: expect.stringMatching(/^\d+$/),
     });
     expect(sent.views[0].href).not.toMatch(/utm_|newsletter/);
 });
@@ -288,6 +269,8 @@ test('a single-page app navigation is a new page view, referred by the page it l
     expect(Object.fromEntries(sent.views[1].searchParams)).toMatchObject({
         page: '/tracker-lab/next', referrer: `${new URL(baseURL).origin}/tracker-lab/start`,
     });
+    // Only a page's first view says how long it had been open: a navigation is no page load.
+    expect(sent.views[1].searchParams.has('age')).toBe(false);
     // The page it left reported its engagement first.
     await expect.poll(() => sent.engagement.length).toBe(1);
 
@@ -405,4 +388,33 @@ test('data-outbound and data-downloads switch those events off', async ({ page }
     await page.click('#outbound');
     await page.waitForTimeout(300);
     expect(sent.events).toEqual([]);
+});
+
+test.describe('with a consent prompt on the page', () => {
+    /** A stand-in for consent.js's API, answering `answer` (or throwing, for 'throws'). */
+    const withConsent = (page, answer) => page.addInitScript((value) => {
+        window.viewcounterConsent = { status: () => { if (value === 'throws') throw new Error('broken'); return value; } };
+    }, answer);
+
+    for (const answer of ['denied', 'unset', 'throws']) {
+        test(`it sends nothing while the answer is ${answer}`, async ({ page }) => {
+            await asVisitor(page);
+            await withConsent(page, answer);
+            const sent = await capture(page);
+            await page.goto('/tracker-lab/start');
+            await page.waitForTimeout(300);
+            await page.evaluate(() => window.viewcounter.track('signup'));
+            await page.click('#outbound');
+            await page.waitForTimeout(300);
+            expect(sent).toEqual({ views: [], engagement: [], events: [] });
+        });
+    }
+
+    test('it sends as ever once the answer is yes', async ({ page }) => {
+        await asVisitor(page);
+        await withConsent(page, 'granted');
+        const sent = await capture(page);
+        await page.goto('/tracker-lab/start');
+        await expect.poll(() => sent.views.length).toBe(1);
+    });
 });

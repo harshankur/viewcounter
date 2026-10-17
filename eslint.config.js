@@ -153,6 +153,36 @@ module.exports = [
     },
 
     {
+        // The consent prompt runs on visitors' pages too, but keeps one thing
+        // on the device: the visitor's own answer (TDDDG § 25(2) Nr. 2, needed
+        // for the service they asked for). In localStorage only, never a cookie.
+        files: ['tracker/consent.js'],
+        languageOptions: {
+            globals: { localStorage: 'readonly', CustomEvent: 'readonly', CSSStyleSheet: 'readonly' },
+        },
+        rules: {
+            'no-restricted-globals': ['error',
+                { name: 'sessionStorage', message: 'The consent prompt keeps the answer in localStorage alone.' },
+                { name: 'indexedDB', message: 'The consent prompt keeps the answer in localStorage alone.' },
+            ],
+            'no-restricted-properties': ['error',
+                { object: 'document', property: 'cookie', message: 'The consent prompt never reads or sets cookies.' },
+                { object: 'window', property: 'sessionStorage', message: 'The consent prompt keeps the answer in localStorage alone.' },
+            ],
+            'no-restricted-syntax': ['error',
+                {
+                    selector: "NewExpression[callee.name='Error'][arguments.0.type='Literal'], NewExpression[callee.name='Error'][arguments.0.type='TemplateLiteral']",
+                    message: 'Do not instantiate Error with a direct string literal or template literal. Use an ErrorType enum and the ERROR_MESSAGES lookup table in errorUtils instead.',
+                },
+                {
+                    selector: "AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]",
+                    message: 'Build nodes; the prompt never parses HTML.',
+                },
+            ],
+        },
+    },
+
+    {
         // The E2E runner is a standalone Node script, not a Jest test.
         files: ['tests/e2e/**'],
         languageOptions: {
@@ -187,7 +217,7 @@ module.exports = [
         // run in the browser and legitimately reference its globals.
         files: ['tests/ui/**', 'playwright.config.js'],
         languageOptions: {
-            globals: { window: 'readonly', document: 'readonly', getComputedStyle: 'readonly', setImmediate: 'readonly' },
+            globals: { window: 'readonly', document: 'readonly', getComputedStyle: 'readonly', setImmediate: 'readonly', DOMException: 'readonly' },
         },
     },
 

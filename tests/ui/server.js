@@ -234,6 +234,29 @@ function start(port = PORT) {
 </body></html>`);
     });
 
+    // Test-only: a page that loads the consent prompt, for tests/ui/consent.spec.js.
+    // The prompt loads the tracker from /tracker.js above when the visitor allows it.
+    app.get('/consent.js', (req, res) => {
+        res.type('application/javascript').send(fs.readFileSync(path.join(__dirname, '..', '..', 'tracker', 'consent.js'), 'utf8'));
+    });
+    app.get(/^\/consent-lab\//, (req, res) => {
+        const OPTIONS = { hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', heartbeat: 'heartbeat', privacy: 'privacy-url' };
+        const attributes = Object.entries(OPTIONS).map(([param, name]) => {
+            const value = typeof req.query[param] === 'string' ? req.query[param].replace(/[^a-z0-9.,:#/_-]/gi, '') : '';
+            return value ? ` data-${name}="${value}"` : '';
+        }).join('');
+        const lang = typeof req.query.htmlLang === 'string' ? req.query.htmlLang.replace(/[^a-z-]/gi, '') : 'en';
+        res.type('html').send(`<!doctype html>
+<html lang="${lang}"><head><meta charset="utf-8"><title>Consent lab</title></head>
+<body>
+  <button id="page-button" type="button">A button of the page</button>
+  <input id="page-input" aria-label="A field of the page">
+  <div style="height: 3000px"></div>
+  <footer><a id="settings" href="#" data-viewcounter-consent>Privacy settings</a></footer>
+  <script src="/consent.js" data-app="blog"${attributes}></script>
+</body></html>`);
+    });
+
     app.use(ADMIN.PATH_PREFIX, (req, res, next) => admin(req, res, next));
     app.get('/', (req, res) => res.redirect(`${ADMIN.PATH_PREFIX}/`));
 

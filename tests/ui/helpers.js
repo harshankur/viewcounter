@@ -54,4 +54,36 @@ function row(page, id) {
     return activePanel(page).locator(`tbody tr[data-view-id="${id}"]`);
 }
 
-module.exports = { resetServer, signIn, sectionTab, activePanel, rows, row, PASSWORD };
+/** The view ID tracking requests are answered with. */
+const TRACKED_VIEW_ID = '11111111-1111-4111-8111-111111111111';
+
+/**
+ * Record every request the tracker sends, answering page views with a view
+ * ID, instead of letting them reach a server. Used by the tracker and the
+ * consent prompt suites.
+ */
+async function captureTracking(page) {
+    const sent = { views: [], engagement: [], events: [] };
+    await page.route('**/registerView?**', async (route) => {
+        sent.views.push(new URL(route.request().url()));
+        await route.fulfill({ json: { message: 'Success!', duplicate: false, recorded: true, id: TRACKED_VIEW_ID } });
+    });
+    await page.route('**/engage', async (route) => {
+        sent.engagement.push({ body: JSON.parse(route.request().postData()), type: route.request().headers()['content-type'] });
+        await route.fulfill({ status: 204 });
+    });
+    await page.route('**/event', async (route) => {
+        sent.events.push(JSON.parse(route.request().postData()));
+        await route.fulfill({ json: { recorded: true } });
+    });
+    await page.route('https://elsewhere.example/**', (route) => route.fulfill({ body: 'elsewhere' }));
+    await page.route('**/files/**', (route) => route.fulfill({ body: 'pdf' }));
+    return sent;
+}
+
+/** A real visitor, not an automated browser (which the tracker skips). */
+async function asVisitor(page) {
+    await page.addInitScript(() => Object.defineProperty(window.Navigator.prototype, 'webdriver', { get: () => false }));
+}
+
+module.exports = { resetServer, signIn, sectionTab, activePanel, rows, row, PASSWORD, TRACKED_VIEW_ID, captureTracking, asVisitor };

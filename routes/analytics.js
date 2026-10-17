@@ -43,10 +43,14 @@ const {
 } = require('../middleware/validation');
 
 /**
- * The tracker script sites include with <script src=".../tracker.js">. Read
- * once; it is part of the package, not configuration.
+ * The tracker script sites include with <script src=".../tracker.js">, and
+ * the consent prompt they include instead when the tracker should run only
+ * once the visitor allows it (<script src=".../consent.js">), which loads the
+ * tracker from here. Read once; they are part of the package, not
+ * configuration.
  */
 const TRACKER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'tracker.js'), 'utf8');
+const CONSENT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'consent.js'), 'utf8');
 /** Cached briefly, so a fix reaches every site within the hour. */
 const TRACKER_MAX_AGE_SECONDS = 60 * 60;
 
@@ -478,6 +482,16 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         res.set('Cache-Control', `public, max-age=${TRACKER_MAX_AGE_SECONDS}`);
         res.set('Cross-Origin-Resource-Policy', 'cross-origin');
         res.type('application/javascript').send(TRACKER_SOURCE);
+    });
+
+    /**
+     * The consent prompt, which loads the tracker above only once the visitor
+     * allows it. Served exactly like the tracker.
+     */
+    router.get('/consent.js', (req, res) => {
+        res.set('Cache-Control', `public, max-age=${TRACKER_MAX_AGE_SECONDS}`);
+        res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.type('application/javascript').send(CONSENT_SOURCE);
     });
 
     /**

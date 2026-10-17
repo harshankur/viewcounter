@@ -24,8 +24,11 @@
  * The page before is sent as its origin and path only.
  *
  * It stores nothing on the visitor's device (no cookie, no localStorage, no
- * sessionStorage), so it needs no consent banner, and it sends no identifier:
- * the server tells repeat visits apart with a hash it rotates every day by default.
+ * sessionStorage), and it sends no identifier: the server tells repeat visits
+ * apart with a hash it rotates every day by default. Where the law asks for
+ * consent before a script measures a visit (the German TDDDG does), load
+ * consent.js instead of this file: it asks the visitor, loads this script only
+ * once they allow it, and this script sends nothing more once they withdraw.
  *
  * Options, as attributes on the script tag:
  *   data-app="blog"                 required: the app ID the views belong to
@@ -67,6 +70,22 @@
     // A tab left open with nobody at it stops reporting after this long without input.
     const IDLE_MS = 30 * 60 * 1000;
 
+    /**
+     * Whether anything may be sent now. With the consent prompt on the page
+     * (consent.js), only while the visitor's answer is yes: asked before every
+     * request, so a withdrawal stops the next one, without a reload. Loaded
+     * without it, as before.
+     */
+    const allowed = () => {
+        const consent = window.viewcounterConsent;
+        if (!consent) return true;
+        try {
+            return consent.status() === 'granted';
+        } catch {
+            return false;
+        }
+    };
+
     const deviceSize = () => (innerWidth < 768 ? 'small' : innerWidth < 1200 ? 'medium' : 'large');
     /**
      * How much of the page has been on screen, from 0 to 100, or null for a
@@ -107,7 +126,7 @@
      * is the heartbeat saying the visitor is still there.
      */
     function reportEngagement(of = view, alive = false) {
-        if (!of || !of.id) return;
+        if (!of || !of.id || !allowed()) return;
         const ms = Math.min(MAX_ENGAGED_MS, Math.round(of.visibleMs + (of.visibleSince === null ? 0 : performance.now() - of.visibleSince)));
         const scroll = of.scroll === null ? -1 : of.scroll;
         if (!alive && ms <= of.sentMs && scroll <= of.sentScroll) return;
@@ -140,6 +159,10 @@
             title: document.title.slice(0, 200),
             referrer: referrer.slice(0, 500),
         });
+        // How long the page has been open, in seconds, so the server can tell
+        // this view from the edge's record of the same page load even when
+        // it is sent late (the visitor took a while to allow it).
+        if (first) params.set('age', String(Math.min(ENGAGE_WINDOW_MS / 1000, Math.round(performance.now() / 1000))));
         // Only the campaign tags: the rest of a query string can carry
         // emails, tokens, or IDs, and never leaves the page.
         if (option('campaigns', true)) {
@@ -164,6 +187,7 @@
         // old page is still on screen, and its depth is not the new one's:
         // the new page is measured when it is scrolled, hidden, or reports.
         if (first) measure();
+        if (!allowed()) return;
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
             .then((result) => {
@@ -176,7 +200,7 @@
     }
 
     function track(eventType, eventData) {
-        if (typeof eventType !== 'string' || !eventType) return;
+        if (typeof eventType !== 'string' || !eventType || !allowed()) return;
         fetch(`${base}event`, {
             method: 'POST',
             keepalive: true,
