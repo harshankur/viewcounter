@@ -5,6 +5,85 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+Counts in two tiers, for sites where a script that measures a visit needs the
+visitor's consent: page views counted at the edge, server to server, with no
+consent and nothing in the browser, and everything the tracker measures once
+the visitor allows it. No public API is removed or renamed, and a site that
+loads `tracker.js` as before keeps working as before.
+
+Upgrading from 3.5:
+
+- Nothing to do for the schema: the first start adds one column,
+  `collected_by`, to every app table (schema v8), and every existing row reads
+  `script`. On a large table, adding a column with a default takes a moment.
+- Nothing changes until you opt in. Edge counting needs `EDGE_SECRET` on the
+  server, the sites of each counted app in `origins`, and the Worker in
+  `edge/` deployed in front of the sites with the same secret. The consent
+  prompt needs `consent.js` in place of `tracker.js` on each site, and a
+  mention of the stored answer in the privacy notice.
+- Update the server before the sites: `consent.js` is served by it.
+
+### Added
+
+- **Edge counting.** `POST /edge/view` takes a page request that a Worker in
+  front of a site saw, with only what the request carried: the page URL (of
+  which the path and campaign tags are kept), the `Referer` header (kept as an
+  origin and a path), the visitor's address (masked and hashed as always), the
+  user agent, `Sec-CH-UA-Mobile`, and `Accept-Language`. Nothing is read from
+  or stored on the visitor's device, so no consent is needed for it, and there
+  is no title, time on page, or scroll depth. It exists only with
+  `EDGE_SECRET` set (at least 32 characters, or the server refuses to start),
+  which the Worker presents as a bearer token; a wrong or missing one is a 401,
+  counted in the tracking log. The page must be on one of the app's registered
+  sites. The per-address limit counts the visitor's address each report names,
+  with a budget of its own; a request without the secret is limited by its
+  own address before it is refused, and counted under no app. The app's
+  budget is spent last, after the bot check, as for any view. A page
+  requested with no user agent counts as a bot. Edge views appear in the
+  tracking log as "Edge page view".
+- **The edge Worker**, in `edge/`: a Cloudflare Worker, deployable with
+  Workers Builds (root directory `edge/`), that passes every request through
+  unchanged and reports each HTML page view of the sites in its `SITES`
+  (hostname to app, or path prefixes to apps) in the background, a revalidated
+  page (304) included. It sends the URL as its origin, path, and campaign tags
+  only, and the Referer as an origin and a path. `RESPECT_DNT` and `CAMPAIGNS`
+  follow the tracker's options of the same meaning. A failed report is dropped
+  and never touches the visitor's response. It is not part of the npm
+  package.
+- **The consent prompt**, `GET /consent.js`, loaded in place of `tracker.js`.
+  On the hosts in `data-hosts` it asks in a small card that blocks nothing,
+  with two answers that look the same, in German or English, and loads the
+  tracker with the site's options only on a yes. The answer is kept in
+  `localStorage` (`viewcounter-consent:<app>`), or for the page alone where
+  storage is unavailable. `window.viewcounterConsent` opens it, reads it,
+  grants, and denies, every change fires `viewcounter:consent`, and any
+  element with `data-viewcounter-consent` reopens it. The card is in a closed
+  shadow root, follows light and dark, and takes CSS custom properties.
+- **One page load, one view.** Each view records which side collected it,
+  `script`, `edge`, or `both`. The tracker's view of a page the edge recorded
+  in the last two minutes completes that view (title, size, session) and
+  returns its `id`, so engagement attaches to it; an edge report after the
+  tracker's view marks it as seen by both. Single-page app navigations are
+  views of their own, as before. The admin UI shows the side in a view's
+  details.
+- `/registerView` takes `age`, the seconds the page had been open, which the
+  tracker sends with each page's first view, so a view sent after the visitor
+  took a while to allow it still merges with the edge's record of that page
+  load.
+
+### Changed
+
+- **The tracker sends nothing without consent when the consent prompt is on
+  the page.** It asks `window.viewcounterConsent` before every request (page
+  views, engagement reports, heartbeats, links out, downloads, custom events),
+  so a withdrawal stops it at once, without a reload. Loaded without the
+  prompt, it behaves as before.
+- The README, the homepage, and the tracker's notice no longer say the tracker
+  needs no consent banner. Under the German TDDDG § 25, and the EDPB's
+  Guidelines 2/2023 reading of ePrivacy Art. 5(3), a script that measures a
+  visit needs consent whether or not it stores anything; the two tiers above
+  are the answer to that.
+
 ## [3.5.1]
 
 Clears an error line that every time-on-page report left in the browser

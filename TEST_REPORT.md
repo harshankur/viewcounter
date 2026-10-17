@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 10/10/2026, 10:36:47 PM  
+**Generated**: 10/17/2026, 5:36:07 PM  
 **Status**: ✅ EXCELLENT  
-**Overall Coverage**: 93.72%
+**Overall Coverage**: 94.22%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 94.76% (2171/2291) | ✅ |
-| **Branches** | 89.66% (1145/1277) | ✅ |
-| **Functions** | 95.26% (483/507) | ✅ |
-| **Lines** | 95.21% (1931/2028) | ✅ |
+| **Statements** | 95.14% (2312/2430) | ✅ |
+| **Branches** | 90.52% (1261/1393) | ✅ |
+| **Functions** | 95.7% (512/535) | ✅ |
+| **Lines** | 95.53% (2053/2149) | ✅ |
 
 ---
 
@@ -22,10 +22,10 @@
 | File | Statements | Branches | Functions | Lines |
 |------|------------|----------|-----------|-------|
 | constants.js | 100% | 100% | 100% | 100% |
-| index.js | 64.28% | 26.08% | 27.77% | 67.92% |
-| index.js | 97.48% | 94.85% | 96.15% | 97.29% |
-| AdminRepository.js | 100% | 97.8% | 100% | 100% |
-| DatabaseManager.js | 88.16% | 72.85% | 92.85% | 88.41% |
+| index.js | 65.17% | 30.43% | 33.33% | 68.86% |
+| index.js | 97.66% | 95.13% | 96.42% | 97.48% |
+| AdminRepository.js | 100% | 97.84% | 100% | 100% |
+| DatabaseManager.js | 89.41% | 79.78% | 93.1% | 89.38% |
 | LogRepository.js | 98.24% | 91.57% | 100% | 100% |
 | adminSchema.js | 100% | 100% | 100% | 100% |
 | adminSessionStore.js | 97.29% | 95.83% | 100% | 100% |
@@ -35,11 +35,11 @@
 | visitorSalt.js | 100% | 95.83% | 100% | 100% |
 | adminAuth.js | 100% | 96.15% | 100% | 100% |
 | adminValidation.js | 100% | 97.5% | 100% | 100% |
-| auth.js | 96.22% | 88.88% | 100% | 97.82% |
+| auth.js | 97.1% | 91.66% | 100% | 98.27% |
 | security.js | 100% | 90.62% | 90% | 100% |
 | validation.js | 100% | 100% | 100% | 100% |
 | admin.js | 93.45% | 90.41% | 92.3% | 93.17% |
-| analytics.js | 92.46% | 87.21% | 96.49% | 92.17% |
+| analytics.js | 94.39% | 90.52% | 97.05% | 93.89% |
 | appIdUtils.js | 80% | 66.66% | 100% | 100% |
 | cookieUtils.js | 100% | 100% | 100% | 100% |
 | durationUtils.js | 88.88% | 83.33% | 100% | 87.5% |
@@ -51,8 +51,8 @@
 | referrerParser.js | 93.75% | 85.29% | 100% | 97.5% |
 | secretStore.js | 100% | 100% | 100% | 100% |
 | stringUtils.js | 100% | 100% | 100% | 100% |
-| userAgentParser.js | 91.3% | 88.46% | 100% | 94.11% |
-| visitorContext.js | 100% | 89.47% | 100% | 100% |
+| userAgentParser.js | 91.83% | 89.09% | 100% | 94.44% |
+| visitorContext.js | 100% | 93.1% | 100% | 100% |
 
 ---
 

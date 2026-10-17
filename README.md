@@ -14,7 +14,8 @@ Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for de
 
 ## 🛡️ Built for GDPR Compliance, Privacy-First
 **Built for GDPR compliance, by design.** This project is built from the ground up to respect user privacy and adhere to modern ethical standards:
-- **Nothing on the visitor's device**: no cookie, no localStorage, no sessionStorage, and no identifier sent with a view, so the tracker needs no consent banner under the ePrivacy rules on device storage. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
+- **Nothing on the visitor's device**: the tracker sets no cookie, uses no localStorage or sessionStorage, and sends no identifier with a view. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
+- **Counting with and without consent**: where a script that measures a visit needs consent (the German TDDDG § 25, and the EDPB's Guidelines 2/2023 reading of ePrivacy Art. 5(3)), ViewCounter counts in two tiers: [edge counting](#edge-counting) needs no consent, since a Worker in front of the site reports each page request server to server and nothing runs in the browser; the [consent prompt](#the-consent-prompt) loads the tracker, with everything it measures, only once the visitor allows it. Saying no costs the visitor nothing.
 - **Data Sovereignty**: You own your data. Analytics never leave your private infrastructure.
 - **Minimal Collection**: records what analytics needs, each in a form that does not identify a person directly. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string are never stored.
 - **Bots left out**: crawlers, link previewers, and automated browsers are recognised and never stored, only counted per minute by name.
@@ -27,8 +28,11 @@ do for you:
 
 - **Say so.** Mention in your privacy notice that visits are counted, what is
   recorded ([What Gets Tracked?](#what-gets-tracked)), and for how long.
-- **Have a legal basis.** For plain visit counting this is normally legitimate
-  interest; that judgement is yours to make and record.
+- **Have a legal basis.** For counting page requests at the edge this is
+  normally legitimate interest. For a script that measures the visit in the
+  browser, many readings of ePrivacy Art. 5(3) (and in Germany § 25 TDDDG)
+  ask for consent; the [consent prompt](#the-consent-prompt) collects it.
+  Either way, the judgement is yours to make and record.
 - **Keep personal details out.** ViewCounter stores what you send in custom
   event data and the optional `sessionId` as given. Do not put names, email
   addresses, or account IDs there.
@@ -89,6 +93,8 @@ We believe in total transparency regarding your visitors' data:
 
 ### Advanced Tracking
 - 🧩 **Tracker script**: one `<script>` tag, served by your ViewCounter server ([details](#client-side-integration)): page views, including page changes in single-page apps; how long each page was visible and how far it was scrolled; clicks on links to other sites and on downloads; campaign tags. It stores nothing on the device.
+- 🛰️ **Edge counting**: a Cloudflare Worker in front of your site reports each page it serves, server to server, so pages are counted without consent and without any script ([details](#edge-counting))
+- 🙋 **Consent prompt**: `consent.js` asks in a small card and loads the tracker only on a yes; a no stops it at once ([details](#the-consent-prompt)). With both, a page load counted at the edge and by the tracker is one view
 - 📍 **Pages and sites**: the page path, its title, and which of your sites (hostname) it was on
 - 🔗 **Referrer Analysis**: automatic source categorization (search, social, email, campaign, referral, internal, direct)
 - 🏷️ **Campaigns**: the five `utm_*` tags of the landing URL, and nothing else from it
@@ -188,6 +194,7 @@ than running on a guessable default:
 - `TRUST_PROXY`: hop count or CIDR list. **Never set this to `true`**: trusting every hop lets any caller forge their own IP via `X-Forwarded-For`, which fakes geolocation, inflates unique-visitor counts, and bypasses rate limiting. `true` and `*` are downgraded to one hop with a warning. Your proxy must set `X-Forwarded-For`; `X-Real-IP` alone is not read.
 - `VISITOR_SECRET_PATH` / `VISITOR_SECRET`: where the visitor-hash secret lives, or the value itself.
 - `ADMIN_PASSWORD`: turns on the [admin UI](#admin-ui) at `/admin`. At least 16 characters. Unset means the admin UI does not exist.
+- `EDGE_SECRET`: turns on [edge counting](#edge-counting) at `POST /edge/view`, for the Worker in front of your sites. At least 32 characters, or the server refuses to start; never logged. Unset means the endpoint does not exist.
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
 `RATE_LIMIT_MAX`, `RATE_LIMIT_MAX_BY_APP`, `APP_RATE_LIMIT_MAX_BY_APP`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
@@ -421,6 +428,12 @@ define; the tracker script never sends one.
 `id` is the view's public ID, which `/engage` takes. A bot gets
 `{"recorded": false}` and a `200`, so it has no reason to retry.
 
+With [edge counting](#edge-counting) on, the view of a page the edge already
+recorded completes that view instead of adding one, and `id` is that view's
+([One page load, one view](#one-page-load-one-view)). The tracker sends `age`,
+the seconds its page had been open (0 to 86400), with each page's first view,
+so a view sent late still finds the page load it belongs to.
+
 #### Report Engagement
 ```bash
 POST /engage
@@ -448,6 +461,27 @@ GET /tracker.js
 The script in [Client-Side Integration](#client-side-integration), served by
 the server it reports to, so the two never drift apart. Other sites may load
 it (`Cross-Origin-Resource-Policy: cross-origin`), and it is cached for an hour.
+
+#### The Consent Prompt
+```bash
+GET /consent.js
+```
+[The consent prompt](#the-consent-prompt), served like the tracker, which it
+loads from the same server once the visitor allows it.
+
+#### Report an Edge View
+```bash
+POST /edge/view
+Authorization: Bearer <EDGE_SECRET>
+Content-Type: application/json
+
+{"appId": "blog", "url": "https://blog.example.com/post?utm_source=feed", "referrer": "https://www.google.com/",
+ "ip": "198.51.100.7", "userAgent": "Mozilla/5.0 ...", "mobile": "?0", "acceptLanguage": "de-DE,de;q=0.9"}
+```
+Server to server, from the [edge Worker](#edge-counting); it exists only while
+`EDGE_SECRET` is set (404 otherwise). Answers `204` whether the view was stored,
+merged into the tracker's, or refused as a bot. The full contract is under
+[Edge counting](#the-edge-view-contract).
 
 #### Track Custom Event
 ```bash
@@ -665,18 +699,19 @@ returned by any API.
 | **Country** | IP, looked up in memory | Two-letter code | Where visitors are |
 | **Region, City** | IP, with an optional [city database](#location-data) | Names, such as Bavaria and Munich | Where visitors are, more finely |
 | **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list) | Which languages to write in |
-| **Site** | `Origin` of the request | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
-| **Page Path** | `page` | Path only, such as `/blog/my-post` (the tracker never sends a query string) | Which pages are read |
-| **Page Title** | `title` | Text, up to 200 characters | Readable page names |
-| **Referrer** | `referrer` (the page's `document.referrer`) | Origin and path only: the query string and fragment are dropped (the tracker never sends them); absent or empty means direct | Where visits come from |
+| **Site** | `Origin` of the request; at the edge, the page URL | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
+| **Page Path** | `page`; at the edge, the page URL's path | Path only, such as `/blog/my-post` (neither side sends a query string) | Which pages are read |
+| **Page Title** | `title` | Text, up to 200 characters; empty for a view only the edge saw, since the edge never reads the page | Readable page names |
+| **Referrer** | `referrer` (the page's `document.referrer`); at the edge, the `Referer` header | Origin and path only: the query string and fragment are dropped (the tracker never sends them); absent or empty means direct | Where visits come from |
 | **Referrer Domain, Source Type** | Derived from the referrer | Hostname; search, social, email, campaign, referral, internal, or direct | Grouping sources |
 | **Campaign** | `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content` | Up to 100 characters each; no other query key is ever kept | Which campaigns work |
-| **Device Size** | `deviceSize` | small, medium, large | Layout decisions |
+| **Device Size** | `deviceSize`; at the edge, `Sec-CH-UA-Mobile` (`?1` is small) or else the User-Agent | small, medium, large | Layout decisions |
 | **Browser, OS, and versions** | User-Agent, parsed in memory | Names and versions, such as Chrome 140 on macOS 15 | Compatibility |
 | **Device Type** | User-Agent | desktop, mobile, tablet, tv, console, wearable | Compatibility |
 | **Time on page, Scroll depth, Last seen** | The tracker script's `/engage` report | Milliseconds visible (at most 6 hours); percent of the page seen, empty for a page that fits its window; when the page last reported | Whether pages are read |
 | **Event Type, Event Data** | `/event` | Type name; JSON up to 4 kB, as your site sends it | Custom events |
 | **Session ID** | `sessionId` (optional) | As your site sends it | Your own grouping; the tracker never sends one |
+| **Collected by** | Which side reported the view | `script`, `edge`, or `both` for one page load both reported | Telling edge-only views (no title, no engagement) from complete ones |
 
 **Never stored**: the raw IP address, the User-Agent string, cookies or any
 other identifier from the device, any query string or fragment (of the page or
@@ -690,8 +725,10 @@ minutes. Because the hash rotates, the same person on two days is two
 visitors, and nothing links them.
 
 Your site's privacy notice should still say that you measure visits this way,
-and why (legitimate interest in understanding how the site is used). What you
-send in `eventData` and `sessionId` is yours to keep free of personal data.
+and on what basis: legitimate interest in understanding how the site is used,
+for pages counted at the edge; consent, where your law asks for it, for what
+the tracker measures in the browser. What you send in `eventData` and
+`sessionId` is yours to keep free of personal data.
 
 ## Understanding `UNIQUE_VISITOR_WINDOW_HOURS`
 
@@ -729,10 +766,13 @@ This makes ViewCounter not just "Privacy-First" by design, but **Privacy-Guarant
 
 **Trust model.** The two write endpoints (`/registerView`, `/event`) are public
 because a browser on your site must be able to reach them. Everything that
-*reads* analytics is authenticated.
+*reads* analytics is authenticated. Edge reports (`/edge/view`) come from your
+own Worker, server to server, with a credential of their own that can only add
+page views.
 
 - ✅ **Authenticated, scoped read API**: every analytics endpoint requires `x-api-key`, compared in constant time, and each key is authorized against the specific `appId` requested. Fails closed when unconfigured.
 - ✅ **Separate admin tier**: provisioning apps uses its own credential; a read key cannot provision and an admin key cannot read.
+- ✅ **Separate edge tier**: `EDGE_SECRET` authenticates the edge Worker only, compared in constant time, never logged; a refusal is counted in the tracking log. The endpoint does not exist without it, and the reported page must be on one of the app's registered sites.
 - ✅ **Per-tenant rate limits**: an `appId`-keyed budget alongside the per-IP limit.
 - ✅ **Keyed visitor hashing**: HMAC-SHA-256 with a persisted 32-byte server secret and a per-window salt that is deleted when the window ends, so stored hashes are not reversible to an IP, and after their window not even recomputable.
 - ✅ **SQL injection prevention**: every value is a bound parameter; the only interpolated identifier is `appId`, gated by the allowlist.
@@ -880,9 +920,14 @@ as a single-page app that counts every step inside it.
 
 - **Zero means no limit**, in all four settings: as a general figure it
   switches that limit off, as an app's own figure it lifts it for that app.
-- **Only tracking requests** (`/registerView`, `/event`, `/engage`) are limited
-  as an app, and always as the app they are stored under. A read or admin call
-  is limited by the general figure whatever it names.
+- **Only tracking requests** (`/registerView`, `/event`, `/engage`,
+  `/edge/view`) are limited as an app, and always as the app they are stored
+  under. A read or admin call is limited by the general figure whatever it
+  names.
+- **Edge reports** all come from your Worker's few addresses, so their
+  per-address limit counts the visitor's address each report names, with a
+  budget of its own. They spend the app's budget like any view: with consent,
+  one page load costs the app two requests (the edge's and the tracker's).
 - **Mistakes are not silent.** A malformed entry, or an app listed twice, stops
   the server from starting. A figure for an app that is not configured is
   logged as a warning at start, since it would otherwise never apply.
@@ -968,6 +1013,12 @@ not install them itself: `helmet()` and the CORS allowlist, a per-address rate
 limit (the router limits only engagement reports per address, and only when
 `rateLimit.max` is given), and `trust proxy`.
 
+For [edge counting](#edge-counting), add `edge: { secret: process.env.EDGE_SECRET,
+enabled: true }` to the router's `config` (32 characters at least). The router
+then limits edge reports per visitor address itself, when `rateLimit.max` is
+given; leave `POST <prefix>/edge/view` out of your own per-address limit, since
+every report arrives from the Worker's few addresses.
+
 The router answers its tracking endpoints with
 `Cross-Origin-Resource-Policy: cross-origin` by itself, since other sites'
 pages call them. If something of yours ahead of the router can refuse a
@@ -1018,7 +1069,8 @@ const stopRetention = startRetention({
 
 ### 3. Browser client
 
-The server serves its own tracker script at `/tracker.js`. See
+The server serves its own tracker script at `/tracker.js`, and the consent
+prompt that loads it on a yes at `/consent.js`. See
 [Client-Side Integration](#client-side-integration).
 
 ## Client-Side Integration
@@ -1067,6 +1119,99 @@ there, recorded or not, with the reason when it was refused. A site missing
 from `CORS_ORIGINS` shows up as "site not allowed: CORS_ORIGINS", counted from
 the browser's preflight, since the request itself never arrives.
 
+### The consent prompt
+
+Where a script that measures a visit needs the visitor's consent, load
+`consent.js` instead of `tracker.js`. It asks, and loads the tracker only on a
+yes:
+
+```html
+<script defer src="https://your-server.com/consent.js" data-app="blog"
+        data-hosts="blog.example.com" data-privacy-url="https://blog.example.com/privacy"></script>
+
+<!-- in the footer, so the answer can be changed at any time -->
+<a href="#" data-viewcounter-consent>Privacy settings</a>
+```
+
+The prompt is a small card in the bottom corner. It blocks nothing, takes no
+focus by itself, and says plainly what a yes changes: without consent only
+which pages are opened is counted (by the [edge](#edge-counting)); with it,
+also how long a page stays open, how far it is scrolled, and which links and
+features are used. **Allow** and **No thanks** look the same, side by side. A
+no loads nothing and costs the visitor nothing. **Escape** puts the card away
+for that page without an answer. It is in German or English.
+
+The answer is kept in `localStorage` under `viewcounter-consent:<app>`
+(`granted` or `denied`), the one thing on the device, which the visitor asked
+for. Where storage is unavailable (a private window, blocked site data), the
+visitor is asked on every page and the answer holds for that page. A yes in
+one tab holds in the site's other tabs too.
+
+| Attribute | Default | Meaning |
+|---|---|---|
+| `data-app` | required | The app ID, as for the tracker |
+| `data-hosts` | every host | Only on these hostnames; anywhere else it does nothing at all, so development servers show no prompt |
+| `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab). No link without it |
+| `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise |
+| `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
+| `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
+| `data-spa`, `data-hash`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
+
+**API**, on `window.viewcounterConsent`:
+
+| | |
+|---|---|
+| `open()` | Show the prompt (again), with the current answer, focus in it |
+| `status()` | `'granted'`, `'denied'`, or `'unset'` |
+| `grant()`, `deny()` | Answer for the visitor, from a consent tool of your own |
+
+Every change fires a `viewcounter:consent` event on `window`, with
+`event.detail.status`. A click on any element with the attribute
+`data-viewcounter-consent` opens the prompt.
+
+Load `consent.js` instead of `tracker.js`, never both: a tracker the page loads
+itself before the prompt runs cannot know to wait. (One loaded after it does
+wait, and is not loaded a second time.)
+
+**Withdrawal is immediate.** The tracker asks `window.viewcounterConsent`
+before every request it sends (page views, engagement reports, heartbeats,
+links out, downloads, custom events), so after a no it sends nothing more,
+without a reload. A view held back that way (the page changed while the answer
+was no) goes once the answer is yes again. A tracker loaded directly, with no
+`consent.js` on the page, behaves as it always has.
+
+**Styling.** The card lives in a closed shadow root, so the page's CSS cannot
+reach into it, and it follows the visitor's light or dark preference. These
+custom properties, set on the `viewcounter-consent` element (or any ancestor),
+change it:
+
+| Property | Default (light / dark) |
+|---|---|
+| `--viewcounter-consent-font` | the system font stack |
+| `--viewcounter-consent-background` | `#ffffff` / `#1c2128` |
+| `--viewcounter-consent-color` | `#1f2328` / `#e6edf3` |
+| `--viewcounter-consent-border` | `#d0d7de` / `#3d444d` |
+| `--viewcounter-consent-radius` | `12px` |
+| `--viewcounter-consent-shadow` | a soft drop shadow |
+| `--viewcounter-consent-button-background` | `#f6f8fa` / `#2d333b` |
+| `--viewcounter-consent-button-color` | the text color |
+| `--viewcounter-consent-button-border` | the border color |
+| `--viewcounter-consent-link` | `#0b5cad` / `#6cb6ff` |
+| `--viewcounter-consent-focus` | the link color |
+| `--viewcounter-consent-z-index` | `2147483000` |
+
+```css
+viewcounter-consent { --viewcounter-consent-font: "Inter", sans-serif; --viewcounter-consent-radius: 4px; }
+```
+
+With a Content Security Policy, `script-src` must allow the ViewCounter server
+(the tracker loads from the same place; a `nonce` on the `consent.js` tag is
+passed on to it) and `connect-src` too. The card's styles are a constructed
+stylesheet, which `style-src` does not block.
+
+Mention the stored answer in your privacy notice, with the rest of what is
+counted.
+
 ### Without the script
 
 The same requests by hand. Keep it this way round: nothing stored on the
@@ -1111,6 +1256,155 @@ document.querySelector('#subscribe-btn').addEventListener('click', () => {
   trackEvent('button_click', {button: 'subscribe', location: 'header'});
 });
 ```
+
+## Edge Counting
+
+Counting without consent, and without any script: a
+[Cloudflare Worker](edge/) in front of your site sees each request for an HTML
+page and reports it to ViewCounter, server to server, after the visitor has the
+page. Only what that request itself carried is reported, and the Worker reduces it
+before it leaves Cloudflare:
+
+- the page URL, as its origin, path, and `utm_*` tags (nothing else of the
+  query is sent),
+- the `Referer` header, as an origin and a path,
+- the visitor's address (`CF-Connecting-IP`; masked and hashed as always),
+- the `User-Agent` (parsed, never stored),
+- `Sec-CH-UA-Mobile` (a phone counts as `small`),
+- `Accept-Language` (its primary subtag).
+
+Two optional Worker vars follow the tracker's options: `RESPECT_DNT: "true"`
+reports nothing for a browser that sends Do Not Track or Global Privacy
+Control (as `data-respect-dnt`), and `CAMPAIGNS: "false"` leaves the `utm_*`
+tags out (as `data-campaigns`). Set them to match the site's tracker options.
+A page requested with no user agent at all is a script, not a visitor, and is
+counted as a bot.
+
+Nothing is read from or stored on the device, and the page sends nothing
+itself, so there is no page title, no window size, no time on page, and no
+scroll depth: those come from the tracker, with consent. A failed or slow
+report (five seconds at most) is dropped and never touches the visitor's
+response, and no cookie or other header is forwarded.
+
+### Setting it up
+
+1. **The server.** Set `EDGE_SECRET` to a random value of at least 32
+   characters (`openssl rand -hex 32`) and restart. Every app to be counted
+   at the edge needs its sites in `origins` in `allowed.json` (an app with no
+   sites registered takes no edge reports, since there is nothing to check the
+   page's URL against).
+2. **The Worker.** The [`edge/`](edge/) folder is deployable on its own: in
+   Cloudflare, Workers & Pages, create a Worker from the repository with root
+   directory `edge/` (Workers Builds), or run `npx wrangler deploy` there. In
+   [`edge/wrangler.jsonc`](edge/wrangler.jsonc), replace `routes` and `SITES`
+   (which list the author's own sites) with yours, and `VIEWCOUNTER_URL` with
+   your server. Each route's zone must be on Cloudflare, with the DNS record
+   proxied.
+3. **The secret.** Give the Worker the same value:
+   `npx wrangler secret put EDGE_SECRET`, or in the dashboard under the
+   Worker's Settings, Variables and Secrets.
+4. **Check** the admin's **Tracking log**: edge views show up as "Edge page
+   view"; a Worker with the wrong secret shows up as "wrong edge secret", a
+   page on a site not registered for its app as "site not allowed".
+
+`SITES` is a JSON string mapping a hostname to its app ID, or to a list of path
+prefixes and their apps, where the longest prefix the path starts with wins:
+
+```json
+{
+  "example.com": "homepage",
+  "docs.example.com": [{ "prefix": "/blog/", "app": "docsblog" }, { "prefix": "/", "app": "docs" }]
+}
+```
+
+The Worker counts a request only when all of these hold: it is a `GET`; it is
+for a top-level page (`Sec-Fetch-Dest: document`, or, from a browser that
+sends no `Sec-Fetch-Dest`, an `Accept` that asks for `text/html`); it is not a
+prefetch or prerender (`Sec-Purpose` or `Purpose`); the site answered it with
+a 2xx and `Content-Type: text/html`, or with `304 Not Modified` (a returning
+visitor's browser revalidating the page it holds, which is a view all the
+same); and its hostname (and path) maps to an app. Everything else, assets included, passes through untouched. Every request
+on the routes runs through the Worker, which counts against Cloudflare's
+Workers request allowance.
+
+To rotate the secret, set the new value on the server and the Worker one after
+the other; the reports in between are refused (and counted as such), so do it
+at a quiet hour.
+
+### The edge view contract
+
+`POST /edge/view`, with `Authorization: Bearer <EDGE_SECRET>` and a JSON body
+(at most 16 kB, like every body):
+
+| Field | Required | Meaning |
+|---|---|---|
+| `appId` | yes | An allowed app |
+| `url` | yes | The full page URL requested, absolute `http(s)`, up to 2048 characters. Its origin must be one of the app's `origins` |
+| `ip` | yes | The visitor's address, up to 45 characters; one that does not parse is a `400` |
+| `referrer` | no | The raw `Referer` header, or `""`, up to 2048 characters |
+| `userAgent` | no | The raw `User-Agent`, up to 1024 characters |
+| `mobile` | no | The raw `Sec-CH-UA-Mobile` (`?1` or `?0`) |
+| `acceptLanguage` | no | The raw `Accept-Language`, up to 512 characters |
+
+Absent optional fields may also be `null`. Answers:
+
+| Status | When |
+|---|---|
+| `204` | Stored, merged into the tracker's view of the same page load, or refused as a bot (counted by name) |
+| `400` | The address does not parse |
+| `401` | No or a wrong secret; counted in the tracking log, logged without the header |
+| `403` | The page is not on one of the app's registered sites |
+| `404` | Edge counting is off: no `EDGE_SECRET` |
+| `422` | A field is missing, too long, or of the wrong type, or the app is unknown |
+| `429` | Too many from this visitor's address, or for this app |
+
+There is no CORS and no `Origin` check: it is not for browsers. The per-address
+limit counts the visitor's address from `ip`, not the Worker's. A request
+without the secret is limited by its own address instead, before it is
+refused, and its 401 is counted under no app (its body is not to be trusted).
+The app's budget is spent last, after the secret, the fields, the site, the
+visitor's limit, and the bot check, so neither a crawler nor one busy visitor
+can use it up.
+
+### One page load, one view
+
+With the edge counting and the tracker allowed to run, one page load is
+reported twice: by the Worker as it serves the page, and by the tracker a
+moment later. They become one view, and each view records which side
+collected it (`collected_by`: `script`, `edge`, or `both`):
+
+- **The tracker's view** looks for a view of the same page by the same visitor
+  that the edge recorded within the last two minutes and that nothing has
+  merged into yet. If there is one, it fills in what only the page knows (its
+  title, the window's size bucket, the session, a hash route) and marks it
+  `both`, and `/registerView` answers with that view's `id`, so engagement
+  attaches to it. The answer has the same shape as ever. The two minutes run
+  from when the page was loaded (the tracker sends `age`), so a visitor who
+  took a while to answer the prompt is still one view.
+- **The edge's report**, in the rare case it arrives after the tracker's
+  view, only marks that view `both`.
+- **A single-page app's navigations** come from the tracker alone and are
+  stored as views of their own, as always. Uniqueness is decided once, by
+  whichever report was first.
+- **The page** is compared without a fragment, which only the tracker sends
+  (for hash-routed pages).
+- **Two reports arriving at the same instant** may each find nothing and both
+  be stored. The window is short and `collected_by` tells them apart; it is
+  accepted rather than locked against.
+- **Both sides must see the same visitor.** The match is by visitor hash, made
+  from the address and the user agent. A browser that reaches your site over
+  IPv6 and the ViewCounter server over IPv4 (or the other way round) is two
+  visitors, and its page load two views. Serve both from the same network
+  setup (behind Cloudflare, both normally are). Likewise the app: a page the
+  Worker files under one app (by `SITES`) and the tracker under another (by
+  `data-app`) is never merged. A prefix such as `/blog/` does not cover
+  `/blog`.
+
+A merge adds no entry to the tracking log, which lists stored views: a page
+load counted by both sides shows up once, under whichever side came first.
+
+Rows from before 3.6 read `script`: the column is added on startup (schema v8)
+with that default.
 
 ## Testing
 

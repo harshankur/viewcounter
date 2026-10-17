@@ -38,6 +38,23 @@ the MIT-licensed 1.x.
 3.0.x and 3.1.x are not supported. 3.1 moved to a public id per row and fixed
 runtime dependency advisories present in 3.0.x.
 
+## Edge counting: a credential and an endpoint of their own
+
+Edge counting adds one optional secret and one endpoint. `EDGE_SECRET` (at
+least 32 characters, or the server refuses to start) is a credential tier of
+its own: it authenticates the Worker in front of your sites on
+`POST /edge/view`, server to server, and can do nothing but add page views.
+It is read from the environment only, compared in constant time, and never
+logged; a request without it, or with a wrong one, is refused with 401 and
+counted in the tracking log, never with the header's value. Without the
+secret the endpoint does not exist (404). The page each report names must be
+on one of its app's registered sites, so a Worker mapping a site to the wrong
+app cannot file views under it, and the per-address limit counts the
+visitor's address each report names, not the Worker's. Keep the secret apart
+from your API keys and the admin password (the server warns when one is
+reused), and rotate it on the server and the Worker together if it may have
+leaked. Anyone holding it can add views to your apps, not read or change any.
+
 ## Reporting a Vulnerability
 
 We take the security of this project seriously. If you believe you have found a security vulnerability, **please do not open a public issue.**

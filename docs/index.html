@@ -683,6 +683,23 @@
             min-height: 800px;
         }
 
+        /* ---------- Consent prompt ----------
+           ViewCounter's own prompt (consent.js) draws itself in a closed shadow
+           root; these custom properties are how a site dresses it in its theme. */
+
+        viewcounter-consent {
+            --viewcounter-consent-font: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+            --viewcounter-consent-background: var(--code-bg);
+            --viewcounter-consent-color: var(--text);
+            --viewcounter-consent-border: var(--border);
+            --viewcounter-consent-radius: 10px;
+            --viewcounter-consent-button-background: var(--btn-secondary-bg);
+            --viewcounter-consent-button-border: var(--btn-secondary-border);
+            --viewcounter-consent-button-color: var(--btn-secondary-text);
+            --viewcounter-consent-link: var(--primary);
+            --viewcounter-consent-focus: var(--primary);
+        }
+
         /* ---------- Footer ---------- */
 
         footer {
@@ -975,9 +992,41 @@
                     </div>
                     <div class="term-body">
                         <h3>🍪 Zero Cookies</h3>
-                        <p>No <code>Set-Cookie</code> on any tracking request, no <code>localStorage</code> or
-                            <code>sessionStorage</code>, nothing stored on the device at all, and no "Cookie Consent"
-                            banners needed.</p>
+                        <p>No <code>Set-Cookie</code> on any tracking request, and the tracker keeps nothing in
+                            <code>localStorage</code> or <code>sessionStorage</code>. With the consent prompt, the
+                            visitor's own answer is the one thing kept on the device.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">edge.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🛰️ Counting Without Consent</h3>
+                        <p>A Cloudflare Worker in front of your site reports each page it serves, server to server,
+                            with only what the request carried. Nothing runs in the browser and nothing is stored on
+                            the device, so pages are counted without asking.</p>
+                    </div>
+                </div>
+                <div class="card term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">consent.log</span>
+                    </div>
+                    <div class="term-body">
+                        <h3>🙋 Asked, Not Assumed</h3>
+                        <p>Time on page, scroll depth, links and features are measured only after the visitor says
+                            yes in a small prompt that blocks nothing. Saying no costs nothing, and a later no stops
+                            the tracker at once. One page load counted by both is one view.</p>
                     </div>
                 </div>
                 <div class="card term-window">
@@ -1267,6 +1316,40 @@
                         <div class="code-line"><span class="code-comment">// outbound links, downloads, campaign tags. Nothing stored on the device.</span></div>
                     </div>
                 </div>
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">5. with-consent.html (optional)</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="code-comment">// where the law asks for consent first, load the prompt instead:</span></div>
+                        <div class="code-line"><span>&lt;script defer src="https://your-server/consent.js" data-app="blog"</span></div>
+                        <div class="code-line"><span>&nbsp;&nbsp;data-hosts="blog.example.com" data-privacy-url="/privacy"&gt;&lt;/script&gt;</span></div>
+                        <div class="code-line"><span>&lt;a href="#" data-viewcounter-consent&gt;Privacy settings&lt;/a&gt;</span></div>
+                        <div class="code-line"><span class="code-comment">// the tracker loads on a yes; a no loads nothing and stops it at once</span></div>
+                    </div>
+                </div>
+                <div class="code-block term-window">
+                    <div class="term-titlebar">
+                        <div class="term-dots">
+                            <span class="term-dot red"></span>
+                            <span class="term-dot amber"></span>
+                            <span class="term-dot green"></span>
+                        </div>
+                        <span class="term-title">6. edge.sh (optional)</span>
+                    </div>
+                    <div class="term-body">
+                        <div class="code-line"><span class="code-comment"># count pages without consent: a Worker in front of the site</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>EDGE_SECRET=$(openssl rand -hex 32) npm start</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>cd edge &amp;&amp; npx wrangler secret put EDGE_SECRET</span></div>
+                        <div class="code-line"><span class="prompt-char">❯</span><span>npx wrangler deploy</span></div>
+                        <div class="code-line"><span class="code-comment"># set your routes and SITES in edge/wrangler.jsonc first</span></div>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -1327,6 +1410,8 @@
         <p class="legal">
             <a href="https://harshankur.com/impressum" target="_blank" rel="noopener">Impressum</a>
             <a href="https://harshankur.com/datenschutz#viewcounter" target="_blank" rel="noopener">Datenschutz</a>
+            <!-- Opens the counter's consent prompt again, to change the answer (consent.js, below). -->
+            <a href="#" data-viewcounter-consent>Datenschutz-Einstellungen</a>
         </p>
         <p><span class="prompt-char">❯</span> echo "Built with ❤️ for the Open Source community." &amp;&amp; echo
             "ViewCounter © 2026 <a href="https://harshankur.com" target="_blank" rel="noopener">Harsh Ankur</a>"<span
@@ -1509,11 +1594,14 @@
             }, speed);
         })();
     </script>
-    <!-- This site's own views, recorded by our own ViewCounter instance with
-         the tracker script. data-hosts keeps it to the production host, so dev
-         servers, local previews and forks never inflate the counts. -->
-    <script defer src="https://views.harshankur.com/tracker.js" data-app="viewcounter"
-        data-hosts="viewcounter.harshankur.com"></script>
+    <!-- This site's own views, recorded by our own ViewCounter instance. Its pages are counted
+         at the edge, without consent; the tracker, with everything else it measures, loads
+         only once the visitor allows it in the consent prompt. data-hosts keeps both to the
+         production host, so dev servers, local previews and forks show no prompt and never
+         inflate the counts. -->
+    <script defer src="https://views.harshankur.com/consent.js" data-app="viewcounter"
+        data-hosts="viewcounter.harshankur.com"
+        data-privacy-url="https://harshankur.com/datenschutz#en-viewcounter"></script>
 </body>
 
 </html>

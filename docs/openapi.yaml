@@ -24,6 +24,11 @@ info:
     Provisioning (`POST /apps`) uses a separate **admin** credential
     (`ADMIN_API_KEYS`): a read key cannot provision, and an admin key cannot
     read analytics.
+
+    Edge counting (`POST /edge/view`) is server to server: a Worker in front
+    of a site reports each HTML page it serves, authenticated with its own
+    secret (`EDGE_SECRET`) as a bearer token. Without that secret the endpoint
+    does not exist.
   version: 3.5.1
   contact:
     name: Harsh Ankur
@@ -33,6 +38,12 @@ servers:
     description: Local development server
 components:
   securitySchemes:
+    EdgeSecret:
+      type: http
+      scheme: bearer
+      description: |
+        The server's `EDGE_SECRET` (at least 32 characters), compared in
+        constant time. A separate credential tier: it can only add page views.
     ApiKeyAuth:
       type: apiKey
       in: header
@@ -96,6 +107,18 @@ paths:
           schema:
             type: string
           description: Optional grouping of your own. The tracker script never sends one.
+        - name: age
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 86400
+          description: >-
+            Seconds the page had been open when this view was sent. The tracker
+            script sends it with a page's first view. With edge counting on, a
+            view merges into the edge's record of the same page load if that was
+            made within two minutes before the page was loaded; without `age`,
+            within two minutes before now.
       responses:
         '200':
           description: >-
@@ -119,7 +142,10 @@ paths:
                   id:
                     type: string
                     format: uuid
-                    description: The view's public ID, which `/engage` takes.
+                    description: >-
+                      The view's public ID, which `/engage` takes. When the edge
+                      already recorded this page load, it is that view's ID: the
+                      two reports are one view.
         '400':
           description: Invalid Parameters
         '422':
@@ -221,6 +247,109 @@ paths:
         '422':
           description: Validation Failed
 
+  /edge/view:
+    post:
+      security:
+        - EdgeSecret: []
+      summary: Report a page view seen at the edge
+      description: >-
+        Called server to server by a Worker in front of a site (the `edge/`
+        folder of the repository), for each HTML page it served, with only what
+        the request for the page carried. Nothing runs in or is stored on the
+        visitor's device. There is no CORS and no Origin: the secret
+        authenticates the Worker, and the page's URL must be on one of the
+        app's registered `origins` (an app with none takes no edge reports).
+        Stored like a tracker's view: bots refused, the address masked and
+        hashed, the URL reduced to its path and campaign tags, the referrer to
+        its origin and path, the device size from the phone hint or the user
+        agent, no title. If the tracker's view of the same page load arrived
+        first (within two minutes), it is marked as seen by both instead of
+        adding a view. The per-address rate limit counts the visitor's address
+        (`ip`), not the Worker's; the app's budget is spent as for any view.
+        Exists only when `EDGE_SECRET` is set; otherwise 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appId, url, ip]
+              properties:
+                appId:
+                  type: string
+                url:
+                  type: string
+                  maxLength: 2048
+                  example: https://blog.example.com/post?utm_source=newsletter
+                  description: >-
+                    The page URL the visitor requested (the edge Worker sends
+                    its origin, path, and utm_* tags only). Only its path and
+                    its utm_* tags are kept.
+                referrer:
+                  type: string
+                  nullable: true
+                  maxLength: 2048
+                  description: The raw Referer header, or empty. Kept as its origin and path.
+                ip:
+                  type: string
+                  maxLength: 45
+                  example: 198.51.100.7
+                  description: The visitor's address (CF-Connecting-IP). Masked before storage.
+                userAgent:
+                  type: string
+                  nullable: true
+                  maxLength: 1024
+                  description: The visitor's User-Agent. Parsed, never stored.
+                mobile:
+                  type: string
+                  nullable: true
+                  maxLength: 8
+                  example: '?1'
+                  description: The raw Sec-CH-UA-Mobile header, or absent. `?1` makes the device size small.
+                acceptLanguage:
+                  type: string
+                  nullable: true
+                  maxLength: 512
+                  description: The raw Accept-Language header. Only its first primary subtag is kept.
+      responses:
+        '204':
+          description: >-
+            Stored, merged into the tracker's view of the same page load, or
+            refused as a bot (a page requested with no user agent counts as one).
+        '400':
+          description: The address does not parse.
+        '401':
+          description: >-
+            Missing or wrong secret. Counted in the tracking log under no app;
+            such requests are limited by the caller's own address.
+        '403':
+          description: The page is not on a site registered for the app.
+        '404':
+          description: Edge counting is off (no `EDGE_SECRET`).
+        '422':
+          description: Validation Failed
+        '429':
+          description: Too Many Requests, from this visitor or for this app.
+
+  /consent.js:
+    get:
+      summary: The consent prompt
+      description: >-
+        Load it instead of the tracker where consent is needed before a script
+        measures a visit: `<script defer src="https://your-server/consent.js"
+        data-app="blog" data-hosts="blog.example.com"
+        data-privacy-url="https://blog.example.com/privacy"></script>`. It asks
+        the visitor in a small, non-blocking card, keeps their answer in
+        localStorage, and loads `/tracker.js` only once they allow it. Served
+        like the tracker.
+      responses:
+        '200':
+          description: The script
+          content:
+            text/javascript:
+              schema:
+                type: string
+
   /tracker.js:
     get:
       summary: The tracker script
@@ -229,7 +358,8 @@ paths:
         data-app="blog"></script>`. Records page views (including single-page
         app navigation), time on page, scroll depth, links out, downloads, and
         campaign tags, and stores nothing on the device. Other sites may load
-        it, and it is cached for an hour.
+        it, and it is cached for an hour. With the consent prompt on the page,
+        it sends nothing unless the visitor allowed it.
       responses:
         '200':
           description: The script
