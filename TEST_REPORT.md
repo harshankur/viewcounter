@@ -1,8 +1,8 @@
 # Test Report
 
-**Generated**: 10/18/2026, 12:44:40 AM  
+**Generated**: 10/18/2026, 12:51:54 AM  
 **Status**: ✅ EXCELLENT  
-**Overall Coverage**: 94.28%
+**Overall Coverage**: 94.32%
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Metric | Coverage | Status |
 |--------|----------|--------|
-| **Statements** | 95.21% (2346/2464) | ✅ |
-| **Branches** | 90.59% (1301/1436) | ✅ |
-| **Functions** | 95.75% (519/542) | ✅ |
-| **Lines** | 95.59% (2082/2178) | ✅ |
+| **Statements** | 95.23% (2356/2474) | ✅ |
+| **Branches** | 90.67% (1313/1448) | ✅ |
+| **Functions** | 95.77% (521/544) | ✅ |
+| **Lines** | 95.6% (2090/2186) | ✅ |
 
 ---
 
@@ -47,7 +47,7 @@
 | geoCity.js | 96% | 91.66% | 100% | 95.23% |
 | ipUtils.js | 100% | 100% | 100% | 100% |
 | logger.js | 97.56% | 91.3% | 91.66% | 100% |
-| privacyUtils.js | 100% | 95% | 100% | 100% |
+| privacyUtils.js | 100% | 96.87% | 100% | 100% |
 | referrerParser.js | 93.75% | 85.29% | 100% | 97.5% |
 | secretStore.js | 100% | 100% | 100% | 100% |
 | stringUtils.js | 100% | 100% | 100% | 100% |
