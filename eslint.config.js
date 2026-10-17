@@ -189,7 +189,10 @@ module.exports = [
         // The general rules above apply here too: no console, no bare Errors.
         files: ['edge/**/*.js', 'edge/**/*.cjs'],
         languageOptions: {
-            globals: { fetch: 'readonly', Request: 'readonly', Response: 'readonly', Headers: 'readonly', AbortSignal: 'readonly' },
+            globals: {
+                fetch: 'readonly', Request: 'readonly', Response: 'readonly', Headers: 'readonly',
+                AbortSignal: 'readonly', URLSearchParams: 'readonly',
+            },
         },
     },
     {

@@ -23,7 +23,7 @@ const ReferrerParser = require('../utils/referrerParser');
 const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getClientIp, isValidIP, normalizeIp } = require('../utils/ipUtils');
-const { requireReadApiKey, requireAppScope, requireAdminApiKey, requireEdgeSecret, appsInScope } = require('../middleware/auth');
+const { requireReadApiKey, requireAppScope, requireAdminApiKey, requireEdgeSecret, edgeSecretMatches, appsInScope } = require('../middleware/auth');
 const { requireRegisteredOrigin, requestedAppId, requestOrigin, noStore } = require('../middleware/security');
 const { createRejectionCounter } = require('../db/rejectionCounter');
 const { hostnameOf, httpUrl, originAndPath, primaryLanguage, urlUtmTags, utmTags } = require('../utils/visitorContext');
@@ -51,6 +51,8 @@ const {
  */
 const TRACKER_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'tracker.js'), 'utf8');
 const CONSENT_SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'consent.js'), 'utf8');
+/** The tracking log's detail for an edge report of a page requested with no user agent. */
+const NO_USER_AGENT = 'no user agent';
 /** Cached briefly, so a fix reaches every site within the hour. */
 const TRACKER_MAX_AGE_SECONDS = 60 * 60;
 
@@ -367,10 +369,16 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     const rejections = createRejectionCounter({
         write: (rows) => (dbManager.logs?.recordRejections ? dbManager.logs.recordRejections(rows) : Promise.resolve(true)),
     });
-    const reject = (req, reason, { appId, detail } = {}) => {
+    const reject = (req, reason, { appId, detail, unattributed = false } = {}) => {
         const source = trackingSourceFor(req.path);
         // Without edge counting, /edge/view is a path like any other that does not exist.
         if (!source || (source === VIEW_LOG_SOURCE.EDGE && !edgeEnabled)) return;
+        // A request that failed to authenticate names its app and site as it
+        // likes: counted, but under neither.
+        if (unattributed) {
+            rejections.count({ source, reason, appId: '', detail, hostname: null });
+            return;
+        }
         rejections.count({
             source,
             reason,
@@ -401,13 +409,36 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' }), { engagement: true });
     const trackingValidation = handleTrackingValidation(reject);
 
+    const presentsEdgeSecret = edgeSecretMatches(config.edge);
     const requireEdge = requireEdgeSecret(config.edge, {
         onReject: (req) => {
-            reject(req, REJECTION_REASON.UNAUTHORIZED);
+            reject(req, REJECTION_REASON.UNAUTHORIZED, { unattributed: true });
             // Never the header itself: a near miss of the secret is still most of it.
             logger.warn('Rejected an edge report without the right EDGE_SECRET', logContext(req));
         },
     });
+    /**
+     * A request to /edge/view without the secret is limited by its own
+     * address, at the general figure, before it is refused: the app-wide
+     * limiter leaves that path to the router, and the visitor-address limit
+     * below only ever sees authenticated reports. Reports with the secret
+     * pass, so the Worker's address never runs out.
+     * @type {import('express').RequestHandler}
+     */
+    const limitEdgeFailures = config.server?.rateLimit?.max > 0
+        ? rateLimit({
+            windowMs: config.server.rateLimit.windowMs,
+            limit: config.server.rateLimit.max,
+            skip: presentsEdgeSecret,
+            standardHeaders: true,
+            legacyHeaders: false,
+            message: { message: 'Too many requests, please try again later.' },
+            handler: (req, res, next, options) => {
+                reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip', unattributed: true });
+                res.status(options.statusCode).json(options.message);
+            },
+        })
+        : (req, res, next) => next();
     // An edge report's address is the visitor's, named in its body and
     // checked by requireVisitorIp before this runs.
     const limitEdgePerVisitor = buildPerIpLimiter(config.server?.rateLimit,
@@ -446,6 +477,21 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         }
         reject(req, REJECTION_REASON.INVALID_IP);
         return res.status(HTTP_STATUS.BAD_REQUEST).json({ message: 'Invalid IP address format' });
+    };
+
+    /**
+     * The edge's own bot check, ahead of the app's budget so crawlers never
+     * spend it. A page requested with no user agent at all is a script or a
+     * monitor: no browser that could run the tracker sends none.
+     * @type {import('express').RequestHandler}
+     */
+    const refuseEdgeBot = (req, res, next) => {
+        const agent = typeof req.body.userAgent === 'string' ? req.body.userAgent : '';
+        if (agent === '') {
+            reject(req, REJECTION_REASON.BOT, { detail: NO_USER_AGENT });
+            return res.status(HTTP_STATUS.NO_CONTENT).end();
+        }
+        return refuseBot(req, agent) ? res.status(HTTP_STATUS.NO_CONTENT).end() : next();
     };
 
     /**
@@ -704,19 +750,22 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
      * to do with the difference.
      */
     if (edgeEnabled) {
+        // Checked and limited per visitor before anything spends the app's
+        // budget, so one visitor or a crawler cannot use it up.
         router.post(EDGE.PATH,
+            limitEdgeFailures,
             requireEdge,
-            limitPerApp,
             validateEdgeView(config.allowed),
             trackingValidation,
             requireEdgeSite,
             requireVisitorIp,
             limitEdgePerVisitor,
+            refuseEdgeBot,
+            limitPerApp,
             async (req, res) => {
                 try {
                     const { appId, url, referrer, userAgent, mobile, acceptLanguage } = req.body;
-                    const agent = typeof userAgent === 'string' ? userAgent : '';
-                    if (refuseBot(req, agent)) return res.status(HTTP_STATUS.NO_CONTENT).end();
+                    const agent = userAgent;
 
                     const ip = res.locals.visitorIp;
                     const page = httpUrl(url);

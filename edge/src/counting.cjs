@@ -8,11 +8,11 @@
  * request through to the site unchanged. For each HTML page it served, it then
  * reports the page view to viewcounter's POST /edge/view, server to server,
  * after the visitor already has the page. The report carries only what the
- * request for the page carried: its URL, its Referer, the visitor's address,
- * user agent, Sec-CH-UA-Mobile, and Accept-Language. Nothing is read from or
- * stored on the visitor's device, and no cookie or other header is forwarded.
- * viewcounter keeps only the path and campaign tags of the URL, the page
- * before as an origin and a path, a masked address, and coarse details.
+ * request for the page carried, and less: its URL as an origin, a path, and
+ * the campaign tags; its Referer as an origin and a path; the visitor's
+ * address, user agent, Sec-CH-UA-Mobile, and Accept-Language. Nothing is read
+ * from or stored on the visitor's device, and no cookie or other header is
+ * forwarded. viewcounter keeps a masked address and coarse details.
  *
  * Configuration (wrangler.jsonc, and the dashboard for the secret):
  *   VIEWCOUNTER_URL  where viewcounter runs, e.g. https://views.example.com
@@ -20,6 +20,10 @@
  *                    "app": "blog" }, { "prefix": "/", "app": "site" }], where the
  *                    longest matching path prefix wins
  *   EDGE_SECRET      the server's EDGE_SECRET, set with `wrangler secret put EDGE_SECRET`
+ *   RESPECT_DNT      "true": report nothing for a browser that sends Do Not Track
+ *                    or Global Privacy Control (as the tracker's data-respect-dnt)
+ *   CAMPAIGNS        "false": leave the URL's campaign tags out (as the
+ *                    tracker's data-campaigns)
  *
  * A report that fails, for any reason, is dropped: it never delays or changes
  * what the visitor gets.
@@ -31,6 +35,12 @@ const REPORT_PATH = '/edge/view';
 const REPORT_TIMEOUT_MS = 5000;
 
 const HTML = 'text/html';
+/** The answer to a browser revalidating a page it already holds: a page view all the same. */
+const NOT_MODIFIED = 304;
+/** The only query parameters of a page URL that are ever reported. */
+const UTM_PARAMETERS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
+/** A Do Not Track or Global Privacy Control header that says no. */
+const OPTED_OUT = '1';
 const DOCUMENT = 'document';
 /** Speculative loads the browser may never show: not a view until they are. */
 const SPECULATIVE = /prefetch|prerender/i;
@@ -39,7 +49,9 @@ const SPECULATIVE = /prefetch|prerender/i;
  * Whether a request and the site's response to it are a page view: a GET for
  * a top-level page (Sec-Fetch-Dest: document, or, from a browser too old to
  * send that, an Accept that asks for HTML), not a prefetch or prerender, and
- * answered with an HTML page.
+ * answered with an HTML page, or with 304 Not Modified: a returning visitor's
+ * browser revalidating the page it holds (which carries no content type) is
+ * viewing it again.
  *
  * @param {Request} request
  * @param {Response} response
@@ -57,8 +69,59 @@ function shouldCount(request, response) {
     const purpose = `${request.headers.get('sec-purpose') || ''} ${request.headers.get('purpose') || ''}`;
     if (SPECULATIVE.test(purpose)) return false;
 
+    if (response.status === NOT_MODIFIED) return true;
     const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     return response.ok && type === HTML;
+}
+
+/**
+ * Whether the visitor asked not to be counted and the site honours it
+ * (RESPECT_DNT): Do Not Track or Global Privacy Control set to 1.
+ *
+ * @param {Request} request
+ * @param {{ RESPECT_DNT?: string }} env
+ * @returns {boolean}
+ */
+function optedOut(request, env) {
+    if (String(env.RESPECT_DNT) !== 'true') return false;
+    return request.headers.get('dnt') === OPTED_OUT || request.headers.get('sec-gpc') === OPTED_OUT;
+}
+
+/**
+ * A page URL as it is reported: its origin, its path, and its campaign tags
+ * (unless CAMPAIGNS is "false"). The rest of a query string can carry
+ * tokens or emails, and the fragment never reaches a server at all.
+ *
+ * @param {URL} url
+ * @param {{ CAMPAIGNS?: string }} env
+ * @returns {string}
+ */
+function reportedUrl(url, env) {
+    const kept = new URLSearchParams();
+    if (String(env.CAMPAIGNS) !== 'false') {
+        for (const name of UTM_PARAMETERS) {
+            const value = url.searchParams.get(name);
+            if (value !== null) kept.set(name, value);
+        }
+    }
+    const query = kept.toString();
+    return `${url.origin}${url.pathname}${query ? `?${query}` : ''}`;
+}
+
+/**
+ * The page before, as it is reported: its origin and path, as the tracker
+ * sends it, or '' for none or anything but an http(s) page.
+ *
+ * @param {string|null} referer the Referer header
+ * @returns {string}
+ */
+function reportedReferrer(referer) {
+    try {
+        const url = new URL(referer || '');
+        return url.protocol === 'http:' || url.protocol === 'https:' ? `${url.origin}${url.pathname}` : '';
+    } catch {
+        return '';
+    }
 }
 
 /** Parsed SITES, by the raw value they came from, so each isolate parses it once. */
@@ -112,20 +175,21 @@ function appFor(sites, url) {
 }
 
 /**
- * What viewcounter is told about one page view: what the request carried, and
- * nothing else.
+ * What viewcounter is told about one page view: what the request carried,
+ * reduced to what is kept, and nothing else.
  *
  * @param {Request} request
  * @param {string} appId
+ * @param {{ CAMPAIGNS?: string }} [env]
  * @returns {{ appId: string, url: string, referrer: string, ip: string|null, userAgent: string,
  *   mobile?: string, acceptLanguage?: string }}
  */
-function payload(request, appId) {
+function payload(request, appId, env = {}) {
     const header = (name) => request.headers.get(name);
     return {
         appId,
-        url: request.url,
-        referrer: header('referer') || '',
+        url: reportedUrl(new URL(request.url), env),
+        referrer: reportedReferrer(header('referer')),
         ip: header('cf-connecting-ip'),
         userAgent: header('user-agent') || '',
         // Left out when the browser sent none.
@@ -146,7 +210,7 @@ function payload(request, appId) {
  */
 async function report(request, appId, env, send = fetch) {
     try {
-        const body = payload(request, appId);
+        const body = payload(request, appId, env);
         // Without the visitor's address (a local `wrangler dev`, say) there is no view to count.
         if (!body.ip || !env.VIEWCOUNTER_URL || !env.EDGE_SECRET) return;
         const response = await send(`${String(env.VIEWCOUNTER_URL).replace(/\/+$/, '')}${REPORT_PATH}`, {
@@ -175,7 +239,7 @@ async function report(request, appId, env, send = fetch) {
 async function handle(request, env, ctx, send = fetch) {
     const response = await send(request);
     try {
-        if (shouldCount(request, response)) {
+        if (shouldCount(request, response) && !optedOut(request, env)) {
             const appId = appFor(parseSites(env.SITES), new URL(request.url));
             if (appId) ctx.waitUntil(report(request, appId, env, send));
         }
@@ -185,4 +249,6 @@ async function handle(request, env, ctx, send = fetch) {
     return response;
 }
 
-module.exports = { REPORT_PATH, REPORT_TIMEOUT_MS, shouldCount, parseSites, appFor, payload, report, handle };
+module.exports = {
+    REPORT_PATH, REPORT_TIMEOUT_MS, shouldCount, optedOut, reportedUrl, reportedReferrer, parseSites, appFor, payload, report, handle,
+};

@@ -753,8 +753,9 @@ describe('POST /edge/view', () => {
                 const res = await call.send(report()).expect(401);
                 expect(res.body).toEqual({ message: 'Missing or invalid edge secret' });
                 expect(dbManager.registerEvent).not.toHaveBeenCalled();
+                // Counted, but under no app or site: the body that names them was not authenticated.
                 expect(await counted()).toEqual([expect.objectContaining({
-                    source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.UNAUTHORIZED, appId: 'shop', hostname: 'shop.example.com', requests: 1,
+                    source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.UNAUTHORIZED, appId: '', hostname: '', requests: 1,
                 })]);
                 expect(lines.join('\n')).toContain('Rejected an edge report without the right EDGE_SECRET');
                 expect(lines.join('\n')).not.toContain('eeeeeeee');
@@ -769,11 +770,24 @@ describe('POST /edge/view', () => {
             await request(app).post('/edge/view').set('Authorization', `bearer ${EDGE_SECRET}`).send(report()).expect(204);
         });
 
+        test('requests without the secret are limited by their own address; the Worker\'s reports never are', async () => {
+            const { app, counted } = build({ edge: true, max: 1 });
+            await send(app, report(), 'x'.repeat(48)).expect(401);
+            await send(app, report(), 'x'.repeat(48)).expect(429);
+            await send(app, report(), null).expect(429);
+            // The same address, with the secret, for many visitors.
+            for (let i = 1; i <= 3; i += 1) await send(app, report({ ip: `198.51.100.${i}` })).expect(204);
+            expect(await counted()).toEqual(expect.arrayContaining([expect.objectContaining({
+                source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.RATE_LIMITED, detail: 'ip', appId: '', hostname: '',
+            })]));
+        });
+
         test('an unauthenticated report does not spend the app\'s budget', async () => {
             const { app } = build({ edge: true, perAppMax: 1 });
             await send(app, report(), 'x'.repeat(48)).expect(401);
             await send(app, report(), 'x'.repeat(48)).expect(401);
             await send(app).expect(204);
+            await send(app, report({ ip: '198.51.100.99' })).expect(429);
         });
     });
 
@@ -867,10 +881,24 @@ describe('POST /edge/view', () => {
         })]);
     });
 
-    test('with no user agent at all it is stored, as the tracker would be: a page was requested', async () => {
-        const { app, dbManager } = build({ edge: true });
-        await send(app, report({ userAgent: null })).expect(204);
-        expect(stored(dbManager)).toMatchObject({ userAgent: '', browser: null, deviceSize: 'large' });
+    test.each([[null], [''], [undefined]])('a page requested with no user agent (%p) is a script, not a visitor: counted as a bot', async (userAgent) => {
+        const { app, dbManager, counted } = build({ edge: true });
+        await send(app, report({ userAgent })).expect(204);
+        expect(dbManager.registerEvent).not.toHaveBeenCalled();
+        expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.BOT, detail: 'no user agent' })]);
+    });
+
+    test('neither a bot nor a visitor over the address limit spends the app\'s budget', async () => {
+        const { app } = build({ edge: true, perAppMax: 1, max: 1 });
+        await send(app, report({ userAgent: GOOGLEBOT })).expect(204);
+        await send(app, report({ ip: '203.0.113.1' })).expect(204);
+        // The app's one request is gone now; before it, a crawler and the limit took nothing.
+        await send(app, report({ ip: '203.0.113.2' })).expect(429);
+        const { app: other } = build({ edge: true, perAppMax: 2, max: 1 });
+        await send(other, report({ ip: '203.0.113.1' })).expect(204);
+        await send(other, report({ ip: '203.0.113.1' })).expect(429);
+        // Refused for the visitor's address, so the app's second request is still there.
+        await send(other, report({ ip: '203.0.113.2' })).expect(204);
     });
 
     describe('limits', () => {

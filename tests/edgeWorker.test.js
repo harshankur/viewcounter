@@ -14,7 +14,7 @@ const path = require('path');
 
 const EDGE_DIR = path.join(__dirname, '..', 'edge');
 const worker = require('../edge/src/counting.cjs');
-const { appFor, handle, parseSites, payload, report, shouldCount, REPORT_PATH, REPORT_TIMEOUT_MS } = worker;
+const { appFor, handle, optedOut, parseSites, payload, report, reportedReferrer, reportedUrl, shouldCount, REPORT_PATH, REPORT_TIMEOUT_MS } = worker;
 
 const SECRET = 'e'.repeat(40);
 const ENV = {
@@ -102,6 +102,13 @@ describe('shouldCount', () => {
         expect(shouldCount(pageRequest(), response)).toBe(false);
     });
 
+    test('a page the browser revalidates (304 Not Modified, no content type) is a view all the same', () => {
+        expect(shouldCount(pageRequest(), new Response(null, { status: 304 }))).toBe(true);
+        // But not for anything that is not a page load.
+        expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': 'image' }), new Response(null, { status: 304 }))).toBe(false);
+        expect(shouldCount(pageRequest(undefined, { 'sec-purpose': 'prefetch' }), new Response(null, { status: 304 }))).toBe(false);
+    });
+
     test('the content type is read whatever its case and parameters', () => {
         expect(shouldCount(pageRequest(), new Response('x', { headers: { 'content-type': 'Text/HTML ; charset=UTF-8' } }))).toBe(true);
     });
@@ -163,18 +170,20 @@ describe('parseSites and appFor', () => {
 });
 
 describe('payload', () => {
-    test('is what the request carried, and no cookie or other header', () => {
-        const body = payload(pageRequest('https://example.com/post?utm_source=feed&token=T'), 'homepage');
+    test('is what the request carried, reduced to what is kept, and no cookie or other header', () => {
+        const body = payload(pageRequest('https://example.com/post?utm_source=feed&token=T&email=a%40b.c'), 'homepage');
         expect(body).toEqual({
             appId: 'homepage',
-            url: 'https://example.com/post?utm_source=feed&token=T',
-            referrer: 'https://www.google.com/search?q=words',
+            // The path and the campaign tags: the rest of the query never leaves the edge.
+            url: 'https://example.com/post?utm_source=feed',
+            // The page before as its origin and path, as the tracker sends it.
+            referrer: 'https://www.google.com/search',
             ip: '198.51.100.7',
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/129.0.0.0 Safari/537.36',
             mobile: '?0',
             acceptLanguage: 'de-DE,de;q=0.9',
         });
-        expect(JSON.stringify(body)).not.toMatch(/SECRET-COOKIE|SECRET-AUTH/);
+        expect(JSON.stringify(body)).not.toMatch(/SECRET-COOKIE|SECRET-AUTH|token|a%40b|words/);
     });
 
     test('a header the browser did not send is empty or left out', () => {
@@ -183,6 +192,51 @@ describe('payload', () => {
         expect(body.userAgent).toBe('');
         expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('mobile');
         expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('acceptLanguage');
+    });
+});
+
+describe('reportedUrl and reportedReferrer', () => {
+    test('a URL keeps its origin, path, and the five campaign tags, the first of each, in their order', () => {
+        const url = new URL('https://example.com/a/b?x=1&utm_campaign=launch&utm_source=feed&utm_source=other&utm_term=');
+        expect(reportedUrl(url, {})).toBe('https://example.com/a/b?utm_source=feed&utm_campaign=launch&utm_term=');
+        expect(reportedUrl(new URL('https://example.com/?q=search'), {})).toBe('https://example.com/');
+    });
+
+    test('CAMPAIGNS="false" leaves the tags out too', () => {
+        expect(reportedUrl(new URL('https://example.com/p?utm_source=feed'), { CAMPAIGNS: 'false' })).toBe('https://example.com/p');
+    });
+
+    test.each([
+        ['https://user:pass@www.google.com/search?q=words#frag', 'https://www.google.com/search'],
+        ['', ''],
+        [null, ''],
+        ['android-app://com.example/', ''],
+        ['not a url', ''],
+    ])('the referrer %p is reported as %p', (referer, expected) => {
+        expect(reportedReferrer(referer)).toBe(expected);
+    });
+});
+
+describe('optedOut', () => {
+    test('with RESPECT_DNT, Do Not Track or Global Privacy Control means no report', () => {
+        const env = { RESPECT_DNT: 'true' };
+        expect(optedOut(pageRequest(undefined, { dnt: '1' }), env)).toBe(true);
+        expect(optedOut(pageRequest(undefined, { 'sec-gpc': '1' }), env)).toBe(true);
+        expect(optedOut(pageRequest(undefined, { dnt: '0' }), env)).toBe(false);
+        expect(optedOut(pageRequest(), env)).toBe(false);
+    });
+
+    test('without it, as the tracker without data-respect-dnt, they change nothing', () => {
+        expect(optedOut(pageRequest(undefined, { dnt: '1', 'sec-gpc': '1' }), {})).toBe(false);
+    });
+
+    test('handle reports nothing for an opted-out visitor and still serves the page', async () => {
+        const site = htmlResponse();
+        const { send, reports } = fakeFetch(site);
+        const ctx = fakeCtx();
+        expect(await handle(pageRequest(undefined, { 'sec-gpc': '1' }), { ...ENV, RESPECT_DNT: 'true' }, ctx, send)).toBe(site);
+        expect(ctx.waitUntil).not.toHaveBeenCalled();
+        expect(reports).toEqual([]);
     });
 });
 
@@ -233,7 +287,7 @@ describe('handle', () => {
         expect(send.mock.calls[0][0]).toBe(request);
         expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
         await Promise.all(ctx.pending);
-        expect(reports).toEqual([expect.objectContaining({ body: expect.objectContaining({ appId: 'homepage', url: request.url }) })]);
+        expect(reports).toEqual([expect.objectContaining({ body: expect.objectContaining({ appId: 'homepage', url: 'https://example.com/post?utm_source=feed' }) })]);
     });
 
     test('a hostname split by path reports the app of the page', async () => {

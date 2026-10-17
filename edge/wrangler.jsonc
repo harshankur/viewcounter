@@ -14,6 +14,11 @@
 // proxied), and SITES mapping each hostname to the app ID its views are
 // stored under. The site of every app must be in that app's `origins` in the
 // server's allowed.json, or its reports are refused.
+//
+// Two optional vars match the tracker's options of the same meaning:
+// "RESPECT_DNT": "true" reports nothing for a browser sending Do Not Track or
+// Global Privacy Control (data-respect-dnt), and "CAMPAIGNS": "false" leaves
+// the URL's utm_* tags out (data-campaigns).
 {
     "name": "viewcounter-edge",
     "main": "src/index.js",

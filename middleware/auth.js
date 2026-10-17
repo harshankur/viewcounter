@@ -198,6 +198,20 @@ function bearerToken(req) {
 }
 
 /**
+ * Whether a request presents the edge secret, as a predicate: for the route
+ * that requires it, and for the limits that must tell a Worker's report from
+ * anyone else's request to the same path. Constant-time; an empty secret
+ * never matches, even an empty token.
+ *
+ * @param {{ secret: string }} edgeConfig
+ * @returns {(req: import('express').Request) => boolean}
+ */
+function edgeSecretMatches(edgeConfig) {
+    const secret = String(edgeConfig?.secret || '');
+    return (req) => Boolean(secret) && safeEqual(bearerToken(req), secret);
+}
+
+/**
  * Require the edge secret: the Worker in front of a site presents it as a
  * bearer token on POST /edge/view.
  *
@@ -211,11 +225,10 @@ function bearerToken(req) {
  * @returns {import('express').RequestHandler}
  */
 function requireEdgeSecret(edgeConfig, { onReject = () => {} } = {}) {
-    const secret = String(edgeConfig?.secret || '');
+    const matches = edgeSecretMatches(edgeConfig);
 
     return (req, res, next) => {
-        // An empty secret never matches, even an empty token.
-        if (secret && safeEqual(bearerToken(req), secret)) return next();
+        if (matches(req)) return next();
         onReject(req);
         return res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: 'Missing or invalid edge secret' });
     };
@@ -224,6 +237,7 @@ function requireEdgeSecret(edgeConfig, { onReject = () => {} } = {}) {
 module.exports = {
     requireReadApiKey,
     requireEdgeSecret,
+    edgeSecretMatches,
     bearerToken,
     requireAppScope,
     requireAdminApiKey,
