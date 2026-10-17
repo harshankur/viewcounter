@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const net = require('net');
 
 const { SERVER } = require('../constants');
 const { getError, ErrorType } = require('./errorUtils');
@@ -40,13 +41,41 @@ class PrivacyUtils {
         return ip;
     }
 
+    /**
+     * Keep the first 64 bits (the network) and zero the rest, in one written
+     * form whatever form the address came in: compressed (`::`), with leading
+     * zeros, in capitals, with an IPv4 tail. Splitting the text at its colons
+     * instead kept part of the interface identifier of any address whose
+     * network had a `::` in it (and all of `::1`), and wrote one network in
+     * several ways, so two addresses of one /64 could look like two.
+     * Anything that is not an IPv6 address is passed through as it is.
+     * @param {string} ip
+     * @returns {string}
+     */
     static maskIPv6(ip) {
-        const parts = ip.split(':');
-        // Mask the last 4 groups (64 bits)
-        if (parts.length >= 4) {
-            return parts.slice(0, 4).join(':') + ':0:0:0:0';
-        }
-        return ip;
+        const groups = this.ipv6Groups(ip);
+        return groups ? `${groups.slice(0, 4).join(':')}:0:0:0:0` : ip;
+    }
+
+    /**
+     * The eight 16-bit groups of an IPv6 address, as lowercase hexadecimal
+     * without leading zeros, or null for anything that is not one.
+     * @param {string} ip
+     * @returns {string[]|null}
+     */
+    static ipv6Groups(ip) {
+        const text = String(ip).split('%')[0].toLowerCase();
+        if (!net.isIPv6(text)) return null;
+        // An IPv4 tail (::ffff:1.2.3.4, 64:ff9b::1.2.3.4) is the last two groups.
+        const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+        const hex = tail
+            ? `${text.slice(0, tail.index)}${((Number(tail[1]) << 8) | Number(tail[2])).toString(16)}:${((Number(tail[3]) << 8) | Number(tail[4])).toString(16)}`
+            : text;
+        const [head, rest] = hex.includes('::') ? hex.split('::') : [hex, null];
+        const before = head ? head.split(':') : [];
+        const after = rest ? rest.split(':') : [];
+        const groups = rest === null ? before : [...before, ...Array(8 - before.length - after.length).fill('0'), ...after];
+        return groups.map((group) => Number.parseInt(group, 16).toString(16));
     }
 
     /**

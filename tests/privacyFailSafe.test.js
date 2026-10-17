@@ -90,8 +90,22 @@ describe('Privacy Fail-Safe Verification', () => {
         });
 
         expectAbsentEverywhere(rawIP, 'raw IPv6');
-        expect(interceptedParams).toContain('2001:0db8:85a3:0000:0:0:0:0');
+        expect(interceptedParams).toContain('2001:db8:85a3:0:0:0:0:0');
     });
+
+    test.each([['2606:4700::6810:84e5', '2606:4700:0:0:0:0:0:0'], ['::1', '0:0:0:0:0:0:0:0'], ['2001:db8::abcd:ef01', '2001:db8:0:0:0:0:0:0']])(
+        'Fail-Safe: a compressed IPv6 address (%s) keeps nothing of its interface identifier', async (rawIP, masked) => {
+            await dbManager.registerEvent('test_app', {
+                ip: rawIP,
+                deviceSize: 'medium',
+                userAgent: 'Mozilla/5.0',
+                visitorSecret: TEST_VISITOR_SECRET,
+            });
+            expectAbsentEverywhere(rawIP, 'raw IPv6');
+            // Stored as its /64 alone: the old split at colons stored '2606:4700::6810:0:0:0:0', and '::1' whole.
+            expect(interceptedParams).toContain(masked);
+            expect(interceptedParams.filter((param) => typeof param === 'string' && /::/.test(param))).toEqual([]);
+        });
 
     test('Fail-Safe: registerView wrapper should also protect raw IPs', async () => {
         const rawIP = '45.45.45.45';

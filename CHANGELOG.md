@@ -7,6 +7,15 @@ All notable changes to this project are documented here. This project follows
 
 ### Fixed
 
+- **Some IPv6 addresses kept part of their interface identifier.** Masking
+  split the address at its colons and kept the first four pieces, so an
+  address with a `::` inside its network (`2606:4700::6810:84e5` became
+  `2606:4700::6810:0:0:0:0`) kept up to 48 bits it should not have, and `::1`
+  was kept whole. Addresses are now expanded first and stored as their /64
+  alone, in one written form (`2606:4700:0:0:0:0:0:0`), so the addresses of
+  one network also always read alike. Rows stored before keep their masked
+  address as it was; an operator who wants them redone can erase or edit
+  them in the admin UI.
 - **A page load counted at the edge and by the tracker was often stored as two
   views.** The two reports were matched by visitor hash, which is made from
   the full address, and a device with several IPv6 addresses (the privacy

@@ -144,6 +144,36 @@ describe('privacyUtils.maskIP()', () => {
     test('passes through a short IPv6 unchanged', () => {
         expect(PrivacyUtils.maskIP('a:b')).toBe('a:b');
     });
+
+    test.each([
+        // Compressed inside the network: splitting at colons kept part of the interface identifier.
+        ['2606:4700::6810:84e5', '2606:4700:0:0:0:0:0:0'],
+        ['2001:db8::1:2:3:4', '2001:db8:0:0:0:0:0:0'],
+        ['fe80::abcd:1234', 'fe80:0:0:0:0:0:0:0'],
+        // Kept whole before.
+        ['::1', '0:0:0:0:0:0:0:0'],
+        ['::', '0:0:0:0:0:0:0:0'],
+        // One network, one written form.
+        ['2A02:8109:B22A:A500::5', '2a02:8109:b22a:a500:0:0:0:0'],
+        ['2a02:8109:b22a:a500:1:2:3:4', '2a02:8109:b22a:a500:0:0:0:0'],
+        ['2001:0db8:0000:00a0:1:2:3:4', '2001:db8:0:a0:0:0:0:0'],
+        ['64:ff9b::192.0.2.33', '64:ff9b:0:0:0:0:0:0'],
+        ['fe80::1%en0', 'fe80:0:0:0:0:0:0:0'],
+    ])('masks %s to its /64, written one way: %s', (ip, masked) => {
+        expect(PrivacyUtils.maskIP(ip)).toBe(masked);
+    });
+
+    test('never keeps a group of the interface identifier, however the address is written', () => {
+        for (const ip of ['2001:db8:1:2:aaaa:bbbb:cccc:dddd', '2001:db8:1:2:aaaa::dddd', '2001:db8:1:2::bbbb:cccc:dddd', '2001:db8::aaaa:bbbb:cccc:dddd']) {
+            expect(PrivacyUtils.maskIP(ip)).not.toMatch(/aaaa|bbbb|cccc|dddd/);
+        }
+    });
+
+    test('ipv6Groups is null for anything that is not an IPv6 address', () => {
+        expect(PrivacyUtils.ipv6Groups('1.2.3.4')).toBeNull();
+        expect(PrivacyUtils.ipv6Groups('a:b')).toBeNull();
+        expect(PrivacyUtils.ipv6Groups('')).toBeNull();
+    });
 });
 
 describe('privacyUtils.currentWindowId()', () => {

@@ -13,6 +13,10 @@ Versions before 3.0 are not supported: the analytics read endpoints were
 unauthenticated and visitor hashes were derived without a server secret, which
 made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
+3.6.1 fixes the masking of IPv6 addresses that are written with a `::` inside
+their first 64 bits: such an address kept part of its interface identifier
+(and `::1` all of it) in the stored masked address. Upgrade.
+
 3.5.x is not patched further. 3.6 is a drop-in upgrade: its schema v8 adds one
 column (`collected_by`) to every app table on first start, and nothing else
 changes until edge counting or the consent prompt is switched on.
