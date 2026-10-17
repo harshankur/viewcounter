@@ -62,7 +62,8 @@ Upgrading from 3.5:
   where storage is unavailable. `window.viewcounterConsent` opens it, reads it,
   grants, and denies, every change fires `viewcounter:consent`, and any
   element with `data-viewcounter-consent` reopens it. The card is in a closed
-  shadow root, follows light and dark, and takes CSS custom properties.
+  shadow root, follows light and dark, and takes CSS custom properties. It
+  takes no focus by itself and is announced to screen readers instead.
 - **One page load, one view.** Each view records which side collected it,
   `script`, `edge`, or `both`. The tracker's view completes the edge's record
   of the same page made nearest to when the page was loaded, within two

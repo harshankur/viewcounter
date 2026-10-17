@@ -1146,7 +1146,10 @@ which pages are opened is counted (by the [edge](#edge-counting)); with it,
 also how long a page stays open, how far it is scrolled, and which links and
 features are used. **Allow** and **No thanks** look the same, side by side. A
 no loads nothing and costs the visitor nothing. **Escape** puts the card away
-for that page without an answer. It is in German or English.
+for that page without an answer. It is in German or English. A card that
+appears by itself is announced once to screen readers, politely, since it does
+not take focus; opened from a settings link, it takes focus, and gives it back
+when it closes.
 
 The answer is kept in `localStorage` under `viewcounter-consent:<key>`
 (`granted` or `denied`), where the key is the app ID or `data-consent-key`, the one thing on the device, which the visitor asked

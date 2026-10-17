@@ -507,3 +507,35 @@ test.describe('data-consent-key', () => {
         expect(await stored(page)).toBe('denied');
     });
 });
+
+test.describe('screen readers', () => {
+    const announcement = (page) => page.getByRole('status');
+
+    test('a prompt that appears by itself is announced once, politely, without taking focus', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await expect(announcement(page)).toHaveText('A question about usage statistics is waiting at the end of the page.');
+        await expect(announcement(page)).toHaveAttribute('aria-live', 'polite');
+        // The card itself is not live: it would be read out on every change.
+        expect(await prompt(page).getAttribute('aria-live')).toBeNull();
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+        // Answered, the announcement is gone with the card.
+        await prompt(page).getByRole('button', { name: 'No thanks' }).click();
+        await expect(announcement(page)).toHaveText('');
+    });
+
+    test('in German on a German page', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab('lang=de'));
+        await expect(announcement(page)).toHaveText('Am Ende der Seite wartet eine Frage zur Nutzungsstatistik.');
+    });
+
+    test('opened on request, focus says where the reader is, and nothing is announced', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab('ui=none'));
+        await page.click('#settings');
+        await expect(prompt(page).getByRole('button', { name: 'Allow' })).toBeFocused();
+        await page.waitForTimeout(300);
+        await expect(announcement(page)).toHaveText('');
+    });
+});

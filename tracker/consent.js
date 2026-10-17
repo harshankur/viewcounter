@@ -87,6 +87,7 @@
             privacy: 'Privacy notice',
             [GRANTED]: 'Your current answer: allowed.',
             [DENIED]: 'Your current answer: no.',
+            announce: 'A question about usage statistics is waiting at the end of the page.',
         },
         de: {
             label: 'Nutzungsstatistik',
@@ -99,6 +100,7 @@
             privacy: 'Datenschutzerklärung',
             [GRANTED]: 'Ihre aktuelle Antwort: erlaubt.',
             [DENIED]: 'Ihre aktuelle Antwort: nein.',
+            announce: 'Am Ende der Seite wartet eine Frage zur Nutzungsstatistik.',
         },
     };
     const lang = (() => {
@@ -234,12 +236,24 @@
         button:hover { filter: brightness(0.95); }
         a { display: inline-block; margin-top: 10px; font-size: 13px; color: var(--viewcounter-consent-link, var(--link)); }
         button:focus-visible, a:focus-visible { outline: 2px solid var(--viewcounter-consent-focus, var(--focus)); outline-offset: 2px; }
+        .announce {
+            position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+            overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+        }
     `;
 
     let host = null;
     let card = null;
     /** The answer given so far, when the prompt is opened again to change it. */
     let current = null;
+    /**
+     * A polite live region beside the card, which says once that the question
+     * is there when it appears by itself. The card is not live: read in full
+     * on every change, it would talk over the page.
+     */
+    let announcer = null;
+    /** A live region announces a change, so its text is set a moment after it exists. */
+    const ANNOUNCE_DELAY_MS = 150;
     /** Where focus was when the prompt was opened by hand, to return it there. */
     let returnFocus = null;
 
@@ -284,7 +298,11 @@
         } catch {
             root.append(element('style', { textContent: STYLE }));
         }
-        root.append(card);
+        announcer = element('div', { className: 'announce' });
+        announcer.setAttribute('role', 'status');
+        announcer.setAttribute('aria-live', 'polite');
+        announcer.setAttribute('aria-atomic', 'true');
+        root.append(card, announcer);
         (document.body || document.documentElement).appendChild(host);
     }
 
@@ -298,9 +316,15 @@
         if (focus) {
             if (document.activeElement && document.activeElement !== host) returnFocus = document.activeElement;
             card.hidden = false;
+            // Focus lands in it, which says where the reader is: nothing to announce.
+            announcer.textContent = '';
             card.querySelector('button').focus();
         } else {
             card.hidden = false;
+            // Not modal, so focus stays where it is; a screen reader is told instead.
+            setTimeout(() => {
+                if (!card.hidden) announcer.textContent = text.announce;
+            }, ANNOUNCE_DELAY_MS);
         }
     }
 
@@ -308,6 +332,7 @@
         if (!card || card.hidden) return;
         const hadFocus = document.activeElement === host;
         card.hidden = true;
+        announcer.textContent = '';
         if (hadFocus && returnFocus && returnFocus.isConnected) returnFocus.focus();
         returnFocus = null;
     }
