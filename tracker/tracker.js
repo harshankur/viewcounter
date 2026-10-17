@@ -159,10 +159,6 @@
             title: document.title.slice(0, 200),
             referrer: referrer.slice(0, 500),
         });
-        // How long the page has been open, in seconds, so the server can tell
-        // this view from the edge's record of the same page load even when
-        // it is sent late (the visitor took a while to allow it).
-        if (first) params.set('age', String(Math.min(ENGAGE_WINDOW_MS / 1000, Math.round(performance.now() / 1000))));
         // Only the campaign tags: the rest of a query string can carry
         // emails, tokens, or IDs, and never leaves the page.
         if (option('campaigns', true)) {
@@ -175,6 +171,9 @@
 
         const current = {
             id: null,
+            first,
+            params,
+            sent: false,
             startedAt: Date.now(),
             visibleMs: 0,
             visibleSince: document.visibilityState === 'visible' ? performance.now() : null,
@@ -187,7 +186,18 @@
         // old page is still on screen, and its depth is not the new one's:
         // the new page is measured when it is scrolled, hidden, or reports.
         if (first) measure();
-        if (!allowed()) return;
+        sendView(current);
+    }
+
+    /** Send a view, once, if anything may be sent now; a view held back goes when the visitor allows it. */
+    function sendView(current) {
+        if (current.sent || !allowed()) return;
+        current.sent = true;
+        const params = new URLSearchParams(current.params);
+        // How long the page has been open, in seconds, so the server can tell
+        // this view from the edge's record of the same page load even when
+        // it is sent late (the visitor took a while to allow it).
+        if (current.first) params.set('age', String(Math.min(ENGAGE_WINDOW_MS / 1000, Math.round(performance.now() / 1000))));
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
             .then((result) => {
@@ -296,6 +306,11 @@
             track('outbound', { host: url.hostname });
         }
     }, { capture: true });
+
+    // Allowed again after a no came before this page's view could go: it goes now.
+    addEventListener('viewcounter:consent', (event) => {
+        if (event.detail && event.detail.status === 'granted' && view) sendView(view);
+    });
 
     window.viewcounter = { track };
     pageview();

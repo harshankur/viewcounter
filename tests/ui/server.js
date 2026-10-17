@@ -246,6 +246,10 @@ function start(port = PORT) {
             return value ? ` data-${name}="${value}"` : '';
         }).join('');
         const lang = typeof req.query.htmlLang === 'string' ? req.query.htmlLang.replace(/[^a-z-]/gi, '') : 'en';
+        // An answer the site gives through the API as the page loads, before it is ready.
+        const answer = ['grant', 'deny'].includes(req.query.answer) ? `\n  <script src="/consent-lab-answer.js?${req.query.answer}"></script>` : '';
+        // A tracker the page also loads itself, after the prompt.
+        const tracker = req.query.tracker ? '\n  <script src="/tracker.js" data-app="blog"></script>' : '';
         res.type('html').send(`<!doctype html>
 <html lang="${lang}"><head><meta charset="utf-8"><title>Consent lab</title></head>
 <body>
@@ -253,8 +257,12 @@ function start(port = PORT) {
   <input id="page-input" aria-label="A field of the page">
   <div style="height: 3000px"></div>
   <footer><a id="settings" href="#" data-viewcounter-consent>Privacy settings</a></footer>
-  <script src="/consent.js" data-app="blog"${attributes}></script>
+  <script src="/consent.js" data-app="blog"${attributes}></script>${answer}${tracker}
 </body></html>`);
+    });
+    app.get('/consent-lab-answer.js', (req, res) => {
+        const method = Object.hasOwn(req.query, 'deny') ? 'deny' : 'grant';
+        res.type('application/javascript').send(`window.viewcounterConsent.${method}();`);
     });
 
     app.use(ADMIN.PATH_PREFIX, (req, res, next) => admin(req, res, next));

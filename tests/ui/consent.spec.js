@@ -224,10 +224,59 @@ test('a no after a yes stops every further request at once, without a reload', a
     expect(sent.events).toHaveLength(1);
     expect(sent.engagement).toEqual([]);
 
-    // A yes again resumes, with the same tracker: it is not loaded twice.
+    // A yes again resumes, with the same tracker: it is not loaded twice. The
+    // page changed while the answer was no; its view goes now.
     await page.evaluate(() => window.viewcounterConsent.grant());
-    await page.evaluate(() => window.history.pushState({}, '', '/consent-lab/again'));
     await expect.poll(() => sent.views.length).toBe(2);
+    expect(sent.views[1].searchParams.get('page')).toBe('/consent-lab/after');
+    await page.evaluate(() => window.history.pushState({}, '', '/consent-lab/again'));
+    await expect.poll(() => sent.views.length).toBe(3);
+    await expect(trackerTags(page)).toHaveCount(1);
+});
+
+test('a no that comes while the tracker is still loading holds its view back until the next yes', async ({ page }) => {
+    const sent = await visitor(page);
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    await page.route('**/tracker.js', async (route) => {
+        await held;
+        await route.continue();
+    });
+    await page.goto(lab());
+    await prompt(page).getByRole('button', { name: 'Allow' }).click();
+    await page.evaluate(() => window.viewcounterConsent.deny());
+    release();
+    await expect.poll(() => page.evaluate(() => Boolean(window.viewcounter))).toBe(true);
+    await page.waitForTimeout(300);
+    expect(sent.views).toEqual([]);
+
+    await page.evaluate(() => window.viewcounterConsent.grant());
+    await expect.poll(() => sent.views.length).toBe(1);
+    // Still the page's first view, saying how long the page had been open.
+    expect(sent.views[0].searchParams.get('age')).toMatch(/^\d+$/);
+});
+
+test('an answer the site gives as the page loads leaves no prompt behind', async ({ page }) => {
+    const sent = await visitor(page);
+    await page.goto(lab('answer=grant'));
+    await expect.poll(() => sent.views.length).toBe(1);
+    await page.waitForTimeout(200);
+    await expect(prompt(page)).toHaveCount(0);
+    await page.goto(lab('answer=deny'));
+    await page.waitForTimeout(300);
+    await expect(prompt(page)).toHaveCount(0);
+});
+
+test('a tracker the page loads itself is not loaded a second time, and waits for the answer too', async ({ page }) => {
+    const sent = await visitor(page);
+    await page.goto(lab('tracker=after'));
+    await expect(prompt(page)).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(sent.views).toEqual([]);
+    await prompt(page).getByRole('button', { name: 'Allow' }).click();
+    await expect.poll(() => sent.views.length).toBe(1);
+    await page.waitForTimeout(300);
+    expect(sent.views).toHaveLength(1);
     await expect(trackerTags(page)).toHaveCount(1);
 });
 

@@ -168,9 +168,13 @@
 
     let trackerLoaded = false;
 
-    /** Load the tracker once, from where this script came, with the site's options. */
+    /**
+     * Load the tracker once, from where this script came, with the site's
+     * options. Never beside a tracker the page loads itself (which it should
+     * not: that one would not wait for an answer).
+     */
     function loadTracker() {
-        if (trackerLoaded || window.viewcounter) return;
+        if (trackerLoaded || window.viewcounter || [...document.scripts].some((tag) => tag.src === `${base}tracker.js`)) return;
         trackerLoaded = true;
         const tag = document.createElement('script');
         tag.src = `${base}tracker.js`;
@@ -334,5 +338,7 @@
     const initial = status();
     known = initial;
     if (initial === GRANTED) loadTracker();
-    else if (initial === UNSET && script.dataset.ui !== 'none') whenReady(() => show(false));
+    // Asked only if still unanswered once the page is ready: the site, or
+    // another tab, may have answered in between.
+    else if (initial === UNSET && script.dataset.ui !== 'none') whenReady(() => { if (status() === UNSET) show(false); });
 })();
