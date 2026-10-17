@@ -116,6 +116,15 @@
     const currentPage = () => location.pathname
         + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');
 
+    /**
+     * When the page was first shown, on the clock performance.now() reads:
+     * its load, or, for a page the browser prerendered, its activation.
+     */
+    const shownAt = () => {
+        const navigation = performance.getEntriesByType ? performance.getEntriesByType('navigation')[0] : null;
+        return navigation && navigation.activationStart > 0 ? navigation.activationStart : 0;
+    };
+
     let view = null;
     let referrer = document.referrer ? originAndPath(document.referrer) : '';
     let path = currentPage();
@@ -197,7 +206,7 @@
         // How long the page has been open, in seconds, so the server can tell
         // this view from the edge's record of the same page load even when
         // it is sent late (the visitor took a while to allow it).
-        if (current.first) params.set('age', String(Math.min(ENGAGE_WINDOW_MS / 1000, Math.round(performance.now() / 1000))));
+        if (current.first) params.set('age', String(Math.min(ENGAGE_WINDOW_MS / 1000, Math.round((performance.now() - shownAt()) / 1000))));
         fetch(`${base}registerView?${params}`, { keepalive: true, credentials: 'omit', referrerPolicy: 'no-referrer' })
             .then((response) => (response.ok ? response.json() : null))
             .then((result) => {
@@ -313,5 +322,8 @@
     });
 
     window.viewcounter = { track };
-    pageview();
+    // A page the browser prerenders on a guess (speculation rules) is no view
+    // until it is shown, as at the edge, which never counts a prerender.
+    if (document.prerendering) document.addEventListener('prerenderingchange', pageview, { once: true });
+    else pageview();
 })();

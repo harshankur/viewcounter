@@ -359,6 +359,12 @@
         else callback();
     }
 
+    /** Run once the page is shown: a page the browser prerenders asks nobody until then. */
+    function whenShown(callback) {
+        if (document.prerendering) document.addEventListener('prerenderingchange', callback, { once: true });
+        else callback();
+    }
+
     window.viewcounterConsent = Object.freeze({
         open: () => whenReady(() => show(true)),
         status,
@@ -371,5 +377,5 @@
     if (initial === GRANTED) loadTracker();
     // Asked only if still unanswered once the page is ready: the site, or
     // another tab, may have answered in between.
-    else if (initial === UNSET && script.dataset.ui !== 'none') whenReady(() => { if (status() === UNSET) show(false); });
+    else if (initial === UNSET && script.dataset.ui !== 'none') whenReady(() => whenShown(() => { if (status() === UNSET) show(false); }));
 })();

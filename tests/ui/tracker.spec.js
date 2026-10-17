@@ -418,3 +418,31 @@ test.describe('with a consent prompt on the page', () => {
         await expect.poll(() => sent.views.length).toBe(1);
     });
 });
+
+test('a prerendered page sends its view only once it is shown, its age counted from then', async ({ page }) => {
+    await asVisitor(page);
+    await page.addInitScript(() => {
+        window.__prerendering = true;
+        window.__activationStart = 0;
+        Object.defineProperty(document, 'prerendering', { configurable: true, get: () => window.__prerendering });
+        const entries = window.performance.getEntriesByType.bind(window.performance);
+        window.performance.getEntriesByType = (type) => (type === 'navigation'
+            ? [{ ...entries('navigation')[0]?.toJSON(), activationStart: window.__activationStart }]
+            : entries(type));
+    });
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start');
+    await page.waitForTimeout(2500);
+    expect(sent.views).toEqual([]);
+
+    // Shown, two and a half seconds after it loaded.
+    await page.evaluate(() => {
+        window.__prerendering = false;
+        window.__activationStart = window.performance.now();
+        document.dispatchEvent(new window.Event('prerenderingchange'));
+    });
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('age')).toBe('0');
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(1);
+});

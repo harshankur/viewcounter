@@ -1098,7 +1098,9 @@ scrolled, reported when the page is hidden or left and every half minute
 while it is being read; clicks on links to other sites (the other site's hostname only);
 clicks on downloads (the file name only); and the landing URL's campaign tags.
 It stores nothing on the device and sends no identifier, and it skips
-automated browsers.
+automated browsers. A page the browser prerenders on a guess (speculation
+rules) sends its view only once it is shown, as the edge never counts a
+prerender either.
 
 | Attribute | Default | Meaning |
 |---|---|---|

@@ -539,3 +539,19 @@ test.describe('screen readers', () => {
         await expect(announcement(page)).toHaveText('');
     });
 });
+
+test('a prerendered page asks only once it is shown', async ({ page }) => {
+    await page.addInitScript(() => {
+        window.__prerendering = true;
+        Object.defineProperty(document, 'prerendering', { configurable: true, get: () => window.__prerendering });
+    });
+    await visitor(page);
+    await page.goto(lab());
+    await page.waitForTimeout(400);
+    await expect(prompt(page)).toHaveCount(0);
+    await page.evaluate(() => {
+        window.__prerendering = false;
+        document.dispatchEvent(new window.Event('prerenderingchange'));
+    });
+    await expect(prompt(page)).toBeVisible();
+});

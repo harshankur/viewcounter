@@ -72,8 +72,9 @@ Upgrading from 3.5:
   An edge report after the tracker's view marks it as seen by both. Single-page app navigations are
   views of their own, as before. The admin UI shows the side in a view's
   details.
-- `/registerView` takes `age`, the seconds the page had been open, which the
-  tracker sends with each page's first view, so a view finds the edge's
+- `/registerView` takes `age`, the seconds the page had been open (since it
+  was shown, for a prerendered page), which the tracker sends with each
+  page's first view, so a view finds the edge's
   record of its own page load, even when sent after the visitor took a while
   to allow it.
 
@@ -89,6 +90,12 @@ Upgrading from 3.5:
   Guidelines 2/2023 reading of ePrivacy Art. 5(3), a script that measures a
   visit needs consent whether or not it stores anything; the two tiers above
   are the answer to that.
+
+### Fixed
+
+- The tracker counted a page the browser prerendered on a guess (speculation
+  rules), which the visitor might never open. It now sends the view only once
+  the page is shown, and the consent prompt asks only then.
 
 ## [3.5.1]
 
