@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.6.0]
+
 Counts in two tiers, for sites where a script that measures a visit needs the
 visitor's consent: page views counted at the edge, server to server, with no
 consent and nothing in the browser, and everything the tracker measures once

@@ -6,12 +6,16 @@ Currently, the following versions of View Counter are supported with security up
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 3.5.x   | :white_check_mark: |
-| < 3.5   | :x:                |
+| 3.6.x   | :white_check_mark: |
+| < 3.6   | :x:                |
 
 Versions before 3.0 are not supported: the analytics read endpoints were
 unauthenticated and visitor hashes were derived without a server secret, which
 made them reversible to the originating IP. Upgrade rather than patching 2.x.
+
+3.5.x is not patched further. 3.6 is a drop-in upgrade: its schema v8 adds one
+column (`collected_by`) to every app table on first start, and nothing else
+changes until edge counting or the consent prompt is switched on.
 
 3.4.x is not patched further. 3.5 is a drop-in upgrade with no schema change.
 It fixes a way past an app's origin binding and request budget: a POST to
