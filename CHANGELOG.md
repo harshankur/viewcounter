@@ -10,11 +10,11 @@ All notable changes to this project are documented here. This project follows
 - **Some IPv6 addresses kept part of their interface identifier.** Masking
   split the address at its colons and kept the first four pieces, so an
   address with a `::` inside its network kept up to 32 bits it should not
-  have (`2001:db8::a:b:c:d` became `2001:db8::a:b:0:0:0:0`), and `::1` was
+  have (`2001::a:b:c:d` became `2001::a:b:0:0:0:0`), and `::1` was
   kept whole. An IPv4-mapped address written in hexadecimal
   (`::ffff:102:304`) kept its host octet. Addresses are now expanded first
   and stored as their /64 alone, in one written form
-  (`2001:db8:0:0:0:0:0:0`), so the addresses of one network also always read
+  (`2001:0:0:0:0:0:0:0`), so the addresses of one network also always read
   alike; every spelling of an IPv4-mapped address is read and masked as the
   IPv4 address it carries (`::ffff:1.2.3.0`), and a deprecated
   IPv4-compatible one (`::1.2.3.4`) as the IPv6 address it is, to the
