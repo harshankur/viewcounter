@@ -403,6 +403,14 @@ describe('The edge secret', () => {
         expect(res.body).toEqual({ message: 'Missing or invalid edge secret' });
     });
 
+    test('a refusal needs no listener to be told about it', () => {
+        const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json() { return this; } };
+        const next = jest.fn();
+        requireEdgeSecret({ secret: SECRET })(fakeReq('Bearer wrong'), res, next);
+        expect(res.statusCode).toBe(401);
+        expect(next).not.toHaveBeenCalled();
+    });
+
     test('with no secret configured nothing passes, not even an empty token', () => {
         expect(run('', 'Bearer ').next).not.toHaveBeenCalled();
         expect(run(undefined, undefined).next).not.toHaveBeenCalled();

@@ -197,19 +197,19 @@ const appOf = (req) => (trackingSourceFor(req.path) ? requestedAppId(req) : '');
  * own figure (`maxByApp`) for tracking requests to an app that has one. Zero
  * means no limit, as the general figure or as an app's own.
  *
- * Edge reports (POST /edge/view) are the third kind, with a limiter on their
- * route. They all come from the Worker's few addresses, so it counts the
- * visitor's address each report names instead, which validation has checked
- * by then. The limiter of everything else leaves them alone only while the
- * endpoint exists (`edgeEnabled`); with no EDGE_SECRET a request there is
- * limited and answered like any request to a path that does not exist.
+ * There are three of these, with separate budgets: one for engagement
+ * reports, one for edge reports, and one for everything else. A page being
+ * read reports its engagement every half minute. On one shared budget, a few
+ * dozen readers behind one address (an office, a campus) would use it up with
+ * those reports alone, and the page views of everyone at that address would
+ * be refused. Apart, reports can only ever crowd out other reports.
  *
- * There are two of these, with separate budgets: one for engagement reports
- * and one for everything else. A page being read reports its engagement every
- * half minute. On one shared budget, a few dozen readers behind one address
- * (an office, a campus) would use it up with those reports alone, and the page
- * views of everyone at that address would be refused. Apart, reports can only
- * ever crowd out other reports.
+ * Edge reports (POST /edge/view) all come from the Worker's few addresses, so
+ * their limiter counts the visitor's address each report names instead, which
+ * has been checked by then. The limiter of everything else leaves them alone
+ * only while that endpoint exists (`edgeEnabled`); with no EDGE_SECRET, a
+ * request there is limited and answered like one to any path that does not
+ * exist.
  *
  * An app with its own figure is counted on its own, per address: a site that
  * records far more per visitor than the others (every step inside a
