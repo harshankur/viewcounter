@@ -62,16 +62,17 @@ Upgrading from 3.5:
   element with `data-viewcounter-consent` reopens it. The card is in a closed
   shadow root, follows light and dark, and takes CSS custom properties.
 - **One page load, one view.** Each view records which side collected it,
-  `script`, `edge`, or `both`. The tracker's view of a page the edge recorded
-  in the last two minutes completes that view (title, size, session) and
-  returns its `id`, so engagement attaches to it; an edge report after the
-  tracker's view marks it as seen by both. Single-page app navigations are
+  `script`, `edge`, or `both`. The tracker's view completes the edge's record
+  of the same page made nearest to when the page was loaded, within two
+  minutes either side (title, size, session), and returns its `id`, so
+  engagement attaches to it; two tabs of one page each find their own load.
+  An edge report after the tracker's view marks it as seen by both. Single-page app navigations are
   views of their own, as before. The admin UI shows the side in a view's
   details.
 - `/registerView` takes `age`, the seconds the page had been open, which the
-  tracker sends with each page's first view, so a view sent after the visitor
-  took a while to allow it still merges with the edge's record of that page
-  load.
+  tracker sends with each page's first view, so a view finds the edge's
+  record of its own page load, even when sent after the visitor took a while
+  to allow it.
 
 ### Changed
 

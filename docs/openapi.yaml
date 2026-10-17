@@ -116,9 +116,9 @@ paths:
           description: >-
             Seconds the page had been open when this view was sent. The tracker
             script sends it with a page's first view. With edge counting on, a
-            view merges into the edge's record of the same page load if that was
-            made within two minutes before the page was loaded; without `age`,
-            within two minutes before now.
+            view merges into the edge's record of the same page made nearest to
+            when the page was loaded (now, without `age`), within two minutes
+            either side of that moment.
       responses:
         '200':
           description: >-

@@ -439,6 +439,26 @@ async function verifyEdge(db) {
         fourRows.length === 1 && fourRows[0].collected_by === 'both' && aged.body?.id === fourRows[0].public_id,
         JSON.stringify(fourRows.map((r) => r.collected_by)));
 
+    // Two tabs of the same page, loaded minutes apart: each tracker view finds its own load.
+    await edge('/e2e/tabs');
+    await age('/e2e/tabs', 200);
+    await edge('/e2e/tabs');
+    const [tabOne, tabTwo] = await rowsAt('/e2e/tabs');
+    const fromTabTwo = await view('/e2e/tabs', '&age=0');
+    const fromTabOne = await view('/e2e/tabs', '&age=199');
+    const tabRows = await rowsAt('/e2e/tabs');
+    check('two tabs of one page: each tracker view merges with its own page load, not the newest',
+        fromTabOne.body?.id === tabOne?.public_id && fromTabTwo.body?.id === tabTwo?.public_id
+        && tabRows.length === 2 && tabRows.every((r) => r.collected_by === 'both'),
+        JSON.stringify({ one: fromTabOne.body?.id === tabOne?.public_id, two: fromTabTwo.body?.id === tabTwo?.public_id, sides: tabRows.map((r) => r.collected_by) }));
+
+    await edge('/e2e/later');
+    const older = await view('/e2e/later', '&age=300');
+    const laterRows = await rowsAt('/e2e/later');
+    check('a page load after the tracker\'s own is never taken for it',
+        laterRows.length === 2 && laterRows[0].collected_by === 'edge' && laterRows[1].collected_by === 'script'
+        && older.body?.id === laterRows[1].public_id, JSON.stringify(laterRows.map((r) => r.collected_by)));
+
     await edge('/e2e/hash');
     const routed = await view('/e2e/hash#spec/config');
     const [hashRow] = await rowsAt('/e2e/hash#spec/config');
@@ -451,7 +471,7 @@ async function verifyEdge(db) {
     check('views from the tracker alone never merge with each other', spaRows.length === 2 && spaRows.every((r) => r.collected_by === 'script'));
 
     const [[logged]] = await db.query("SELECT COUNT(*) AS n FROM `_view_log` WHERE app_id = 'edge_site' AND source = 'edge'");
-    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 4, `${logged.n} entries`);
+    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 7, `${logged.n} entries`);
 }
 
 async function verifySchema(db) {

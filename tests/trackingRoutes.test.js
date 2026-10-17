@@ -971,7 +971,7 @@ describe('a page load the edge and the tracker both report', () => {
         // The answer has the shape every tracker version reads, with the edge view's ID.
         expect(res.body).toEqual({ message: 'Success!', duplicate: false, recorded: true, id: EDGE_VIEW });
         expect(stored(dbManager)).toMatchObject({
-            collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS + 300, pageTitle: 'Post', deviceSize: 'medium',
+            collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS, pageAgeSeconds: 300, pageTitle: 'Post', deviceSize: 'medium',
         });
 
         // So the page's engagement reports attach to the merged view.
@@ -979,10 +979,10 @@ describe('a page load the edge and the tracker both report', () => {
         expect(dbManager.addEngagement).toHaveBeenCalledWith('blog', { viewId: EDGE_VIEW, engagedMs: 5000, scrollDepth: 30 });
     });
 
-    test('a tracker that sends no age gets the plain window', async () => {
+    test('a tracker that sends no age is looked for around now', async () => {
         const { app, dbManager } = build({ edge: true });
         await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large', page: '/' }).set('User-Agent', CHROME).expect(200);
-        expect(stored(dbManager).mergeWindowSeconds).toBe(TRACKING.MERGE_WINDOW_SECONDS);
+        expect(stored(dbManager)).toMatchObject({ mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS, pageAgeSeconds: 0 });
     });
 
     test.each([['-1'], ['86401'], ['1.5'], ['soon']])('an age of %s is refused', async (age) => {

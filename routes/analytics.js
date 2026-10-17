@@ -641,9 +641,10 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                     source: VIEW_LOG_SOURCE.REGISTER_VIEW,
                     collectedBy: COLLECTED_BY.SCRIPT,
                     // With edge counting on, the Worker has usually recorded
-                    // this page load already; the view completes that one.
-                    // The window runs from when the page was loaded.
-                    mergeWindowSeconds: edgeEnabled ? TRACKING.MERGE_WINDOW_SECONDS + pageAge : 0,
+                    // this page load already; the view completes that one,
+                    // looked for around when the page was loaded.
+                    mergeWindowSeconds: edgeEnabled ? TRACKING.MERGE_WINDOW_SECONDS : 0,
+                    pageAgeSeconds: pageAge,
                 });
 
                 logger.audit('registerView', { ...logContext(req), appId, duplicate: result.duplicate, merged: result.merged === true });

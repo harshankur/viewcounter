@@ -538,10 +538,11 @@ describe('one page load reported by both sides is one view', () => {
 
         const [select] = manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`');
         expect(select.sql).toContain(DatabaseManager.LIVE_ROW);
-        expect(select.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)');
         expect(select.sql).toContain("SUBSTRING_INDEX(page_path, '#', 1) = ?");
-        expect(select.sql).toContain('ORDER BY id DESC');
-        expect(select.params).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/), COLLECTED_BY.EDGE, 'pageview', 120, '/post']);
+        // Around when the page was loaded (now, without an age), the window either side.
+        expect(select.sql).toContain('timestamp BETWEEN DATE_SUB(NOW(), INTERVAL ? SECOND) AND DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        expect(select.sql).toContain('ORDER BY ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC, id DESC');
+        expect(select.params).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/), COLLECTED_BY.EDGE, 'pageview', '/post', 120, -120, 0]);
 
         const [update] = manager.pool.matching('UPDATE `blog`');
         expect(update.sql).toContain('SET collected_by = ?, page_path = ?, page_title = ?, devicesize = COALESCE(?, devicesize), session_id = ?');
@@ -555,7 +556,11 @@ describe('one page load reported by both sides is one view', () => {
         const manager = managerFinding({ id: 7, public_id: VIEW, is_unique: 0 });
         const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.EDGE, pageTitle: null, sessionId: null }));
         expect(result).toMatchObject({ merged: true, publicId: VIEW, duplicate: true, isUnique: false });
-        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params[1]).toBe(COLLECTED_BY.SCRIPT);
+        const [select] = manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`');
+        // The edge cannot know which view it follows: the newest in the window.
+        expect(select.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        expect(select.sql).toContain('ORDER BY id DESC');
+        expect(select.params).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/), COLLECTED_BY.SCRIPT, 'pageview', '/post', 120]);
         const [update] = manager.pool.matching('UPDATE `blog`');
         expect(update.sql).toMatch(/SET collected_by = \? WHERE id = \? AND collected_by = \?/);
         expect(update.params).toEqual([COLLECTED_BY.BOTH, 7, COLLECTED_BY.SCRIPT]);
@@ -582,7 +587,7 @@ describe('one page load reported by both sides is one view', () => {
     test('a hash-routed page matches the edge\'s path without its fragment, and keeps the route', async () => {
         const manager = managerFinding({ id: 5, public_id: VIEW, is_unique: 1 });
         await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pagePath: '/docs#spec/config' }));
-        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params.at(-1)).toBe('/docs');
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params[3]).toBe('/docs');
         expect(manager.pool.matching('UPDATE `blog`')[0].params[1]).toBe('/docs#spec/config');
     });
 
@@ -598,9 +603,52 @@ describe('one page load reported by both sides is one view', () => {
         expect(result.merged).toBe(false);
     });
 
-    test('the window is the caller\'s: the route widens it by how long the page had been open', async () => {
+    test('the tracker\'s view looks around when its page was loaded: the window either side of that, nearest first', async () => {
         const manager = managerFinding(null);
-        await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: 420 }));
-        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params[3]).toBe(420);
+        await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 300 }));
+        // From 420 to 180 seconds ago, nearest to 300 seconds ago: a load since then is never a candidate.
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params.slice(-3)).toEqual([420, 180, 300]);
+    });
+
+    test('a page just loaded looks as far forward as back, so a report from a slightly fast clock still counts', async () => {
+        const manager = managerFinding(null);
+        await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 2 }));
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params.slice(-3)).toEqual([122, -118, 2]);
+    });
+
+    /**
+     * A table of edge views at given ages, answering the merge lookup as the
+     * SQL does: within the bounds, nearest to the page's load, then newest.
+     */
+    function managerWithEdgeViews(views) {
+        const manager = new DatabaseManager({ mode: 'connect' });
+        manager.pool = createScriptedPool(withVisitorSalt((sql, params) => {
+            if (isMergeSelect(sql) && sql.includes('BETWEEN')) {
+                const [earliest, latest, anchor] = params.slice(-3);
+                const found = views
+                    .filter((row) => row.age <= earliest && row.age >= latest)
+                    .sort((a, b) => Math.abs(a.age - anchor) - Math.abs(b.age - anchor) || b.id - a.id);
+                return [found.slice(0, 1)];
+            }
+            if (/^\s*UPDATE `blog`/.test(sql)) return [{ affectedRows: 1 }];
+            if (sql.includes('INSERT INTO')) return [{ insertId: 99 }];
+            return [[]];
+        }));
+        return manager;
+    }
+
+    test('two tabs of the same page: each tracker view finds its own page load, not the newest', async () => {
+        const first = { id: 1, public_id: 'tab-one', is_unique: 1, age: 200 };
+        const second = { id: 2, public_id: 'tab-two', is_unique: 0, age: 10 };
+        const manager = managerWithEdgeViews([first, second]);
+        expect((await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 199 }))).publicId).toBe('tab-one');
+        expect((await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 9 }))).publicId).toBe('tab-two');
+    });
+
+    test('a page load after the tracker\'s own is never taken for it', async () => {
+        const manager = managerWithEdgeViews([{ id: 3, public_id: 'later', is_unique: 1, age: 0 }]);
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pageAgeSeconds: 300 }));
+        expect(result.merged).toBe(false);
+        expect(manager.pool.matching('INSERT INTO `blog`')).toHaveLength(1);
     });
 });

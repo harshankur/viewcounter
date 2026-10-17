@@ -462,6 +462,7 @@ class DatabaseManager {
             source = VIEW_LOG_SOURCE.REGISTER_VIEW,
             collectedBy = COLLECTED_BY.SCRIPT,
             mergeWindowSeconds = 0,
+            pageAgeSeconds = 0,
         } = data;
 
         // Privacy boundary. Neither the raw IP nor the raw User-Agent is bound
@@ -485,7 +486,7 @@ class DatabaseManager {
         // One page load reported by both sides is one view, not two.
         if (mergeWindowSeconds > 0 && eventType === EVENT_TYPE.PAGEVIEW) {
             const merged = await this.mergePageLoad(appId, {
-                hashedVisitor, collectedBy, mergeWindowSeconds, pagePath, pageTitle, deviceSize, sessionId,
+                hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds, pagePath, pageTitle, deviceSize, sessionId,
             });
             if (merged) return merged;
         }
@@ -594,27 +595,48 @@ class DatabaseManager {
      * and both be stored; that is accepted, the window is short and the rows
      * are told apart by `collected_by`.
      *
+     * The tracker knows when its page was loaded (`pageAgeSeconds` ago), so
+     * its view takes the edge view recorded nearest that moment, within the
+     * window either side of it: with the same page open in two tabs, or two
+     * identical browsers behind one address, each view finds its own page
+     * load, and a later load is never a candidate. The edge cannot know which
+     * view it follows, and takes the newest within the window.
+     *
      * @param {string} appId already validated
      * @param {{ hashedVisitor: string, collectedBy: string, mergeWindowSeconds: number,
-     *   pagePath?: string, pageTitle?: string, deviceSize?: string, sessionId?: string }} report
+     *   pageAgeSeconds?: number, pagePath?: string, pageTitle?: string, deviceSize?: string,
+     *   sessionId?: string }} report
      * @returns {Promise<object|null>} what registerEvent returns, or null when there is nothing to merge into
      */
-    async mergePageLoad(appId, { hashedVisitor, collectedBy, mergeWindowSeconds, pagePath, pageTitle, deviceSize, sessionId }) {
+    async mergePageLoad(appId, {
+        hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds = 0, pagePath, pageTitle, deviceSize, sessionId,
+    }) {
         const fromScript = collectedBy === COLLECTED_BY.SCRIPT;
         if (!fromScript && collectedBy !== COLLECTED_BY.EDGE) return null;
         const storedPath = truncate(pagePath, FIELD_MAX_LENGTH.PAGE_PATH);
         if (!storedPath) return null;
         const counterpart = fromScript ? COLLECTED_BY.EDGE : COLLECTED_BY.SCRIPT;
+        const samePageLoad = `visitor_hash = ? AND collected_by = ? AND event_type = ? AND ${LIVE_ROW}
+               AND SUBSTRING_INDEX(page_path, '#', 1) = ?`;
+        const sameParams = [hashedVisitor, counterpart, EVENT_TYPE.PAGEVIEW, storedPath.split('#')[0]];
 
-        const [rows] = await this.pool.query(
-            `SELECT id, public_id, is_unique FROM \`${appId}\`
-             WHERE visitor_hash = ? AND collected_by = ? AND event_type = ?
-               AND timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND) AND ${LIVE_ROW}
-               AND SUBSTRING_INDEX(page_path, '#', 1) = ?
-             ORDER BY id DESC
-             LIMIT 1`,
-            [hashedVisitor, counterpart, EVENT_TYPE.PAGEVIEW, mergeWindowSeconds, storedPath.split('#')[0]]
-        );
+        const [rows] = fromScript
+            ? await this.pool.query(
+                `SELECT id, public_id, is_unique FROM \`${appId}\`
+                 WHERE ${samePageLoad}
+                   AND timestamp BETWEEN DATE_SUB(NOW(), INTERVAL ? SECOND) AND DATE_SUB(NOW(), INTERVAL ? SECOND)
+                 ORDER BY ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC, id DESC
+                 LIMIT 1`,
+                [...sameParams, pageAgeSeconds + mergeWindowSeconds, pageAgeSeconds - mergeWindowSeconds, pageAgeSeconds]
+            )
+            : await this.pool.query(
+                `SELECT id, public_id, is_unique FROM \`${appId}\`
+                 WHERE ${samePageLoad}
+                   AND timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)
+                 ORDER BY id DESC
+                 LIMIT 1`,
+                [...sameParams, mergeWindowSeconds]
+            );
         const row = rows[0];
         if (!row) return null;
 

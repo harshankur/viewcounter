@@ -1382,13 +1382,16 @@ moment later. They become one view, and each view records which side
 collected it (`collected_by`: `script`, `edge`, or `both`):
 
 - **The tracker's view** looks for a view of the same page by the same visitor
-  that the edge recorded within the last two minutes and that nothing has
-  merged into yet. If there is one, it fills in what only the page knows (its
-  title, the window's size bucket, the session, a hash route) and marks it
-  `both`, and `/registerView` answers with that view's `id`, so engagement
-  attaches to it. The answer has the same shape as ever. The two minutes run
-  from when the page was loaded (the tracker sends `age`), so a visitor who
-  took a while to answer the prompt is still one view.
+  that the edge recorded around when the page was loaded (the tracker sends
+  `age`, how long ago that was), within two minutes either side, and that
+  nothing has merged into yet; of several, the one nearest that moment. If
+  there is one, it fills in what only the page knows (its title, the window's
+  size bucket, the session, a hash route) and marks it `both`, and
+  `/registerView` answers with that view's `id`, so engagement attaches to it.
+  The answer has the same shape as ever. A visitor who took a while to answer
+  the prompt is still one view, and the same page open in two tabs (or two
+  identical browsers behind one address) is two views, each completed by its
+  own tracker; a page load after the tracker's own is never taken for it.
 - **The edge's report**, in the rare case it arrives after the tracker's
   view, only marks that view `both`.
 - **A single-page app's navigations** come from the tracker alone and are
