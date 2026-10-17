@@ -1016,8 +1016,15 @@ limit (the router limits only engagement reports per address, and only when
 For [edge counting](#edge-counting), add `edge: { secret: process.env.EDGE_SECRET,
 enabled: true }` to the router's `config` (32 characters at least). The router
 then limits edge reports per visitor address itself, when `rateLimit.max` is
-given; leave `POST <prefix>/edge/view` out of your own per-address limit, since
-every report arrives from the Worker's few addresses.
+given, and requests without the secret by their own address; leave
+`POST <prefix>/edge/view` out of your own per-address limit, since every report
+arrives from the Worker's few addresses. The router reads an edge report's body
+itself, after the secret: wrap your JSON parser so it leaves those alone.
+
+```javascript
+const { exceptEdgeReports } = require('@harshankur/viewcounter');
+app.use(exceptEdgeReports(express.json({ limit: '16kb' }), '/analytics'));
+```
 
 The router answers its tracking endpoints with
 `Cross-Origin-Resource-Policy: cross-origin` by itself, since other sites'
@@ -1360,8 +1367,9 @@ Absent optional fields may also be `null`. Answers:
 
 There is no CORS and no `Origin` check: it is not for browsers. The per-address
 limit counts the visitor's address from `ip`, not the Worker's. A request
-without the secret is limited by its own address instead, before it is
-refused, and its 401 is counted under no app (its body is not to be trusted).
+without the secret is limited by its own address instead, and refused before
+its body is even read, however malformed or large; its 401 is counted under no
+app (its body is not to be trusted).
 The app's budget is spent last, after the secret, the fields, the site, the
 visitor's limit, and the bot check, so neither a crawler nor one busy visitor
 can use it up.

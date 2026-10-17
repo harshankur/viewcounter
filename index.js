@@ -7,7 +7,7 @@ const config = require('./config');
 const DatabaseManager = require('./db/DatabaseManager');
 const logger = require('./utils/logger');
 const { buildCorsOptions, countRefusedPreflights } = require('./middleware/security');
-const { createAnalyticsRouter, allowFromOtherSites, allowTrackingFromOtherSites, buildPerIpLimiter, trackingSourceFor } = require('./routes/analytics');
+const { createAnalyticsRouter, allowFromOtherSites, allowTrackingFromOtherSites, buildPerIpLimiter, exceptEdgeReports, trackingSourceFor } = require('./routes/analytics');
 const { createAdminRouter } = require('./routes/admin');
 const { startRetention } = require('./db/retention');
 const { createDbSessionStore } = require('./db/adminSessionStore');
@@ -77,9 +77,9 @@ function createApp() {
     }));
     app.use(cors(buildCorsOptions(config.server.corsOrigins)));
 
-    // Bounded well below body-parser's 100kb default; /event is the only
-    // endpoint taking a body and its payload is small.
-    app.use(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES }));
+    // Bounded well below body-parser's 100kb default; the bodies taken are
+    // small. An edge report's body is read by its route, after its secret.
+    app.use(exceptEdgeReports(express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES })));
 
     // A tracking request turned away here is counted in the tracking log like
     // any other refusal (in memory, written in batches).
@@ -240,6 +240,7 @@ module.exports.createApp = createApp;
 module.exports.createAnalyticsRouter = createAnalyticsRouter;
 module.exports.createAdminRouter = createAdminRouter;
 module.exports.allowTrackingFromOtherSites = allowTrackingFromOtherSites;
+module.exports.exceptEdgeReports = exceptEdgeReports;
 module.exports.startRetention = startRetention;
 module.exports.createDbSessionStore = createDbSessionStore;
 module.exports.DatabaseManager = DatabaseManager;

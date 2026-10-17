@@ -37,7 +37,9 @@ Upgrading from 3.5:
   counted in the tracking log. The page must be on one of the app's registered
   sites. The per-address limit counts the visitor's address each report names,
   with a budget of its own; a request without the secret is limited by its
-  own address before it is refused, and counted under no app. The app's
+  own address and refused before its body is read, and counted under no app.
+  `exceptEdgeReports(parser, mountPath)` keeps an embedding application's own
+  body parser off edge reports, as the service does. The app's
   budget is spent last, after the bot check, as for any view. A page
   requested with no user agent counts as a bot. Edge views appear in the
   tracking log as "Edge page view".

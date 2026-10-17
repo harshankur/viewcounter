@@ -11,6 +11,7 @@ const {
     EDGE,
     EVENT_TYPE,
     HTTP_STATUS,
+    PAYLOAD_LIMITS,
     QUERY_LIMITS,
     REJECTION_REASON,
     SOURCE_TYPE,
@@ -307,6 +308,25 @@ function allowTrackingFromOtherSites(mountPath = '') {
 const allowFromOtherSites = allowTrackingFromOtherSites();
 
 /**
+ * A body parser for everything but edge reports, whose body the router reads
+ * itself, on their route, only after the address limit for requests without
+ * the secret and the secret itself: a request without the secret is limited
+ * and refused unread, however malformed or large its body.
+ *
+ * @param {import('express').RequestHandler} parser e.g. express.json()
+ * @param {string} [mountPath] where the router is mounted ('/analytics', say); omit it at the root
+ * @returns {import('express').RequestHandler}
+ */
+function exceptEdgeReports(parser, mountPath = '') {
+    const prefix = mountPath.replace(/\/+$/, '').toLowerCase();
+    return (req, res, next) => {
+        const path = req.path.toLowerCase().startsWith(`${prefix}/`) ? req.path.slice(prefix.length) : null;
+        const edgeReport = req.method === 'POST' && path !== null && trackingSourceFor(path) === VIEW_LOG_SOURCE.EDGE;
+        return edgeReport ? next() : parser(req, res, next);
+    };
+}
+
+/**
  * Attach a request id used for correlating a client-visible error with the
  * server-side log line that has the real detail.
  */
@@ -439,6 +459,20 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
             },
         })
         : (req, res, next) => next();
+    /**
+     * The edge report's body, read only now that the secret has been checked
+     * (exceptEdgeReports keeps the service's own parser off it). A host that
+     * parsed it already leaves nothing to read. One that cannot be read is
+     * refused as any unreadable body is; anything but a JSON object is an
+     * empty one, which validation refuses.
+     * @type {import('express').RequestHandler}
+     */
+    const parseEdgeJson = express.json({ limit: PAYLOAD_LIMITS.MAX_BODY_BYTES });
+    const readEdgeBody = (req, res, next) => parseEdgeJson(req, res, (error) => {
+        if (error) return router.bodyErrorHandler(error, req, res, next);
+        if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) req.body = {};
+        return next();
+    });
     // An edge report's address is the visitor's, named in its body and
     // checked by requireVisitorIp before this runs.
     const limitEdgePerVisitor = buildPerIpLimiter(config.server?.rateLimit,
@@ -755,6 +789,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         router.post(EDGE.PATH,
             limitEdgeFailures,
             requireEdge,
+            readEdgeBody,
             validateEdgeView(config.allowed),
             trackingValidation,
             requireEdgeSite,
@@ -1010,4 +1045,14 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     return router;
 }
 
-module.exports = { createAnalyticsRouter, allowFromOtherSites, allowTrackingFromOtherSites, buildPerIpLimiter, handleRouteError, logContext, withRequestId, trackingSourceFor };
+module.exports = {
+    createAnalyticsRouter,
+    allowFromOtherSites,
+    allowTrackingFromOtherSites,
+    exceptEdgeReports,
+    buildPerIpLimiter,
+    handleRouteError,
+    logContext,
+    withRequestId,
+    trackingSourceFor,
+};

@@ -1031,3 +1031,31 @@ describe('GET /consent.js', () => {
         expect(await counted()).toEqual([]);
     });
 });
+
+describe('exceptEdgeReports', () => {
+    const { exceptEdgeReports } = require('../routes/analytics');
+
+    /** An app whose parser is wrapped, at the root or under a mount path, recording what it parsed. */
+    function appWith(mountPath) {
+        const app = express();
+        app.use(exceptEdgeReports(express.json(), mountPath));
+        app.use((req, res) => res.json({ parsed: req.body !== undefined }));
+        return app;
+    }
+    const post = (app, path) => request(app).post(path).send({ appId: 'blog' });
+
+    test('leaves an edge report\'s body to its route, and parses everything else', async () => {
+        const app = appWith();
+        expect((await post(app, '/edge/view')).body).toEqual({ parsed: false });
+        expect((await post(app, '/Edge/View/')).body).toEqual({ parsed: false });
+        expect((await post(app, '/event')).body).toEqual({ parsed: true });
+        // Only a report is a POST.
+        expect((await request(app).put('/edge/view').send({ a: 1 })).body).toEqual({ parsed: true });
+    });
+
+    test('under a mount path, only that path\'s edge reports', async () => {
+        const app = appWith('/analytics/');
+        expect((await post(app, '/analytics/edge/view')).body).toEqual({ parsed: false });
+        expect((await post(app, '/edge/view')).body).toEqual({ parsed: true });
+    });
+});

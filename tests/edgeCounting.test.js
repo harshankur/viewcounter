@@ -94,6 +94,31 @@ test('a stored edge view holds the masked address and its side, never the raw re
     expect(log.params).toContain('edge');
 });
 
+test('a burst of unreadable bodies without the secret is refused unread, then limited by the sender\'s address', async () => {
+    const malformed = () => request(server).post(EDGE.PATH).set('Content-Type', 'application/json').send('{"appId": ');
+    const oversized = () => request(server).post(EDGE.PATH).set('Content-Type', 'application/json')
+        .send(JSON.stringify({ appId: 'site', padding: 'x'.repeat(20 * 1024) }));
+    // Never parsed: the secret is missing, so the answer is 401, not a parse error.
+    await malformed().expect(401);
+    await oversized().expect(401);
+    // The address's budget for requests without the secret (two a minute here) is gone.
+    await malformed().expect(429);
+    await oversized().expect(429);
+});
+
+test('with the secret, an unreadable body is refused as one', async () => {
+    const res = await request(server).post(EDGE.PATH).set('Authorization', `Bearer ${SECRET}`)
+        .set('Content-Type', 'application/json').send('{"appId": ');
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ message: 'Malformed or oversized request' });
+    const big = await request(server).post(EDGE.PATH).set('Authorization', `Bearer ${SECRET}`)
+        .set('Content-Type', 'application/json').send(JSON.stringify({ appId: 'site', padding: 'x'.repeat(20 * 1024) }));
+    expect(big.status).toBe(413);
+    // A body that is not JSON is no report.
+    await request(server).post(EDGE.PATH).set('Authorization', `Bearer ${SECRET}`).set('Content-Type', 'text/plain')
+        .send('appId=site').expect(422);
+});
+
 test('everything else is still limited app-wide by the caller\'s own address', async () => {
     // The reports above did not use up this address's budget...
     await request(server).get('/health').expect(200);

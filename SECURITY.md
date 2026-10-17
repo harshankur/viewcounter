@@ -45,8 +45,9 @@ least 32 characters, or the server refuses to start) is a credential tier of
 its own: it authenticates the Worker in front of your sites on
 `POST /edge/view`, server to server, and can do nothing but add page views.
 It is read from the environment only, compared in constant time, and never
-logged; a request without it, or with a wrong one, is refused with 401 and
-counted in the tracking log, never with the header's value. Without the
+logged; a request without it, or with a wrong one, is limited by its own
+address and refused with 401 before its body is read, and counted in the
+tracking log under no app, never with the header's value. Without the
 secret the endpoint does not exist (404). The page each report names must be
 on one of its app's registered sites, so a Worker mapping a site to the wrong
 app cannot file views under it, and the per-address limit counts the
