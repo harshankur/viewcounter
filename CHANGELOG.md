@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.6.1]
+
+One page load counted by the edge and by the tracker is one view again for
+visitors on IPv6, whose devices send requests from several addresses, and an
+IPv6 address is masked to its /64 however it is written. Nothing needs doing
+to upgrade: no schema change, no setting to add.
+
 ### Fixed
 
 - **Some IPv6 addresses kept part of their interface identifier.** Masking
