@@ -470,35 +470,65 @@ async function verifyEdge(db) {
     const spaRows = await rowsAt('/e2e/spa');
     check('views from the tracker alone never merge with each other', spaRows.length === 2 && spaRows.every((r) => r.collected_by === 'script'));
 
-    // A device with several IPv6 addresses in one /64 (privacy addresses):
-    // the page request from one, the tracker's from another. This runner
-    // reaches the server over IPv6 as ::1; the Worker reports ::2, then ::3.
-    const viewOverIPv6 = async (path) => {
-        const res = await fetch(`http://[::1]:${HTTP_PORT}/registerView?appId=edge_site&deviceSize=medium&page=${encodeURIComponent(path)}&title=Title&age=0`,
-            { headers: { origin: ORIGIN, 'user-agent': BROWSER_UA } });
-        return { status: res.status, body: await res.json().catch(() => null) };
-    };
-    await edge('/e2e/privacy-address', { ip: '::2' });
-    const [before] = await rowsAt('/e2e/privacy-address');
-    const fromOtherAddress = await viewOverIPv6('/e2e/privacy-address');
-    const addressRows = await rowsAt('/e2e/privacy-address');
-    check('a page request and the tracker\'s view from two addresses of one IPv6 /64 are one view',
-        addressRows.length === 1 && addressRows[0].collected_by === 'both' && fromOtherAddress.body?.id === before?.public_id
-        && addressRows[0].visitor_hash !== before?.visitor_hash, JSON.stringify({ sides: addressRows.map((r) => r.collected_by), status: fromOtherAddress.status }));
-    const v6Hash = addressRows[0]?.visitor_hash;
+    // ::1 and ::2 share a /64 that carries no network (the unspecified one):
+    // there, as on IPv4, the hash must match. This runner reaches the server
+    // over IPv6 as ::1; the Worker reports ::2.
+    const res6 = await fetch(`http://[::1]:${HTTP_PORT}/registerView?appId=edge_site&deviceSize=medium&page=%2Fe2e%2Fno-network&title=Title&age=0`,
+        { headers: { origin: ORIGIN, 'user-agent': BROWSER_UA } }).catch(() => null);
+    await edge('/e2e/no-network', { ip: '::2' });
+    const noNetworkRows = await rowsAt('/e2e/no-network');
+    check('two addresses of a /64 without a network (::1, ::2) are two visitors: nothing merged',
+        res6?.status === 200 && noNetworkRows.length === 2 && noNetworkRows.map((r) => r.collected_by).sort().join() === 'edge,script',
+        JSON.stringify({ status: res6?.status, sides: noNetworkRows.map((r) => r.collected_by) }));
 
-    // The second such page: the tracker's hash has viewed a page already, so
-    // the edge's first view becomes a repeat, in the row and in the tracking log.
-    await edge('/e2e/privacy-again', { ip: '::3' });
-    const [againBefore] = await rowsAt('/e2e/privacy-again');
-    const again = await viewOverIPv6('/e2e/privacy-again');
-    const [againRow] = await rowsAt('/e2e/privacy-again');
-    const [[logEntry]] = await db.query('SELECT is_unique FROM `_view_log` WHERE view_id = ?', [againRow?.public_id]);
-    check('the merged view carries the tracker\'s visitor hash, and is a repeat for it, as the tracker\'s own view would be',
-        againRow?.visitor_hash === v6Hash && Number(againBefore?.is_unique) === 1 && Number(againRow?.is_unique) === 0
-        && again.body?.duplicate === true && again.body?.id === againRow?.public_id,
-        JSON.stringify({ sameHash: againRow?.visitor_hash === v6Hash, before: againBefore?.is_unique, after: againRow?.is_unique }));
-    check('the tracking log says repeat for it too', Number(logEntry?.is_unique) === 0, JSON.stringify(logEntry));
+    // A device with several addresses in one routed IPv6 /64 (privacy
+    // addresses): the page request from one, the tracker's from another. Over
+    // HTTP this runner has only ::1, so these go through the server's own
+    // DatabaseManager code, against this engine.
+    const DatabaseManager = require('../../db/DatabaseManager');
+    const manager = new DatabaseManager({
+        mode: 'connect', host: '127.0.0.1', port: Number(DB_PORT), database: DB_NAME, user: 'vcuser', password: 'vcpass',
+    });
+    try {
+        await manager.initialize([]);
+        const report = (ip, collectedBy, pagePath) => manager.registerEvent('edge_site', {
+            ip, deviceSize: 'medium', pagePath, pageTitle: collectedBy === 'script' ? 'Title' : null,
+            browser: 'Chrome', browserVersion: '141.0.0.0', os: 'macOS', osVersion: '15.6', deviceType: 'desktop',
+            userAgent: BROWSER_UA, visitorSecret: VISITOR_SECRET, uniqueWindowHours: 24,
+            source: collectedBy === 'edge' ? 'edge' : 'registerView', collectedBy, mergeWindowSeconds: 120, pageAgeSeconds: 0,
+        });
+        const edgeFirst = await report('2001:db8:1:2:aaaa:1:1:1', 'edge', '/e2e/privacy-address');
+        const merged = await report('2001:db8:1:2:bbbb:2:2:2', 'script', '/e2e/privacy-address');
+        const addressRows = await rowsAt('/e2e/privacy-address');
+        check('a page request and the tracker\'s view from two addresses of one IPv6 /64 are one view',
+            merged.merged === true && merged.publicId === edgeFirst.publicId && addressRows.length === 1
+            && addressRows[0].collected_by === 'both' && addressRows[0].masked_ip === '2001:db8:1:2:0:0:0:0',
+            JSON.stringify({ merged: merged.merged, sides: addressRows.map((r) => r.collected_by), masked: addressRows[0]?.masked_ip }));
+        const v6Hash = addressRows[0]?.visitor_hash;
+
+        // The second such page: the tracker's hash has viewed a page already,
+        // so the edge's first view becomes a repeat, in the row and in the log.
+        const againFirst = await report('2001:db8:1:2:cccc:3:3:3', 'edge', '/e2e/privacy-again');
+        const again = await report('2001:db8:1:2:bbbb:2:2:2', 'script', '/e2e/privacy-again');
+        const [againRow] = await rowsAt('/e2e/privacy-again');
+        const [[logEntry]] = await db.query('SELECT is_unique FROM `_view_log` WHERE view_id = ?', [againRow?.public_id]);
+        check('the merged view carries the tracker\'s visitor hash, and is a repeat for it, as the tracker\'s own view would be',
+            againRow?.visitor_hash === v6Hash && againFirst.isUnique === true && Number(againRow?.is_unique) === 0
+            && again.duplicate === true && again.publicId === againRow?.public_id,
+            JSON.stringify({ sameHash: againRow?.visitor_hash === v6Hash, before: againFirst.isUnique, after: againRow?.is_unique }));
+        check('the tracking log says repeat for it too', Number(logEntry?.is_unique) === 0, JSON.stringify(logEntry));
+
+        // Mapped IPv4, in a spelling the server never normalised before, is
+        // one IPv4 address: masked like one, and never merged by network.
+        const mapped = await report('::FFFF:A14:1EFA', 'edge', '/e2e/mapped');
+        const [mappedRow] = await rowsAt('/e2e/mapped');
+        check('an IPv4-mapped address in hex is stored as its IPv4 /24', mapped.merged === false && mappedRow?.masked_ip === '::ffff:10.20.30.0',
+            mappedRow?.masked_ip);
+    } catch (err) {
+        check('the IPv6 merge runs on this engine', false, err.message);
+    } finally {
+        await manager.close();
+    }
 
     // An IPv4 /24 is a carrier's NAT pool or a street of neighbours, never one visitor.
     await edge('/e2e/ipv4-neighbour', { ip: '127.0.0.2' });
@@ -523,7 +553,7 @@ async function verifyEdge(db) {
         JSON.stringify(networkRows.map((r) => r.collected_by)));
 
     const [[logged]] = await db.query("SELECT COUNT(*) AS n FROM `_view_log` WHERE app_id = 'edge_site' AND source = 'edge'");
-    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 12, `${logged.n} entries`);
+    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 14, `${logged.n} entries`);
 }
 
 async function verifySchema(db) {

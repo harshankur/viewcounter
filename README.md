@@ -1396,7 +1396,9 @@ collected it (`collected_by`: `script`, `edge`, or `both`):
   the browser, its version, the system, its version, and the device type. Not
   the hash there, because a device with several IPv6 addresses (the privacy
   addresses macOS, iOS, Windows, and Android use by default) sends the page
-  request from one and the tracker's request from another.
+  request from one and the tracker's request from another. A /64 that
+  carries no network (the all-zero one, from `::1`, or a link-local one)
+  needs the hash, as IPv4 does.
 - **The tracker's view** looks for a view of the same page by the same visitor
   that the edge recorded around when the page was loaded (the tracker sends
   `age`, how long ago that was), within two minutes either side, and that
@@ -1430,7 +1432,8 @@ collected it (`collected_by`: `script`, `edge`, or `both`):
   stored as its own and only a title or a session lands on the wrong one of
   the two; if it did not (the page came from the browser's cache), two page
   loads are counted as one. It is accepted; each view is merged at most once.
-  On IPv4 this cannot happen, since the hash must match.
+  On IPv4 two people are merged only when they also share the full address
+  and the user agent, and then the counter takes them for one visitor anyway.
 - **Page loads before consent stay edge-only**, with the hash of the address
   the page request came from. On IPv6 that can differ from the tracker's, so
   a visitor whose later loads merged can still appear as two visitors, or two

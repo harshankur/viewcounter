@@ -28,14 +28,24 @@ const LIVE_ROW = 'deleted_at IS NULL';
  */
 const VIEW_LOG_SLACK_SECONDS = 60;
 
+/** fe80::/10, link-local: the first 10 bits of the first group. */
+const LINK_LOCAL_MASK = 0xffc0;
+const LINK_LOCAL_PREFIX = 0xfe80;
+
 /**
- * Whether a masked address is an IPv6 network (a /64), rather than an IPv4
- * /24, plain or IPv4-mapped.
+ * Whether a masked address is a routed IPv6 network (a /64) that can stand
+ * for one device's privacy addresses: not an IPv4 /24, plain or
+ * IPv4-mapped, and not a /64 that carries no network at all, the
+ * unspecified one (from ::, ::1, and IPv4-compatible addresses) or a
+ * link-local one (fe80::/10), which never crosses the internet.
  * @param {string} maskedIp
  * @returns {boolean}
  */
 function isIPv6Network(maskedIp) {
-    return typeof maskedIp === 'string' && maskedIp.includes(':') && !maskedIp.includes('.');
+    if (typeof maskedIp !== 'string' || !maskedIp.includes(':') || maskedIp.includes('.')) return false;
+    const groups = maskedIp.split(':').map((group) => Number.parseInt(group, 16) || 0);
+    if (groups.every((group) => group === 0)) return false;
+    return (groups[0] & LINK_LOCAL_MASK) !== LINK_LOCAL_PREFIX;
 }
 const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
@@ -657,9 +667,12 @@ class DatabaseManager {
      * @returns {Promise<object|null>} what registerEvent returns, or null when there is nothing to merge into
      */
     async mergePageLoad(appId, {
-        hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds = 0, pagePath, pageTitle, deviceSize, sessionId,
+        hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds: reportedAge = 0, pagePath, pageTitle, deviceSize, sessionId,
         uniqueWindowHours = 0, client = {},
     }) {
+        // Validation refuses anything outside 0 to a day; bounded here too, so
+        // no caller can make the lookup reach ahead or the log update far back.
+        const pageAgeSeconds = Math.min(Math.max(Number(reportedAge) || 0, 0), TRACKING.MAX_PAGE_AGE_SECONDS);
         const fromScript = collectedBy === COLLECTED_BY.SCRIPT;
         if (!fromScript && collectedBy !== COLLECTED_BY.EDGE) return null;
         const storedPath = truncate(pagePath, FIELD_MAX_LENGTH.PAGE_PATH);
@@ -668,8 +681,9 @@ class DatabaseManager {
         const counterpart = fromScript ? COLLECTED_BY.EDGE : COLLECTED_BY.SCRIPT;
         // Only an IPv6 device changes address between two requests of one page
         // load. A masked IPv4 address is a whole /24 (a carrier's NAT pool,
-        // neighbours at one provider), far too wide to stand for one visitor:
-        // there the hash, made from the full address, must match.
+        // neighbours at one provider), far too wide to stand for one visitor,
+        // and an IPv6 /64 without a network says nothing: there the hash,
+        // made from the full address, must match.
         const byNetwork = isIPv6Network(maskedIp);
         // Compared as stored: the same truncation, and NULL equal to NULL.
         const samePageLoad = `masked_ip = ? AND browser <=> ? AND browser_version <=> ? AND os <=> ?

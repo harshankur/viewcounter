@@ -29,7 +29,8 @@ All notable changes to this project are documented here. This project follows
   now matched by what both store alike: the masked /64 and the browser,
   system, their versions, and the device type. On IPv4 the hash must still
   match: a masked IPv4 address is a whole /24, a carrier's NAT pool or a
-  street of neighbours. Of several candidates, the one recorded nearest the
+  street of neighbours. So must it for a /64 that carries no network (from
+  `::1`, or link-local addresses). Of several candidates, the one recorded nearest the
   page's load wins, the same hash only breaking a tie. The merged view
   carries the tracker's visitor hash, as the tracker's other views of the
   visit do, and its uniqueness is decided again for that hash, in the row and

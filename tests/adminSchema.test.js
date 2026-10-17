@@ -863,11 +863,34 @@ describe('which page load a tracker view takes, and what the tracking log says a
         expect((await manager.registerEvent('blog', tracker({ ip: '203.0.113.77', pageAgeSeconds: 3 }))).publicId).toBe('same');
     });
 
-    test('an IPv4-mapped address is IPv4 too', () => {
+    test('an IPv4-mapped address is IPv4 too, and a /64 without a network is no network', () => {
         expect(DatabaseManager.isIPv6Network('203.0.113.0')).toBe(false);
         expect(DatabaseManager.isIPv6Network('::ffff:203.0.113.0')).toBe(false);
         expect(DatabaseManager.isIPv6Network('2a02:8109:b22a:a500:0:0:0:0')).toBe(true);
         expect(DatabaseManager.isIPv6Network(null)).toBe(false);
+        // The unspecified /64 (from ::, ::1, ::1.2.3.4) and link-local ones (fe80::/10).
+        expect(DatabaseManager.isIPv6Network('0:0:0:0:0:0:0:0')).toBe(false);
+        expect(DatabaseManager.isIPv6Network('fe80:0:0:0:0:0:0:0')).toBe(false);
+        expect(DatabaseManager.isIPv6Network('febf:0:0:0:0:0:0:0')).toBe(false);
+        expect(DatabaseManager.isIPv6Network('fec0:0:0:0:0:0:0:0')).toBe(true);
+    });
+
+    test.each([['::1'], ['::'], ['::1.2.3.4'], ['fe80::1234:5678']])(
+        'from %s, whose masked address carries no network, the hash must match', async (ip) => {
+            const { manager } = managerOver([]);
+            await manager.registerEvent('blog', tracker({ ip }));
+            expect(manager.pool.matching('SELECT id, public_id, is_unique, visitor_hash FROM `blog`')[0].sql)
+                .toContain("SUBSTRING_INDEX(page_path, '#', 1) = ? AND visitor_hash = ?");
+        });
+
+    test.each([
+        ['a negative age', -50, [120, -120, 0]],
+        ['an age beyond a day', 1e9, [86400 + 120, 86400 - 120, 86400]],
+        ['an age that is no number', 'soon', [120, -120, 0]],
+    ])('%s is bounded to 0 to a day, so the lookup never reaches ahead or far back', async (_label, pageAgeSeconds, bounds) => {
+        const { manager } = managerOver([]);
+        await manager.registerEvent('blog', tracker({ ip: '2a02:8109:b22a:a500:1:2:3:4', pageAgeSeconds }));
+        expect(manager.pool.matching('SELECT id, public_id, is_unique, visitor_hash FROM `blog`')[0].params.slice(9, 12)).toEqual(bounds);
     });
 
     test('two tabs, where the other tab\'s load shares the tracker\'s hash: the nearest load still wins', async () => {
