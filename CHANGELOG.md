@@ -9,11 +9,16 @@ All notable changes to this project are documented here. This project follows
 
 - **Some IPv6 addresses kept part of their interface identifier.** Masking
   split the address at its colons and kept the first four pieces, so an
-  address with a `::` inside its network (`2606:4700::6810:84e5` became
-  `2606:4700::6810:0:0:0:0`) kept up to 48 bits it should not have, and `::1`
-  was kept whole. Addresses are now expanded first and stored as their /64
-  alone, in one written form (`2606:4700:0:0:0:0:0:0`), so the addresses of
-  one network also always read alike. Rows stored before keep their masked
+  address with a `::` inside its network kept up to 32 bits it should not
+  have (`2001:db8::a:b:c:d` became `2001:db8::a:b:0:0:0:0`), and `::1` was
+  kept whole. An IPv4-mapped address written in hexadecimal
+  (`::ffff:102:304`) kept its host octet. Addresses are now expanded first
+  and stored as their /64 alone, in one written form
+  (`2001:db8:0:0:0:0:0:0`), so the addresses of one network also always read
+  alike; every spelling of an IPv4-mapped address is read and masked as the
+  IPv4 address it carries (`::ffff:1.2.3.0`), and a deprecated
+  IPv4-compatible one (`::1.2.3.4`) as the IPv6 address it is, to the
+  all-zero /64. Rows stored before keep their masked
   address as it was; an operator who wants them gone can move them to the
   trash and erase them in the admin UI.
 - **A page load counted at the edge and by the tracker was often stored as two

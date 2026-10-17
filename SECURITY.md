@@ -15,7 +15,8 @@ made them reversible to the originating IP. Upgrade rather than patching 2.x.
 
 3.6.1 fixes the masking of IPv6 addresses that are written with a `::` inside
 their first 64 bits: such an address kept part of its interface identifier
-(and `::1` all of it) in the stored masked address. Upgrade.
+(and `::1` all of it) in the stored masked address, and an IPv4-mapped address
+written in hexadecimal kept its host octet. Upgrade.
 
 3.5.x is not patched further. 3.6 is a drop-in upgrade: its schema v8 adds one
 column (`collected_by`) to every app table on first start, and nothing else

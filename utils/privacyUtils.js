@@ -1,8 +1,8 @@
 const crypto = require('crypto');
-const net = require('net');
 
 const { SERVER } = require('../constants');
 const { getError, ErrorType } = require('./errorUtils');
+const { ipv6Groups, mappedIPv4 } = require('./ipUtils');
 
 /** Rotation never runs slower than this, even if dedup is disabled. */
 const MIN_ROTATION_HOURS = 1;
@@ -19,12 +19,6 @@ class PrivacyUtils {
      */
     static maskIP(ip) {
         if (!ip) return '0.0.0.0';
-
-        // Handle IPv4-mapped IPv6 (::ffff:127.0.0.1)
-        if (ip.startsWith('::ffff:')) {
-            const ipv4 = ip.split(':').pop();
-            return `::ffff:${this.maskIPv4(ipv4)}`;
-        }
 
         if (ip.includes(':')) {
             return this.maskIPv6(ip);
@@ -48,34 +42,21 @@ class PrivacyUtils {
      * instead kept part of the interface identifier of any address whose
      * network had a `::` in it (and all of `::1`), and wrote one network in
      * several ways, so two addresses of one /64 could look like two.
+     *
+     * An IPv4-mapped address (::ffff:0:0/96), however it is spelled
+     * (`::ffff:1.2.3.4`, `::FFFF:102:304`, `0:0:0:0:0:ffff:1.2.3.4`), is the
+     * IPv4 address it carries, masked as one: `::ffff:1.2.3.0`. A deprecated
+     * IPv4-compatible address (`::1.2.3.4`) is not: nothing routes it, and it
+     * masks as the IPv6 address it is, to the all-zero /64, keeping nothing.
      * Anything that is not an IPv6 address is passed through as it is.
      * @param {string} ip
      * @returns {string}
      */
     static maskIPv6(ip) {
-        const groups = this.ipv6Groups(ip);
-        return groups ? `${groups.slice(0, 4).join(':')}:0:0:0:0` : ip;
-    }
-
-    /**
-     * The eight 16-bit groups of an IPv6 address, as lowercase hexadecimal
-     * without leading zeros, or null for anything that is not one.
-     * @param {string} ip
-     * @returns {string[]|null}
-     */
-    static ipv6Groups(ip) {
-        const text = String(ip).split('%')[0].toLowerCase();
-        if (!net.isIPv6(text)) return null;
-        // An IPv4 tail (::ffff:1.2.3.4, 64:ff9b::1.2.3.4) is the last two groups.
-        const tail = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
-        const hex = tail
-            ? `${text.slice(0, tail.index)}${((Number(tail[1]) << 8) | Number(tail[2])).toString(16)}:${((Number(tail[3]) << 8) | Number(tail[4])).toString(16)}`
-            : text;
-        const [head, rest] = hex.includes('::') ? hex.split('::') : [hex, null];
-        const before = head ? head.split(':') : [];
-        const after = rest ? rest.split(':') : [];
-        const groups = rest === null ? before : [...before, ...Array(8 - before.length - after.length).fill('0'), ...after];
-        return groups.map((group) => Number.parseInt(group, 16).toString(16));
+        const groups = ipv6Groups(ip);
+        if (!groups) return ip;
+        const mapped = mappedIPv4(groups);
+        return mapped ? `::ffff:${this.maskIPv4(mapped)}` : `${groups.slice(0, 4).join(':')}:0:0:0:0`;
     }
 
     /**

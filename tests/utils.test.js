@@ -119,6 +119,36 @@ describe('ipUtils', () => {
     });
 });
 
+describe('ipUtils IPv6 parsing', () => {
+    const { ipv6Groups, mappedIPv4, normalizeIp } = require('../utils/ipUtils');
+
+    test('ipv6Groups expands any spelling to eight plain groups, and is null for anything else', () => {
+        expect(ipv6Groups('2001:DB8::1')).toEqual(['2001', 'db8', '0', '0', '0', '0', '0', '1']);
+        expect(ipv6Groups('::ffff:1.2.3.4')).toEqual(['0', '0', '0', '0', '0', 'ffff', '102', '304']);
+        expect(ipv6Groups('fe80::1%en0')).toEqual(['fe80', '0', '0', '0', '0', '0', '0', '1']);
+        expect(ipv6Groups('1.2.3.4')).toBeNull();
+        expect(ipv6Groups('a:b')).toBeNull();
+        expect(ipv6Groups('')).toBeNull();
+    });
+
+    test('mappedIPv4 reads the IPv4 address of a mapped one, and nothing else', () => {
+        expect(mappedIPv4(ipv6Groups('::ffff:102:304'))).toBe('1.2.3.4');
+        expect(mappedIPv4(ipv6Groups('::1.2.3.4'))).toBeNull();
+        expect(mappedIPv4(ipv6Groups('2001:db8::ffff:102:304'))).toBeNull();
+        expect(mappedIPv4(null)).toBeNull();
+    });
+
+    test.each([['::ffff:1.2.3.4'], ['::FFFF:1.2.3.4'], ['::ffff:102:304'], ['0:0:0:0:0:ffff:1.2.3.4']])(
+        'normalizeIp reads %s as 1.2.3.4, so the hash and the mask are the same for every spelling', (ip) => {
+            expect(normalizeIp(ip)).toBe('1.2.3.4');
+        });
+
+    test('normalizeIp leaves every other address as it is', () => {
+        for (const ip of ['1.2.3.4', '::1', '::1.2.3.4', '2001:db8::1', 'not an ip']) expect(normalizeIp(ip)).toBe(ip);
+        expect(normalizeIp(undefined)).toBeUndefined();
+    });
+});
+
 describe('privacyUtils.maskIP()', () => {
     test('zeroes the final IPv4 octet', () => {
         expect(PrivacyUtils.maskIP('192.168.1.55')).toBe('192.168.1.0');
@@ -169,10 +199,24 @@ describe('privacyUtils.maskIP()', () => {
         }
     });
 
-    test('ipv6Groups is null for anything that is not an IPv6 address', () => {
-        expect(PrivacyUtils.ipv6Groups('1.2.3.4')).toBeNull();
-        expect(PrivacyUtils.ipv6Groups('a:b')).toBeNull();
-        expect(PrivacyUtils.ipv6Groups('')).toBeNull();
+    test.each([
+        ['::ffff:1.2.3.4'], ['::FFFF:1.2.3.4'], ['::ffff:102:304'], ['::ffff:0102:0304'], ['0:0:0:0:0:ffff:1.2.3.4'],
+        ['0000:0000:0000:0000:0000:FFFF:0102:0304'],
+    ])('an IPv4-mapped address spelled %s masks as the IPv4 address it carries: ::ffff:1.2.3.0', (ip) => {
+        expect(PrivacyUtils.maskIP(ip)).toBe('::ffff:1.2.3.0');
+    });
+
+    test('no spelling of an IPv4-mapped address keeps its host octet', () => {
+        for (const ip of ['::ffff:10.20.30.250', '::FFFF:A14:1EFA', '::ffff:0a14:1efa', '0:0:0:0:0:ffff:10.20.30.250']) {
+            const masked = PrivacyUtils.maskIP(ip);
+            expect(masked).toBe('::ffff:10.20.30.0');
+            expect(masked).not.toMatch(/250|1efa/i);
+        }
+    });
+
+    test('a deprecated IPv4-compatible address (::1.2.3.4) is not IPv4: it masks to the all-zero /64, keeping nothing', () => {
+        expect(PrivacyUtils.maskIP('::1.2.3.4')).toBe('0:0:0:0:0:0:0:0');
+        expect(PrivacyUtils.maskIP('::0102:0304')).toBe('0:0:0:0:0:0:0:0');
     });
 });
 
