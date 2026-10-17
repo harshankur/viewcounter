@@ -487,24 +487,13 @@ class DatabaseManager {
         if (mergeWindowSeconds > 0 && eventType === EVENT_TYPE.PAGEVIEW) {
             const merged = await this.mergePageLoad(appId, {
                 hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds, pagePath, pageTitle, deviceSize, sessionId,
+                uniqueWindowHours,
+                client: { maskedIp, browser, browserVersion, os, osVersion, deviceType },
             });
             if (merged) return merged;
         }
 
-        let isUnique = 1;
-        if (uniqueWindowHours > 0 && eventType === EVENT_TYPE.PAGEVIEW) {
-            const [existing] = await this.pool.query(
-                `SELECT id FROM \`${appId}\`
-                 WHERE visitor_hash = ? AND event_type = ? AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
-                   AND ${LIVE_ROW}
-                 LIMIT 1`,
-                [hashedVisitor, EVENT_TYPE.PAGEVIEW, uniqueWindowHours]
-            );
-
-            if (existing.length > 0) {
-                isUnique = 0;
-            }
-        }
+        const isUnique = eventType === EVENT_TYPE.PAGEVIEW && await this.seenRecently(appId, hashedVisitor, uniqueWindowHours) ? 0 : 1;
 
         const publicId = crypto.randomUUID();
         const storedEventType = truncate(eventType, FIELD_MAX_LENGTH.EVENT_TYPE);
@@ -573,14 +562,36 @@ class DatabaseManager {
     }
 
     /**
+     * Whether this visitor already viewed a page of the app within the
+     * unique-visitor window, other than the view `exceptId`. Off (false) for
+     * a window of zero.
+     *
+     * @param {string} appId already validated
+     * @param {string} hashedVisitor
+     * @param {number} uniqueWindowHours
+     * @param {number|null} [exceptId] a view not to count, the one being decided about
+     * @returns {Promise<boolean>}
+     */
+    async seenRecently(appId, hashedVisitor, uniqueWindowHours, exceptId = null) {
+        if (!(uniqueWindowHours > 0)) return false;
+        const [existing] = await this.pool.query(
+            `SELECT id FROM \`${appId}\`
+             WHERE visitor_hash = ? AND event_type = ? AND timestamp > DATE_SUB(NOW(), INTERVAL ? HOUR)
+               AND ${LIVE_ROW}${exceptId === null ? '' : ' AND id <> ?'}
+             LIMIT 1`,
+            [hashedVisitor, EVENT_TYPE.PAGEVIEW, uniqueWindowHours, ...(exceptId === null ? [] : [exceptId])]
+        );
+        return existing.length > 0;
+    }
+
+    /**
      * Merge a page view into the other side's record of the same page load.
      *
      * With an edge Worker in front of a site and the tracker allowed to run,
      * one page load is reported twice: by the Worker, when it serves the page,
      * and by the tracker a moment later. The second report finds the first,
-     * a view of the same page by the same visitor, recorded by the other side
-     * within the window and not merged yet, and completes it instead of adding
-     * a view:
+     * a view of the same page recorded by the other side within the window and
+     * not merged yet, and completes it instead of adding a view:
      *
      *  - the tracker's report fills in what only the page knows (its title,
      *    the size of its window, the session, a hash route) and returns the
@@ -588,63 +599,104 @@ class DatabaseManager {
      *  - the Worker's report, arriving after the tracker's (rare), only marks
      *    the view as seen by both.
      *
-     * The page is compared without a fragment, which only the tracker sends
-     * (for hash-routed pages). Uniqueness is the first report's, as it would
-     * have been with one report. The view log gains no entry: no view was
-     * added. Two reports arriving at the same instant may each find nothing
-     * and both be stored; that is accepted, the window is short and the rows
-     * are told apart by `collected_by`.
+     * The same visitor is told by what both reports store alike: the masked
+     * address (an IPv4 /24, an IPv6 /64) and the browser, its version, the
+     * system, its version, and the device type, compared null-safely. Not by
+     * the visitor hash, which is made from the full address: a device with
+     * several IPv6 addresses (privacy addresses, on by default on every major
+     * system) sends the page request from one and the tracker's from another.
+     * A view with the same hash is still preferred. The page is compared
+     * without a fragment, which only the tracker sends (for hash-routed
+     * pages).
      *
      * The tracker knows when its page was loaded (`pageAgeSeconds` ago), so
      * its view takes the edge view recorded nearest that moment, within the
-     * window either side of it: with the same page open in two tabs, or two
-     * identical browsers behind one address, each view finds its own page
-     * load, and a later load is never a candidate. The edge cannot know which
-     * view it follows, and takes the newest within the window.
+     * window either side of it: with the same page open in two tabs each view
+     * finds its own page load, and a later load is never a candidate. The
+     * edge cannot know which view it follows, and takes the newest within the
+     * window.
+     *
+     * A merged view carries the tracker's visitor hash: the tracker's other
+     * views of the visit (a single-page app's navigations, its events) carry
+     * it too, so visits and visitors read as one. When the hash changes, the
+     * view's uniqueness is decided again for the hash it now has, as the
+     * tracker's own view would have been, so `is_unique` always describes the
+     * hash beside it.
+     *
+     * The view log gains no entry: no view was added. Two reports arriving at
+     * the same instant may each find nothing and both be stored, and two
+     * people behind one IPv4 address (a NAT) or in one IPv6 /64, with the same
+     * browser and system versions, opening the same page within the window,
+     * may have their views merged with each other's. Both are accepted: the
+     * window is short, and each view is merged at most once (the claim below
+     * takes it only while it is still unmerged).
      *
      * @param {string} appId already validated
      * @param {{ hashedVisitor: string, collectedBy: string, mergeWindowSeconds: number,
      *   pageAgeSeconds?: number, pagePath?: string, pageTitle?: string, deviceSize?: string,
-     *   sessionId?: string }} report
+     *   sessionId?: string, uniqueWindowHours?: number,
+     *   client: { maskedIp: string, browser?: string|null, browserVersion?: string|null, os?: string|null,
+     *     osVersion?: string|null, deviceType?: string|null } }} report
      * @returns {Promise<object|null>} what registerEvent returns, or null when there is nothing to merge into
      */
     async mergePageLoad(appId, {
         hashedVisitor, collectedBy, mergeWindowSeconds, pageAgeSeconds = 0, pagePath, pageTitle, deviceSize, sessionId,
+        uniqueWindowHours = 0, client = {},
     }) {
         const fromScript = collectedBy === COLLECTED_BY.SCRIPT;
         if (!fromScript && collectedBy !== COLLECTED_BY.EDGE) return null;
         const storedPath = truncate(pagePath, FIELD_MAX_LENGTH.PAGE_PATH);
-        if (!storedPath) return null;
+        const maskedIp = truncate(client.maskedIp, FIELD_MAX_LENGTH.MASKED_IP);
+        if (!storedPath || !maskedIp) return null;
         const counterpart = fromScript ? COLLECTED_BY.EDGE : COLLECTED_BY.SCRIPT;
-        const samePageLoad = `visitor_hash = ? AND collected_by = ? AND event_type = ? AND ${LIVE_ROW}
+        // Compared as stored: the same truncation, and NULL equal to NULL.
+        const samePageLoad = `masked_ip = ? AND browser <=> ? AND browser_version <=> ? AND os <=> ?
+               AND os_version <=> ? AND device_type <=> ?
+               AND collected_by = ? AND event_type = ? AND ${LIVE_ROW}
                AND SUBSTRING_INDEX(page_path, '#', 1) = ?`;
-        const sameParams = [hashedVisitor, counterpart, EVENT_TYPE.PAGEVIEW, storedPath.split('#')[0]];
+        const sameParams = [
+            maskedIp,
+            truncate(client.browser, FIELD_MAX_LENGTH.BROWSER),
+            truncate(client.browserVersion, FIELD_MAX_LENGTH.BROWSER_VERSION),
+            truncate(client.os, FIELD_MAX_LENGTH.OS),
+            truncate(client.osVersion, FIELD_MAX_LENGTH.OS_VERSION),
+            truncate(client.deviceType, FIELD_MAX_LENGTH.DEVICE_TYPE),
+            counterpart,
+            EVENT_TYPE.PAGEVIEW,
+            storedPath.split('#')[0],
+        ];
 
         const [rows] = fromScript
             ? await this.pool.query(
-                `SELECT id, public_id, is_unique FROM \`${appId}\`
+                `SELECT id, public_id, is_unique, visitor_hash FROM \`${appId}\`
                  WHERE ${samePageLoad}
                    AND timestamp BETWEEN DATE_SUB(NOW(), INTERVAL ? SECOND) AND DATE_SUB(NOW(), INTERVAL ? SECOND)
-                 ORDER BY ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC, id DESC
+                 ORDER BY visitor_hash = ? DESC,
+                          ABS(TIMESTAMPDIFF(SECOND, timestamp, DATE_SUB(NOW(), INTERVAL ? SECOND))) ASC, id DESC
                  LIMIT 1`,
-                [...sameParams, pageAgeSeconds + mergeWindowSeconds, pageAgeSeconds - mergeWindowSeconds, pageAgeSeconds]
+                [...sameParams, pageAgeSeconds + mergeWindowSeconds, pageAgeSeconds - mergeWindowSeconds, hashedVisitor, pageAgeSeconds]
             )
             : await this.pool.query(
-                `SELECT id, public_id, is_unique FROM \`${appId}\`
+                `SELECT id, public_id, is_unique, visitor_hash FROM \`${appId}\`
                  WHERE ${samePageLoad}
                    AND timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)
-                 ORDER BY id DESC
+                 ORDER BY visitor_hash = ? DESC, id DESC
                  LIMIT 1`,
-                [...sameParams, mergeWindowSeconds]
+                [...sameParams, mergeWindowSeconds, hashedVisitor]
             );
         const row = rows[0];
         if (!row) return null;
 
+        let isUnique = row.is_unique === 1 || row.is_unique === true;
         // Claimed only if it is still unmerged, so two reports cannot both take it.
-        const [result] = fromScript
-            ? await this.pool.query(
+        let result;
+        if (fromScript) {
+            const rehashed = row.visitor_hash !== hashedVisitor;
+            if (rehashed) isUnique = !(await this.seenRecently(appId, hashedVisitor, uniqueWindowHours, row.id));
+            [result] = await this.pool.query(
                 `UPDATE \`${appId}\`
-                 SET collected_by = ?, page_path = ?, page_title = ?, devicesize = COALESCE(?, devicesize), session_id = ?
+                 SET collected_by = ?, page_path = ?, page_title = ?, devicesize = COALESCE(?, devicesize), session_id = ?,
+                     visitor_hash = ?, is_unique = ?
                  WHERE id = ? AND collected_by = ?`,
                 [
                     COLLECTED_BY.BOTH,
@@ -652,17 +704,20 @@ class DatabaseManager {
                     truncate(pageTitle, FIELD_MAX_LENGTH.PAGE_TITLE),
                     truncate(deviceSize, FIELD_MAX_LENGTH.DEVICE_SIZE),
                     truncate(sessionId, FIELD_MAX_LENGTH.SESSION_ID),
+                    hashedVisitor,
+                    isUnique ? 1 : 0,
                     row.id,
                     counterpart,
                 ]
-            )
-            : await this.pool.query(
+            );
+        } else {
+            [result] = await this.pool.query(
                 `UPDATE \`${appId}\` SET collected_by = ? WHERE id = ? AND collected_by = ?`,
                 [COLLECTED_BY.BOTH, row.id, counterpart]
             );
+        }
         if (!(result?.affectedRows > 0)) return null;
 
-        const isUnique = row.is_unique === 1 || row.is_unique === true;
         return { duplicate: !isUnique, insertId: row.id, publicId: row.public_id, isUnique, merged: true };
     }
 

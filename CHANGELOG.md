@@ -5,6 +5,22 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **A page load counted at the edge and by the tracker was often stored as two
+  views.** The two reports were matched by visitor hash, which is made from
+  the full address, and a device with several IPv6 addresses (the privacy
+  addresses macOS, iOS, Windows, and Android use by default) sends the page
+  request from one and the tracker's from another. They are now matched by
+  what both store alike: the masked address (the IPv4 /24 or IPv6 /64) and
+  the browser, system, their versions, and the device type, preferring a
+  view with the same hash where there is one. The merged view carries the
+  tracker's visitor hash, as the tracker's other views of the visit do, and
+  its uniqueness is decided again for that hash. Two people behind one
+  address or in one /64, with the same browser and system versions, opening
+  the same page within two minutes, may now be taken for one; each view is
+  still merged at most once. Views already stored twice stay as they are.
+
 ## [3.6.0]
 
 Counts in two tiers, for sites where a script that measures a visit needs the

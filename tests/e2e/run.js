@@ -470,8 +470,36 @@ async function verifyEdge(db) {
     const spaRows = await rowsAt('/e2e/spa');
     check('views from the tracker alone never merge with each other', spaRows.length === 2 && spaRows.every((r) => r.collected_by === 'script'));
 
+    // Another address of the same /24 (as a device's IPv6 privacy addresses
+    // share their /64): another visitor hash, the same visitor all the same.
+    await edge('/e2e/privacy-address', { ip: '127.0.0.2' });
+    const [before] = await rowsAt('/e2e/privacy-address');
+    const fromOtherAddress = await view('/e2e/privacy-address', '&age=0');
+    const addressRows = await rowsAt('/e2e/privacy-address');
+    const trackerHash = spaRows[0]?.visitor_hash;
+    check('a page request from another address of the same /24 and the tracker\'s view are one view',
+        addressRows.length === 1 && addressRows[0].collected_by === 'both' && fromOtherAddress.body?.id === before?.public_id
+        && before?.visitor_hash !== trackerHash, JSON.stringify(addressRows.map((r) => r.collected_by)));
+    check('the merged view carries the tracker\'s visitor hash, and is a repeat for it, as the tracker\'s own view would be',
+        addressRows[0]?.visitor_hash === trackerHash && Number(addressRows[0]?.is_unique) === 0 && fromOtherAddress.body?.duplicate === true,
+        JSON.stringify({ sameHash: addressRows[0]?.visitor_hash === trackerHash, isUnique: addressRows[0]?.is_unique }));
+
+    await edge('/e2e/other-browser', { userAgent: BROWSER_UA.replace('Chrome/129.0.0.0', 'Chrome/128.0.0.0') });
+    await view('/e2e/other-browser', '&age=0');
+    const browserRows = await rowsAt('/e2e/other-browser');
+    check('another browser version at the same address is another visitor: nothing merged',
+        browserRows.length === 2 && browserRows.map((r) => r.collected_by).sort().join() === 'edge,script',
+        JSON.stringify(browserRows.map((r) => r.collected_by)));
+
+    await edge('/e2e/other-network', { ip: '10.9.8.7' });
+    await view('/e2e/other-network', '&age=0');
+    const networkRows = await rowsAt('/e2e/other-network');
+    check('another /24 with the same browser is another visitor: nothing merged',
+        networkRows.length === 2 && networkRows.map((r) => r.collected_by).sort().join() === 'edge,script',
+        JSON.stringify(networkRows.map((r) => r.collected_by)));
+
     const [[logged]] = await db.query("SELECT COUNT(*) AS n FROM `_view_log` WHERE app_id = 'edge_site' AND source = 'edge'");
-    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 7, `${logged.n} entries`);
+    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 10, `${logged.n} entries`);
 }
 
 async function verifySchema(db) {

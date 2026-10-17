@@ -155,7 +155,7 @@ describe('Privacy Fail-Safe Verification', () => {
                 interceptedSql.push(sql);
                 interceptedParams.push(...params);
                 if (/^\s*SELECT salt FROM `_visitor_salts`/.test(sql)) return [[{ salt: TEST_VISITOR_SALT }]];
-                if (/^\s*SELECT id, public_id, is_unique/.test(sql)) return [[{ id: 3, public_id: 'p', is_unique: 1 }]];
+                if (/^\s*SELECT id, public_id, is_unique/.test(sql)) return [[{ id: 3, public_id: 'p', is_unique: 1, visitor_hash: 'e'.repeat(64) }]];
                 return [{ affectedRows: 1, insertId: 1 }];
             });
             try {
@@ -167,9 +167,11 @@ describe('Privacy Fail-Safe Verification', () => {
             } finally {
                 mockPool.query.mockImplementation(usual);
             }
-            for (const [needle, label] of [[rawIP, 'raw IPv4'], ['88.88.88.0', 'masked IPv4 in a merge'], [rawUA, 'raw User-Agent'], ['MergeProbe', 'User-Agent fragment']]) {
+            for (const [needle, label] of [[rawIP, 'raw IPv4'], [rawUA, 'raw User-Agent'], ['MergeProbe', 'User-Agent fragment']]) {
                 expectAbsentEverywhere(needle, label);
             }
+            // The masked address is how the merge recognises the visitor: what is stored, and only that.
+            expect(interceptedSql.some((sql) => sql.includes('88.88.88.0'))).toBe(false);
         });
 
     describe('Visitor hash irreversibility', () => {

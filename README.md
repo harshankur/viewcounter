@@ -1389,6 +1389,13 @@ reported twice: by the Worker as it serves the page, and by the tracker a
 moment later. They become one view, and each view records which side
 collected it (`collected_by`: `script`, `edge`, or `both`):
 
+- **The same visitor** is told by what both reports store alike: the masked
+  address (an IPv4 /24, an IPv6 /64) and the browser, its version, the
+  system, its version, and the device type. Not by the visitor hash, which is
+  made from the full address: a device with several IPv6 addresses (the
+  privacy addresses macOS, iOS, Windows, and Android use by default) sends
+  the page request from one and the tracker's request from another. A view
+  with the same hash is still preferred where there is one.
 - **The tracker's view** looks for a view of the same page by the same visitor
   that the edge recorded around when the page was loaded (the tracker sends
   `age`, how long ago that was), within two minutes either side, and that
@@ -1402,22 +1409,32 @@ collected it (`collected_by`: `script`, `edge`, or `both`):
   own tracker; a page load after the tracker's own is never taken for it.
 - **The edge's report**, in the rare case it arrives after the tracker's
   view, only marks that view `both`.
+- **A merged view carries the tracker's visitor hash**, which the tracker's
+  other views of the visit (a single-page app's navigations, its events)
+  carry too, so the visit reads as one. Where the hash changes, the view's
+  uniqueness is decided again for that hash, as the tracker's own view would
+  have been: `is_unique` always describes the hash beside it.
 - **A single-page app's navigations** come from the tracker alone and are
-  stored as views of their own, as always. Uniqueness is decided once, by
-  whichever report was first.
+  stored as views of their own, as always.
 - **The page** is compared without a fragment, which only the tracker sends
   (for hash-routed pages).
 - **Two reports arriving at the same instant** may each find nothing and both
   be stored. The window is short and `collected_by` tells them apart; it is
   accepted rather than locked against.
-- **Both sides must see the same visitor.** The match is by visitor hash, made
-  from the address and the user agent. A browser that reaches your site over
-  IPv6 and the ViewCounter server over IPv4 (or the other way round) is two
-  visitors, and its page load two views. Serve both from the same network
-  setup (behind Cloudflare, both normally are). Likewise the app: a page the
-  Worker files under one app (by `SITES`) and the tracker under another (by
-  `data-app`) is never merged. A prefix such as `/blog/` does not cover
-  `/blog`.
+- **Two people may be taken for one**: behind one IPv4 address (a NAT, an
+  office) or in one IPv6 /64, with the same browser and system versions,
+  opening the same page within the window. The tracker's view of one may then
+  complete the edge's view of the other, and the other's tracker view is
+  stored as its own: the count of views stays right, a title or a session may
+  land on the wrong one of the two. It is accepted; each view is merged at
+  most once.
+- **Both sides must still see the same network.** A browser that reaches your
+  site over IPv6 and the ViewCounter server over IPv4 (or the other way
+  round) has two masked addresses, and its page load is two views. Serve both
+  from the same network setup (behind Cloudflare, both normally are).
+  Likewise the app: a page the Worker files under one app (by `SITES`) and
+  the tracker under another (by `data-app`) is never merged. A prefix such as
+  `/blog/` does not cover `/blog`.
 
 A merge adds no entry to the tracking log, which lists stored views: a page
 load counted by both sides shows up once, under whichever side came first.
