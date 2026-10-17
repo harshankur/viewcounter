@@ -1325,12 +1325,14 @@ prefixes and their apps, where the longest prefix the path starts with wins:
 ```
 
 The Worker counts a request only when all of these hold: it is a `GET`; it is
-for a top-level page (`Sec-Fetch-Dest: document`, or, from a browser that
-sends no `Sec-Fetch-Dest`, an `Accept` that asks for `text/html`); it is not a
-prefetch or prerender (`Sec-Purpose` or `Purpose`); the site answered it with
-a 2xx and `Content-Type: text/html`, or with `304 Not Modified` (a returning
-visitor's browser revalidating the page it holds, which is a view all the
-same); and its hostname (and path) maps to an app. Everything else, assets included, passes through untouched. Every request
+for a top-level page (`Sec-Fetch-Dest: document` and, where the browser sends
+it, `Sec-Fetch-Mode: navigate`; from a browser that sends neither, an `Accept`
+that asks for `text/html`); it is not a prefetch or prerender (`Sec-Purpose`
+or `Purpose`); the site answered it with a 2xx and `Content-Type: text/html`,
+or with `304 Not Modified` (a returning visitor's browser revalidating the
+page it holds, a view all the same, counted only on `Sec-Fetch-Dest: document`
+and not for a path naming another kind of file, such as `/report.pdf`); and
+its hostname (and path) maps to an app. Everything else, assets included, passes through untouched. Every request
 on the routes runs through the Worker, which counts against Cloudflare's
 Workers request allowance.
 

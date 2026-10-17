@@ -42,16 +42,26 @@ const UTM_PARAMETERS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 
 /** A Do Not Track or Global Privacy Control header that says no. */
 const OPTED_OUT = '1';
 const DOCUMENT = 'document';
+/** A path naming a file that is not an HTML page, such as /report.pdf or /logo.png. */
+const FILE_NOT_PAGE = /\.(?!html?$)[a-z0-9]{1,5}$/i;
+/** Sec-Fetch-Mode of a navigation: what a page load is, and an iframe's or a fetch's is not. */
+const NAVIGATE = 'navigate';
 /** Speculative loads the browser may never show: not a view until they are. */
 const SPECULATIVE = /prefetch|prerender/i;
 
 /**
  * Whether a request and the site's response to it are a page view: a GET for
- * a top-level page (Sec-Fetch-Dest: document, or, from a browser too old to
- * send that, an Accept that asks for HTML), not a prefetch or prerender, and
- * answered with an HTML page, or with 304 Not Modified: a returning visitor's
- * browser revalidating the page it holds (which carries no content type) is
- * viewing it again.
+ * a top-level page, not a prefetch or prerender, answered with an HTML page.
+ *
+ * A top-level page is Sec-Fetch-Dest: document, with Sec-Fetch-Mode: navigate
+ * where the browser sends the mode; a browser too old to send either is
+ * trusted when its Accept asks for HTML. Answered with HTML means a 2xx with
+ * Content-Type: text/html, or 304 Not Modified, the answer to a returning
+ * visitor's browser revalidating a page it holds, which carries no content
+ * type. Without a type, only the request says it was a page: a 304 counts
+ * on Sec-Fetch-Dest: document alone, never on the Accept fallback, and not
+ * for a path that names another kind of file (a PDF or an image opened in a
+ * tab is a document too).
  *
  * @param {Request} request
  * @param {Response} response
@@ -61,15 +71,18 @@ function shouldCount(request, response) {
     if (request.method !== 'GET') return false;
 
     const dest = request.headers.get('sec-fetch-dest');
+    const mode = request.headers.get('sec-fetch-mode');
+    if (mode !== null && mode.toLowerCase() !== NAVIGATE) return false;
+    const isDocument = dest !== null && dest.toLowerCase() === DOCUMENT;
     const topLevel = dest === null
         ? (request.headers.get('accept') || '').toLowerCase().includes(HTML)
-        : dest.toLowerCase() === DOCUMENT;
+        : isDocument;
     if (!topLevel) return false;
 
     const purpose = `${request.headers.get('sec-purpose') || ''} ${request.headers.get('purpose') || ''}`;
     if (SPECULATIVE.test(purpose)) return false;
 
-    if (response.status === NOT_MODIFIED) return true;
+    if (response.status === NOT_MODIFIED) return isDocument && !FILE_NOT_PAGE.test(new URL(request.url).pathname);
     const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     return response.ok && type === HTML;
 }

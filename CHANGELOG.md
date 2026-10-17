@@ -46,8 +46,9 @@ Upgrading from 3.5:
 - **The edge Worker**, in `edge/`: a Cloudflare Worker, deployable with
   Workers Builds (root directory `edge/`), that passes every request through
   unchanged and reports each HTML page view of the sites in its `SITES`
-  (hostname to app, or path prefixes to apps) in the background, a revalidated
-  page (304) included. It sends the URL as its origin, path, and campaign tags
+  (hostname to app, or path prefixes to apps) in the background: a navigation
+  to a page answered with HTML, or a revalidated page (304) the browser named
+  a document. It sends the URL as its origin, path, and campaign tags
   only, and the Referer as an origin and a path. `RESPECT_DNT` and `CAMPAIGNS`
   follow the tracker's options of the same meaning. A failed report is dropped
   and never touches the visitor's response. It is not part of the npm

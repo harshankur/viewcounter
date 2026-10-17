@@ -30,6 +30,7 @@ const ENV = {
 function pageRequest(url = 'https://example.com/post?utm_source=feed', headers = {}, method = 'GET') {
     const base = {
         'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
         accept: 'text/html,application/xhtml+xml',
         referer: 'https://www.google.com/search?q=words',
         'cf-connecting-ip': '198.51.100.7',
@@ -70,6 +71,7 @@ describe('shouldCount', () => {
     });
 
     test('without Sec-Fetch-Dest, an Accept asking for HTML stands in for it', () => {
+        expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': null, 'sec-fetch-mode': null }), htmlResponse())).toBe(true);
         expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': null }), htmlResponse())).toBe(true);
         expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': null, accept: 'application/json' }), htmlResponse())).toBe(false);
         expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': null, accept: null }), htmlResponse())).toBe(false);
@@ -79,7 +81,9 @@ describe('shouldCount', () => {
         ['an iframe', { 'sec-fetch-dest': 'iframe' }],
         ['a script', { 'sec-fetch-dest': 'script' }],
         ['an image', { 'sec-fetch-dest': 'image' }],
-        ['a fetch() from the page', { 'sec-fetch-dest': 'empty', accept: '*/*' }],
+        ['a fetch() from the page', { 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', accept: '*/*' }],
+        ['a document fetched without navigating', { 'sec-fetch-mode': 'no-cors' }],
+        ['an iframe from a browser that sends only the mode', { 'sec-fetch-dest': null, 'sec-fetch-mode': 'nested-navigate' }],
         ['a prefetch', { 'sec-purpose': 'prefetch' }],
         ['a prerender', { 'sec-purpose': 'prefetch;prerender' }],
         ['a legacy prefetch', { purpose: 'prefetch' }],
@@ -107,6 +111,19 @@ describe('shouldCount', () => {
         // But not for anything that is not a page load.
         expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': 'image' }), new Response(null, { status: 304 }))).toBe(false);
         expect(shouldCount(pageRequest(undefined, { 'sec-purpose': 'prefetch' }), new Response(null, { status: 304 }))).toBe(false);
+    });
+
+    test('a 304 counts only when the browser said it was loading a document, never on the Accept fallback', () => {
+        const notModified = () => new Response(null, { status: 304 });
+        expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': null, 'sec-fetch-mode': null }), notModified())).toBe(false);
+        expect(shouldCount(pageRequest(undefined, { 'sec-fetch-dest': 'iframe', 'sec-fetch-mode': 'navigate' }), notModified())).toBe(false);
+        expect(shouldCount(pageRequest(undefined, { 'sec-fetch-mode': 'cors' }), notModified())).toBe(false);
+        // A revalidated PDF or image opened in its own tab is a document, not a page.
+        expect(shouldCount(pageRequest('https://example.com/files/report.pdf'), notModified())).toBe(false);
+        expect(shouldCount(pageRequest('https://example.com/logo.PNG'), notModified())).toBe(false);
+        // A page named as one still is.
+        expect(shouldCount(pageRequest('https://example.com/about/index.html'), notModified())).toBe(true);
+        expect(shouldCount(pageRequest('https://example.com/blog/'), notModified())).toBe(true);
     });
 
     test('the content type is read whatever its case and parameters', () => {
