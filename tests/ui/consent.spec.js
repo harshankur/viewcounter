@@ -475,3 +475,35 @@ test.describe('look', () => {
         expect(button).toBe('14px');
     });
 });
+
+test.describe('data-consent-key', () => {
+    test('apps that share a key share one answer: a site whose blog is another app asks once', async ({ page }) => {
+        const sent = await visitor(page);
+        await page.goto(lab('key=officeparser'));
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        await expect.poll(() => sent.views.length).toBe(1);
+        expect(await page.evaluate(() => window.localStorage.getItem('viewcounter-consent:officeparser'))).toBe('granted');
+        expect(await stored(page)).toBeNull();
+
+        await page.goto(lab('app=officeparserblog&key=officeparser'));
+        await expect.poll(() => sent.views.length).toBe(2);
+        await expect(prompt(page)).toHaveCount(0);
+        // Each app's views are still its own.
+        expect(sent.views[1].searchParams.get('appId')).toBe('officeparserblog');
+    });
+
+    test('without a key, each app asks for its own answer', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        await page.goto(lab('app=officeparserblog'));
+        await expect(prompt(page)).toBeVisible();
+    });
+
+    test('a key that is not a plain name is ignored for the app ID', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab('key=a.b:c'));
+        await prompt(page).getByRole('button', { name: 'No thanks' }).click();
+        expect(await stored(page)).toBe('denied');
+    });
+});

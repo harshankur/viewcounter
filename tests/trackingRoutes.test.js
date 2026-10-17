@@ -1022,7 +1022,7 @@ describe('GET /consent.js', () => {
         expect(code).not.toMatch(/document\.cookie|sessionStorage|indexedDB/);
         // localStorage, under the one per-app key.
         expect(code.match(/localStorage\.\w+\(/g)).toEqual(['localStorage.getItem(', 'localStorage.setItem(']);
-        expect(code).toContain('`viewcounter-consent:${app}`');
+        expect(code).toContain('`viewcounter-consent:${');
     });
 
     test('loading it is not a tracking request', async () => {

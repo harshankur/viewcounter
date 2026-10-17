@@ -13,7 +13,7 @@
  *     cookie and sends nothing that identifies you.
  *   - Your answer is the one thing kept on your device: "granted" or "denied"
  *     in this site's localStorage, under "viewcounter-consent:" and the
- *     site's name. Change it at any time with the site's privacy settings
+ *     site's name for it. Change it at any time with the site's privacy settings
  *     link; saying no costs you nothing.
  * Check it yourself: the source is at https://github.com/harshankur/viewcounter
  * and the homepage at https://viewcounter.harshankur.com.
@@ -28,6 +28,10 @@
  *   data-hosts="example.com,www.example.com"
  *                                   only on these hostnames; anywhere else this
  *                                   does nothing at all (no prompt on dev servers)
+ *   data-consent-key="officeparser" the name the answer is kept under (letters,
+ *                                   digits, _ and -); the app ID by default.
+ *                                   Apps sharing one site share one answer by
+ *                                   sharing the key
  *   data-privacy-url="https://..."  the privacy notice the prompt links to
  *   data-lang="de"                  "de" or "en"; otherwise German when <html lang>
  *                                   starts with "de", English when it does not
@@ -62,7 +66,9 @@
     const GRANTED = 'granted';
     const DENIED = 'denied';
     const UNSET = 'unset';
-    const KEY = `viewcounter-consent:${app}`;
+    // One answer per key: the app's own, unless the site shares one across its apps.
+    const CONSENT_KEY = /^[A-Za-z0-9_-]{1,64}$/;
+    const KEY = `viewcounter-consent:${CONSENT_KEY.test(script.dataset.consentKey || '') ? script.dataset.consentKey : app}`;
     const EVENT = 'viewcounter:consent';
     const TRIGGER = 'data-viewcounter-consent';
     /** The tracker's own options, passed on to it as they are. */

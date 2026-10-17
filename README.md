@@ -1148,8 +1148,8 @@ features are used. **Allow** and **No thanks** look the same, side by side. A
 no loads nothing and costs the visitor nothing. **Escape** puts the card away
 for that page without an answer. It is in German or English.
 
-The answer is kept in `localStorage` under `viewcounter-consent:<app>`
-(`granted` or `denied`), the one thing on the device, which the visitor asked
+The answer is kept in `localStorage` under `viewcounter-consent:<key>`
+(`granted` or `denied`), where the key is the app ID or `data-consent-key`, the one thing on the device, which the visitor asked
 for. Where storage is unavailable (a private window, blocked site data), the
 visitor is asked on every page and the answer holds for that page. A yes in
 one tab holds in the site's other tabs too.
@@ -1158,6 +1158,7 @@ one tab holds in the site's other tabs too.
 |---|---|---|
 | `data-app` | required | The app ID, as for the tracker |
 | `data-hosts` | every host | Only on these hostnames; anywhere else it does nothing at all, so development servers show no prompt |
+| `data-consent-key` | the app ID | The name the answer is kept under (letters, digits, `_` and `-`). Apps on one site that share a key share one answer, so a site whose blog is another app asks once |
 | `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab). No link without it |
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise |
 | `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |

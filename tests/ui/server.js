@@ -240,7 +240,10 @@ function start(port = PORT) {
         res.type('application/javascript').send(fs.readFileSync(path.join(__dirname, '..', '..', 'tracker', 'consent.js'), 'utf8'));
     });
     app.get(/^\/consent-lab\//, (req, res) => {
-        const OPTIONS = { hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', heartbeat: 'heartbeat', privacy: 'privacy-url' };
+        const OPTIONS = {
+            hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', heartbeat: 'heartbeat', privacy: 'privacy-url', key: 'consent-key',
+        };
+        const appId = typeof req.query.app === 'string' ? req.query.app.replace(/[^a-z0-9_-]/gi, '') : 'blog';
         const attributes = Object.entries(OPTIONS).map(([param, name]) => {
             const value = typeof req.query[param] === 'string' ? req.query[param].replace(/[^a-z0-9.,:#/_-]/gi, '') : '';
             return value ? ` data-${name}="${value}"` : '';
@@ -257,7 +260,7 @@ function start(port = PORT) {
   <input id="page-input" aria-label="A field of the page">
   <div style="height: 3000px"></div>
   <footer><a id="settings" href="#" data-viewcounter-consent>Privacy settings</a></footer>
-  <script src="/consent.js" data-app="blog"${attributes}></script>${answer}${tracker}
+  <script src="/consent.js" data-app="${appId || 'blog'}"${attributes}></script>${answer}${tracker}
 </body></html>`);
     });
     app.get('/consent-lab-answer.js', (req, res) => {

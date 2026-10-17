@@ -57,8 +57,9 @@ Upgrading from 3.5:
   On the hosts in `data-hosts` it asks in a small card that blocks nothing,
   with two answers that look the same, in German or English, and loads the
   tracker with the site's options only on a yes. The answer is kept in
-  `localStorage` (`viewcounter-consent:<app>`), or for the page alone where
-  storage is unavailable. `window.viewcounterConsent` opens it, reads it,
+  `localStorage` (`viewcounter-consent:<app>`, or another key named with
+  `data-consent-key` so a site's apps share one answer), or for the page alone
+  where storage is unavailable. `window.viewcounterConsent` opens it, reads it,
   grants, and denies, every change fires `viewcounter:consent`, and any
   element with `data-viewcounter-consent` reopens it. The card is in a closed
   shadow root, follows light and dark, and takes CSS custom properties.
