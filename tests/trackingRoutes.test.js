@@ -8,13 +8,17 @@ const express = require('express');
 const request = require('supertest');
 
 const { createAnalyticsRouter, trackingSourceFor } = require('../routes/analytics');
-const { PRIVACY, REJECTION_REASON, SOURCE_TYPE, VIEW_LOG_SOURCE } = require('../constants');
+const { COLLECTED_BY, EDGE, PAYLOAD_LIMITS, PRIVACY, REJECTION_REASON, SOURCE_TYPE, TRACKING, VIEW_LOG_SOURCE } = require('../constants');
+const logger = require('../utils/logger');
 
 const VIEW_ID = '11111111-1111-4111-8111-111111111111';
 const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
 
-function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, city = null } = {}) {
+/** The secret an edge Worker presents, when the build turns edge counting on. */
+const EDGE_SECRET = 'e'.repeat(48);
+
+function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, city = null, edge = false, bodyLimit = '1kb' } = {}) {
     const dbManager = {
         healthCheck: async () => ({ healthy: true }),
         registerEvent: jest.fn(registerEvent || (async () => ({ duplicate: false, insertId: 7, publicId: VIEW_ID, isUnique: true }))),
@@ -25,15 +29,16 @@ function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, ci
         allowed: {
             appId: ['blog', 'shop'],
             deviceSize: ['small', 'medium', 'large'],
-            origins: { shop: ['https://shop.example.com'] },
+            origins: { shop: ['https://shop.example.com', 'https://www.shop.example.com'] },
         },
         auth: { readKeyScopes: {}, adminApiKeys: [] },
         privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
         server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax, perAppMaxByApp, max, maxByApp } },
+        edge: edge ? { secret: EDGE_SECRET, enabled: true } : { secret: '', enabled: false },
     };
     const router = createAnalyticsRouter({ config, dbManager, geo: { city } });
     const app = express();
-    app.use(express.json({ limit: '1kb' }));
+    app.use(express.json({ limit: bodyLimit }));
     app.use(router);
     app.use(router.bodyErrorHandler);
     /** Everything counted so far, as written to the tracking log. */
@@ -327,6 +332,9 @@ describe('what counts as a tracking request', () => {
         ['/registerView', VIEW_LOG_SOURCE.REGISTER_VIEW],
         ['/event', VIEW_LOG_SOURCE.EVENT],
         ['/engage', VIEW_LOG_SOURCE.ENGAGE],
+        ['/edge/view', VIEW_LOG_SOURCE.EDGE],
+        ['/Edge/View/', VIEW_LOG_SOURCE.EDGE],
+        ['/edge', null],
         ['/stats/blog', null],
         ['/health', null],
         ['/toString', null],
@@ -610,4 +618,361 @@ describe('buildPerIpLimiter', () => {
         const { app } = appWith(0);
         for (let i = 0; i < 5; i += 1) await view(app, 'blog').expect(200);
     });
+
+    /** The general limiter as index.js mounts it, with or without edge counting on. */
+    function appWithEdge(edgeEnabled) {
+        const app = express();
+        app.use(express.json());
+        app.use(buildPerIpLimiter({ windowMs: 60_000, max: 1 }, () => {}, { edgeEnabled }));
+        app.all(/.*/, (req, res) => res.status(200).json({ ok: true }));
+        return app;
+    }
+    const edgeReport = (app) => request(app).post('/edge/view').send({ appId: 'blog', ip: '198.51.100.1' });
+
+    test('with edge counting on, edge reports are left to their route\'s limiter, by the visitor\'s address', async () => {
+        const app = appWithEdge(true);
+        for (let i = 0; i < 3; i += 1) await edgeReport(app).expect(200);
+        // And they do not use up the Worker address's budget for anything else.
+        await view(app, 'blog').expect(200);
+        await view(app, 'blog').expect(429);
+    });
+
+    test('without it, /edge/view is limited like any path that does not exist', async () => {
+        const app = appWithEdge(false);
+        await edgeReport(app).expect(200);
+        await edgeReport(app).expect(429);
+    });
+
+    test('anything on /edge/view that is not a report is limited with everything else', async () => {
+        const app = appWithEdge(true);
+        await request(app).get('/edge/view').expect(200);
+        await request(app).get('/edge/view').expect(429);
+    });
 });
+
+describe('POST /edge/view', () => {
+    const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+    /** What the Worker sends for one page request. */
+    const report = (overrides = {}) => ({
+        appId: 'shop',
+        url: 'https://shop.example.com/cart?utm_source=newsletter&utm_medium=email&token=SECRET&email=a%40b.c#step-2',
+        referrer: 'https://www.google.com/search?q=private+words#frag',
+        ip: '198.51.100.7',
+        userAgent: CHROME,
+        mobile: '?0',
+        acceptLanguage: 'de-DE,de;q=0.9,en;q=0.8',
+        ...overrides,
+    });
+    const send = (app, body = report(), secret = EDGE_SECRET) => {
+        const call = request(app).post('/edge/view').set('User-Agent', 'Cloudflare-Workers');
+        return (secret === null ? call : call.set('Authorization', `Bearer ${secret}`)).send(body);
+    };
+
+    test('stores a view from what the page request carried, and nothing more', async () => {
+        const { app, dbManager, counted } = build({ edge: true });
+        const res = await send(app).expect(204);
+        expect(res.text).toBe('');
+        expect(dbManager.registerEvent).toHaveBeenCalledTimes(1);
+        const [appId, data] = dbManager.registerEvent.mock.calls[0];
+        expect(appId).toBe('shop');
+        expect(data).toMatchObject({
+            ip: '198.51.100.7',
+            userAgent: CHROME,
+            // The path alone: neither the query nor the fragment.
+            pagePath: '/cart',
+            pageTitle: null,
+            // The page before as its origin and path, as the tracker sends it.
+            referrer: 'https://www.google.com/search',
+            referrerDomain: 'www.google.com',
+            // Tagged, so a campaign, whatever the referrer.
+            sourceType: SOURCE_TYPE.CAMPAIGN,
+            utmSource: 'newsletter', utmMedium: 'email', utmCampaign: null, utmTerm: null, utmContent: null,
+            hostname: 'shop.example.com',
+            language: 'de',
+            deviceSize: 'large',
+            browser: 'Chrome',
+            deviceType: 'desktop',
+            sessionId: null,
+            eventType: 'pageview',
+            source: VIEW_LOG_SOURCE.EDGE,
+            collectedBy: COLLECTED_BY.EDGE,
+            mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS,
+        });
+        expect(JSON.stringify(data)).not.toMatch(/SECRET|a%40b|a@b|step-2|private|frag/);
+        expect(await counted()).toEqual([]);
+    });
+
+    test.each([
+        ['a phone that says so in its client hint', { mobile: '?1', userAgent: CHROME }, 'small'],
+        ['a phone known by its user agent', { mobile: null, userAgent: IPHONE }, 'small'],
+        ['a desktop browser without the hint', { mobile: undefined }, 'large'],
+    ])('the device size comes from %s', async (_label, overrides, size) => {
+        const { app, dbManager } = build({ edge: true });
+        await send(app, report(overrides)).expect(204);
+        expect(stored(dbManager).deviceSize).toBe(size);
+    });
+
+    test('a direct visit and a visit from the same site are told apart as for the tracker', async () => {
+        const { app, dbManager } = build({ edge: true });
+        await send(app, report({ url: 'https://shop.example.com/', referrer: '' })).expect(204);
+        expect(stored(dbManager)).toMatchObject({ referrer: null, sourceType: SOURCE_TYPE.DIRECT, pagePath: '/' });
+        await send(app, report({ url: 'https://www.shop.example.com/a', referrer: 'https://shop.example.com/b?x=1' })).expect(204);
+        expect(stored(dbManager)).toMatchObject({ referrer: 'https://shop.example.com/b', sourceType: SOURCE_TYPE.INTERNAL });
+        // Anything but an http(s) page before is no referrer at all.
+        await send(app, report({ url: 'https://shop.example.com/c', referrer: 'android-app://com.example/' })).expect(204);
+        expect(stored(dbManager)).toMatchObject({ referrer: null, sourceType: SOURCE_TYPE.DIRECT });
+    });
+
+    test('an address the Worker gives in IPv4-mapped form is stored as IPv4', async () => {
+        const { app, dbManager } = build({ edge: true });
+        await send(app, report({ ip: '::ffff:198.51.100.7' })).expect(204);
+        expect(stored(dbManager).ip).toBe('198.51.100.7');
+    });
+
+    test('needs no Origin and no CORS: it is server to server', async () => {
+        const { app } = build({ edge: true });
+        const res = await send(app).expect(204);
+        expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    describe('the secret', () => {
+        test.each([
+            ['no Authorization header', null, undefined],
+            ['a wrong secret', 'x'.repeat(48), undefined],
+            ['a secret one character short', EDGE_SECRET.slice(1), undefined],
+            ['another scheme', null, `Basic ${EDGE_SECRET}`],
+            ['an empty bearer token', null, 'Bearer '],
+        ])('%s is refused with 401, counted, and logged without the header', async (_label, secret, header) => {
+            const lines = [];
+            logger.configure({ level: logger.LogLevel.DEBUG, writer: (line) => lines.push(line) });
+            try {
+                const { app, dbManager, counted } = build({ edge: true });
+                const call = request(app).post('/edge/view');
+                if (header !== undefined) call.set('Authorization', header);
+                else if (secret !== null) call.set('Authorization', `Bearer ${secret}`);
+                const res = await call.send(report()).expect(401);
+                expect(res.body).toEqual({ message: 'Missing or invalid edge secret' });
+                expect(dbManager.registerEvent).not.toHaveBeenCalled();
+                expect(await counted()).toEqual([expect.objectContaining({
+                    source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.UNAUTHORIZED, appId: 'shop', hostname: 'shop.example.com', requests: 1,
+                })]);
+                expect(lines.join('\n')).toContain('Rejected an edge report without the right EDGE_SECRET');
+                expect(lines.join('\n')).not.toContain('eeeeeeee');
+                expect(lines.join('\n')).not.toContain('xxxxxxxx');
+            } finally {
+                logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} });
+            }
+        });
+
+        test('the scheme is matched whatever its case', async () => {
+            const { app } = build({ edge: true });
+            await request(app).post('/edge/view').set('Authorization', `bearer ${EDGE_SECRET}`).send(report()).expect(204);
+        });
+
+        test('an unauthenticated report does not spend the app\'s budget', async () => {
+            const { app } = build({ edge: true, perAppMax: 1 });
+            await send(app, report(), 'x'.repeat(48)).expect(401);
+            await send(app, report(), 'x'.repeat(48)).expect(401);
+            await send(app).expect(204);
+        });
+    });
+
+    describe('validation', () => {
+        test('an unknown app is counted with the app ID sent', async () => {
+            const { app, dbManager, counted } = build({ edge: true });
+            await send(app, report({ appId: 'shpo' })).expect(422);
+            expect(dbManager.registerEvent).not.toHaveBeenCalled();
+            expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.UNKNOWN_APP, appId: 'shpo' })]);
+        });
+
+        test.each([
+            ['a relative URL', { url: '/cart' }, 'url'],
+            ['a URL that is not http(s)', { url: 'ftp://shop.example.com/cart' }, 'url'],
+            ['a URL that does not parse', { url: 'https://' }, 'url'],
+            ['no URL', { url: undefined }, 'url'],
+            ['an over-long URL', { url: `https://shop.example.com/${'a'.repeat(2048)}` }, 'url'],
+            ['no address', { ip: undefined }, 'ip'],
+            ['an over-long address', { ip: '1'.repeat(46) }, 'ip'],
+            ['an address that is not a string', { ip: 198 }, 'ip'],
+            ['an over-long user agent', { userAgent: 'u'.repeat(1025) }, 'userAgent'],
+            ['an over-long referrer', { referrer: `https://a.example/${'r'.repeat(2048)}` }, 'referrer'],
+            ['an over-long language list', { acceptLanguage: 'l'.repeat(513) }, 'acceptLanguage'],
+            ['a client hint that is not a string', { mobile: true }, 'mobile'],
+        ])('%s is refused and counted as invalid', async (_label, overrides, field) => {
+            const { app, dbManager, counted } = build({ edge: true, bodyLimit: PAYLOAD_LIMITS.MAX_BODY_BYTES });
+            await send(app, report(overrides)).expect(422);
+            expect(dbManager.registerEvent).not.toHaveBeenCalled();
+            expect(await counted()).toEqual([expect.objectContaining({ reason: REJECTION_REASON.INVALID_REQUEST, detail: field })]);
+        });
+
+        test('a page on a site not registered for the app is refused with 403 and counted with its hostname', async () => {
+            const { app, dbManager, counted } = build({ edge: true });
+            const res = await send(app, report({ url: 'https://evil.example.net/cart' })).expect(403);
+            expect(res.body).toEqual({ message: 'The page is not on a site registered for this appId' });
+            expect(dbManager.registerEvent).not.toHaveBeenCalled();
+            expect(await counted()).toEqual([expect.objectContaining({
+                source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.ORIGIN_NOT_ALLOWED, appId: 'shop', hostname: 'evil.example.net',
+            })]);
+        });
+
+        test('so is a page on another scheme or port of a registered site', async () => {
+            const { app } = build({ edge: true });
+            await send(app, report({ url: 'http://shop.example.com/cart' })).expect(403);
+            await send(app, report({ url: 'https://shop.example.com:8443/cart' })).expect(403);
+        });
+
+        test('an app with no sites registered takes no edge reports: there is nothing to check the page against', async () => {
+            const { app, counted } = build({ edge: true });
+            await send(app, report({ appId: 'blog', url: 'https://blog.example.com/' })).expect(403);
+            expect(await counted()).toEqual([expect.objectContaining({ reason: REJECTION_REASON.ORIGIN_NOT_ALLOWED, appId: 'blog' })]);
+        });
+
+        test.each([['999.1.1.1'], ['not-an-ip'], ['198.51.100.7, 10.0.0.1']])('the address %s is refused as unreadable', async (ip) => {
+            const { app, dbManager, counted } = build({ edge: true });
+            const res = await send(app, report({ ip })).expect(400);
+            expect(res.body).toEqual({ message: 'Invalid IP address format' });
+            expect(dbManager.registerEvent).not.toHaveBeenCalled();
+            expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.INVALID_IP })]);
+        });
+
+        test('a report with every field at its longest fits the service\'s body limit', async () => {
+            const { app } = build({ edge: true, bodyLimit: PAYLOAD_LIMITS.MAX_BODY_BYTES });
+            const longest = report({
+                url: `https://shop.example.com/${'a'.repeat(EDGE.MAX_URL_LENGTH - 'https://shop.example.com/'.length)}`,
+                referrer: `https://r.example/${'r'.repeat(EDGE.MAX_REFERRER_LENGTH - 'https://r.example/'.length)}`,
+                userAgent: `${CHROME} ${'u'.repeat(EDGE.MAX_USER_AGENT_LENGTH - CHROME.length - 1)}`,
+                acceptLanguage: 'de'.padEnd(EDGE.MAX_ACCEPT_LANGUAGE_LENGTH, ','),
+                ip: '0000:0000:0000:0000:0000:ffff:198.051.100.007'.slice(0, EDGE.MAX_IP_LENGTH),
+            });
+            expect(Buffer.byteLength(JSON.stringify(longest))).toBeLessThan(PAYLOAD_LIMITS.MAX_BODY_BYTES);
+            // Accepted as far as the body and its fields go; the address is the one refusal left.
+            await send(app, longest).expect(400);
+            await send(app, { ...longest, ip: '2001:db8::1' }).expect(204);
+        });
+
+        test('absent optional fields are fine, as null or left out', async () => {
+            const { app, dbManager } = build({ edge: true });
+            await send(app, { appId: 'shop', url: 'https://shop.example.com/', ip: '198.51.100.7', referrer: null, userAgent: null, mobile: null, acceptLanguage: null }).expect(204);
+            await send(app, { appId: 'shop', url: 'https://shop.example.com/', ip: '198.51.100.7', userAgent: CHROME }).expect(204);
+            expect(stored(dbManager)).toMatchObject({ language: null, referrer: null, sourceType: SOURCE_TYPE.DIRECT });
+        });
+    });
+
+    test('a bot is answered 204, never stored, and counted by name', async () => {
+        const { app, dbManager, counted } = build({ edge: true });
+        await send(app, report({ userAgent: GOOGLEBOT })).expect(204);
+        expect(dbManager.registerEvent).not.toHaveBeenCalled();
+        expect(await counted()).toEqual([expect.objectContaining({
+            source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.BOT, detail: 'Googlebot', appId: 'shop', hostname: 'shop.example.com',
+        })]);
+    });
+
+    test('with no user agent at all it is stored, as the tracker would be: a page was requested', async () => {
+        const { app, dbManager } = build({ edge: true });
+        await send(app, report({ userAgent: null })).expect(204);
+        expect(stored(dbManager)).toMatchObject({ userAgent: '', browser: null, deviceSize: 'large' });
+    });
+
+    describe('limits', () => {
+        test('the address limit counts the visitor each report names, not the Worker sending them all', async () => {
+            const { app, counted } = build({ edge: true, max: 1 });
+            await send(app, report({ ip: '198.51.100.1' })).expect(204);
+            await send(app, report({ ip: '198.51.100.2' })).expect(204);
+            await send(app, report({ ip: '198.51.100.3' })).expect(204);
+            await send(app, report({ ip: '198.51.100.1' })).expect(429);
+            expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.RATE_LIMITED, detail: 'ip' })]);
+        });
+
+        test('one visitor\'s IPv6 /56 is one address, however the last bits vary', async () => {
+            const { app } = build({ edge: true, max: 1 });
+            await send(app, report({ ip: '2001:db8:1:100::1' })).expect(204);
+            await send(app, report({ ip: '2001:db8:1:1ff::2' })).expect(429);
+            await send(app, report({ ip: '2001:db8:2::1' })).expect(204);
+        });
+
+        test('an app\'s own per-address figure applies', async () => {
+            const { app } = build({ edge: true, max: 1, maxByApp: { shop: 3 } });
+            for (let i = 0; i < 3; i += 1) await send(app).expect(204);
+            await send(app).expect(429);
+        });
+
+        test('the app\'s budget is spent as by any view', async () => {
+            const { app, counted } = build({ edge: true, perAppMax: 1 });
+            await send(app).expect(204);
+            await send(app, report({ ip: '198.51.100.99' })).expect(429);
+            expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.RATE_LIMITED, detail: 'app' })]);
+        });
+    });
+
+    test('a failure while storing is counted as a server error', async () => {
+        const { app, counted } = build({ edge: true, registerEvent: async () => { throw new TypeError('db down'); } });
+        await send(app).expect(500);
+        expect(await counted()).toEqual([expect.objectContaining({ source: VIEW_LOG_SOURCE.EDGE, reason: REJECTION_REASON.SERVER_ERROR })]);
+    });
+
+    describe('without EDGE_SECRET', () => {
+        test('the endpoint does not exist: 404, nothing stored, nothing counted', async () => {
+            const { app, dbManager, counted } = build();
+            await send(app).expect(404);
+            await send(app, report(), null).expect(404);
+            expect(dbManager.registerEvent).not.toHaveBeenCalled();
+            expect(await counted()).toEqual([]);
+        });
+
+        test('nor is a malformed body to it counted', async () => {
+            const { app, counted } = build();
+            await request(app).post('/edge/view').set('Content-Type', 'application/json').send('{"appId": ').expect(400);
+            expect(await counted()).toEqual([]);
+        });
+
+        test('and views from the tracker look for nothing to merge with', async () => {
+            const { app, dbManager } = build();
+            await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large', page: '/', age: 5 }).set('User-Agent', CHROME).expect(200);
+            expect(stored(dbManager)).toMatchObject({ collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: 0 });
+        });
+    });
+});
+
+describe('a page load the edge and the tracker both report', () => {
+    const EDGE_VIEW = '33333333-3333-4333-8333-333333333333';
+
+    test('the tracker\'s view merges into the edge\'s, within the window from when the page was loaded', async () => {
+        const { app, dbManager } = build({ edge: true, registerEvent: async () => ({ duplicate: false, publicId: EDGE_VIEW, isUnique: true, merged: true }) });
+        const res = await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'medium', page: '/post', title: 'Post', age: 300 })
+            .set('User-Agent', CHROME).expect(200);
+        // The answer has the shape every tracker version reads, with the edge view's ID.
+        expect(res.body).toEqual({ message: 'Success!', duplicate: false, recorded: true, id: EDGE_VIEW });
+        expect(stored(dbManager)).toMatchObject({
+            collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS + 300, pageTitle: 'Post', deviceSize: 'medium',
+        });
+
+        // So the page's engagement reports attach to the merged view.
+        await request(app).post('/engage').set('User-Agent', CHROME).send({ appId: 'blog', id: res.body.id, ms: 5000, scroll: 30 }).expect(204);
+        expect(dbManager.addEngagement).toHaveBeenCalledWith('blog', { viewId: EDGE_VIEW, engagedMs: 5000, scrollDepth: 30 });
+    });
+
+    test('a tracker that sends no age gets the plain window', async () => {
+        const { app, dbManager } = build({ edge: true });
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large', page: '/' }).set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager).mergeWindowSeconds).toBe(TRACKING.MERGE_WINDOW_SECONDS);
+    });
+
+    test.each([['-1'], ['86401'], ['1.5'], ['soon']])('an age of %s is refused', async (age) => {
+        const { app, counted } = build({ edge: true });
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large', age }).set('User-Agent', CHROME).expect(422);
+        expect(await counted()).toEqual([expect.objectContaining({ reason: REJECTION_REASON.INVALID_REQUEST, detail: 'age' })]);
+    });
+
+    test('a merged repeat view is answered as a repeat', async () => {
+        const { app } = build({ edge: true, registerEvent: async () => ({ duplicate: true, publicId: EDGE_VIEW, isUnique: false, merged: true }) });
+        const res = await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large' }).set('User-Agent', CHROME).expect(200);
+        expect(res.body).toEqual({ message: 'View already registered recently', duplicate: true, recorded: true, id: EDGE_VIEW });
+    });
+
+    test('custom events never merge', async () => {
+        const { app, dbManager } = build({ edge: true });
+        await request(app).post('/event').set('User-Agent', CHROME).send({ appId: 'blog', eventType: 'pageview' }).expect(200);
+        expect(stored(dbManager).mergeWindowSeconds).toBeUndefined();
+    });
+});
+

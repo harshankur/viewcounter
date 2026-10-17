@@ -155,7 +155,7 @@ export const DEFAULT_LOCALE = 'en';
  * key names its heading (details.groups.*).
  */
 export const VIEW_DETAIL_GROUPS = Object.freeze([
-    Object.freeze({ key: 'view', fields: Object.freeze(['id', 'timestamp', 'eventType', 'eventData', 'isUnique', 'sessionId']) }),
+    Object.freeze({ key: 'view', fields: Object.freeze(['id', 'timestamp', 'eventType', 'eventData', 'isUnique', 'sessionId', 'collectedBy']) }),
     Object.freeze({ key: 'page', fields: Object.freeze(['hostname', 'pagePath', 'pageTitle']) }),
     Object.freeze({ key: 'source', fields: Object.freeze([
         'sourceType', 'referrer', 'referrerDomain', 'utmSource', 'utmMedium', 'utmCampaign', 'utmTerm', 'utmContent',

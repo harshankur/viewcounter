@@ -88,6 +88,7 @@ function makeView(overrides = {}) {
         engagedMs: null,
         scrollDepth: null,
         lastSeenAt: null,
+        collectedBy: 'script',
         note: null,
         adminModifiedAt: null,
         deletedAt: null,

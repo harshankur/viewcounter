@@ -1,7 +1,7 @@
 const fs = require('fs');
 
 const { Config } = require('../config');
-const { INSECURE_DEFAULTS, NODE_ENV, PRIVACY, SCOPE_ALL, SERVER } = require('../constants');
+const { EDGE, INSECURE_DEFAULTS, NODE_ENV, PRIVACY, SCOPE_ALL, SERVER } = require('../constants');
 
 /**
  * Config precedence and fail-fast validation.
@@ -400,5 +400,77 @@ describe('per-app rate limit figures', () => {
         const warned = writes.filter((line) => line.includes('RATE_LIMIT_UNKNOWN_APP'));
         expect(warned).toHaveLength(1);
         expect(warned[0]).toContain("RATE_LIMIT_MAX_BY_APP names 'hompage'");
+    });
+});
+
+describe('EDGE_SECRET', () => {
+    const EDGE_SECRET = 's'.repeat(EDGE.MIN_SECRET_LENGTH);
+
+    /** Validate, returning every warning and error line logged on the way, and what was thrown. */
+    const validateLogging = (config) => {
+        const lines = [];
+        const logger = require('../utils/logger');
+        logger.configure({ level: logger.LogLevel.WARN, writer: (line) => lines.push(String(line)) });
+        try {
+            config.validate();
+            return { lines, error: null };
+        } catch (error) {
+            return { lines, error };
+        } finally {
+            logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} });
+        }
+    };
+
+    test('unset: edge counting is off, and nothing about it is checked', () => {
+        const config = buildConfig(productionEnv());
+        expect(config.edge).toEqual({ secret: '', enabled: false });
+        expect(() => config.validate()).not.toThrow();
+    });
+
+    test('set to at least 32 characters: edge counting is on', () => {
+        const config = buildConfig(productionEnv({ EDGE_SECRET }));
+        expect(config.edge).toEqual({ secret: EDGE_SECRET, enabled: true });
+        expect(() => config.validate()).not.toThrow();
+    });
+
+    test.each([NODE_ENV.PRODUCTION, NODE_ENV.DEVELOPMENT, NODE_ENV.TEST])(
+        'shorter: the server refuses to start, in %s too, naming the setting but never its value', (nodeEnv) => {
+            const short = 'short-but-secret-value';
+            const config = buildConfig(productionEnv({ NODE_ENV: nodeEnv, EDGE_SECRET: short }));
+            expect(config.edge.enabled).toBe(false);
+            const { lines, error } = validateLogging(config);
+            expect(error).toMatchObject({
+                code: 'CONFIG_INVALID_VALUE',
+                message: "Invalid configuration for 'EDGE_SECRET': must be at least 32 characters",
+            });
+            expect(JSON.stringify(error.details)).not.toContain(short);
+            expect(lines.join('\n')).not.toContain(short);
+        });
+
+    test('is read from the environment only, never from a config file', () => {
+        const existsSpy = jest.spyOn(fs, 'existsSync').mockImplementation((p) => String(p).endsWith('allowed.json'));
+        const readSpy = jest.spyOn(fs, 'readFileSync').mockReturnValue(JSON.stringify({ appId: ['blog'], edgeSecret: EDGE_SECRET, EDGE_SECRET }));
+        try {
+            expect(new Config({ VISITOR_SECRET: VALID_SECRET }).edge.enabled).toBe(false);
+        } finally {
+            existsSpy.mockRestore();
+            readSpy.mockRestore();
+        }
+    });
+
+    test.each([
+        ['a read key', { READ_API_KEYS: EDGE_SECRET }],
+        ['an admin key', { ADMIN_API_KEYS: EDGE_SECRET }],
+        ['the admin password', { ADMIN_PASSWORD: EDGE_SECRET }],
+    ])('the same value as %s is warned about: one leak would open two tiers', (_label, env) => {
+        const { lines } = validateLogging(buildConfig(productionEnv({ EDGE_SECRET, ...env })));
+        const warned = lines.filter((line) => line.includes('EDGE_SECRET_REUSED'));
+        expect(warned).toHaveLength(1);
+        expect(warned[0]).not.toContain(EDGE_SECRET);
+    });
+
+    test('an independent secret is not warned about', () => {
+        const { lines } = validateLogging(buildConfig(productionEnv({ EDGE_SECRET })));
+        expect(lines.filter((line) => line.includes('EDGE_SECRET'))).toEqual([]);
     });
 });

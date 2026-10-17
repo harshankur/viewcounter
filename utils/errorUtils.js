@@ -50,6 +50,7 @@ const WarningType = {
     TRASH_PURGE_FAILED: 'TRASH_PURGE_FAILED',
     SALT_PRUNE_FAILED: 'SALT_PRUNE_FAILED',
     RATE_LIMIT_UNKNOWN_APP: 'RATE_LIMIT_UNKNOWN_APP',
+    EDGE_SECRET_REUSED: 'EDGE_SECRET_REUSED',
 };
 
 /**
@@ -128,6 +129,9 @@ const WARNING_MESSAGES = {
         `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
     [WarningType.RATE_LIMIT_UNKNOWN_APP]: (info) =>
         `${info?.field} names '${info?.appId}', which is not one of the configured apps: its figure applies only if an app of that name is registered later`,
+    [WarningType.EDGE_SECRET_REUSED]:
+        'EDGE_SECRET is identical to an API key or the admin password. Use an independent secret so ' +
+        'leaking one credential tier never unlocks another.',
     [WarningType.SALT_PRUNE_FAILED]: (info) =>
         `Could not delete the visitor salts of ended windows (it is tried again shortly): ${info?.cause}`,
 };

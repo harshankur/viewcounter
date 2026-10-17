@@ -15,7 +15,7 @@ const {
 } = require('../db/adminSchema');
 const DatabaseManager = require('../db/DatabaseManager');
 const { purgeExpiredTrash, pruneViewLog, startRetention } = require('../db/retention');
-const { ADMIN_ACTION, DATABASE, VIEW_LOG_SOURCE } = require('../constants');
+const { ADMIN_ACTION, COLLECTED_BY, DATABASE, TRACKING, VIEW_LOG_SOURCE } = require('../constants');
 const logger = require('../utils/logger');
 const { createScriptedPool, withVisitorSalt } = require('./support/scriptedPool');
 const { createMemoryRepos } = require('./support/memoryRepos');
@@ -156,7 +156,7 @@ describe('migrateAppTable', () => {
         });
     });
 
-    test('a 3.1 table gains the 3.2 tracking columns, nullable, and nothing else', async () => {
+    test('a 3.1 table gains the tracking columns, nullable but for which side collected a view, and nothing else', async () => {
         const pool = legacyTablePool({
             columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at'],
             indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
@@ -164,7 +164,30 @@ describe('migrateAppTable', () => {
         await migrateAppTable(pool, 'blog');
         const alters = pool.matching('ALTER TABLE').map((q) => q.sql);
         expect(alters).toEqual(TRACKING_COLUMNS.map((c) => `ALTER TABLE \`blog\` ADD COLUMN \`${c.name}\` ${c.ddl}`));
-        for (const sql of alters) expect(sql).toMatch(/DEFAULT NULL$/);
+        for (const sql of alters.filter((alter) => !alter.includes('`collected_by`'))) expect(sql).toMatch(/DEFAULT NULL$/);
+    });
+
+    test('a 3.5 table gains collected_by alone (schema v8), and every existing row reads as the script\'s', async () => {
+        const pool = legacyTablePool({
+            columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at',
+                ...TRACKING_COLUMNS.map((c) => c.name).filter((name) => name !== 'collected_by')],
+            indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
+        });
+        await migrateAppTable(pool, 'blog');
+        // NOT NULL with a default: the engine fills every existing row with it as the column is added.
+        expect(pool.matching('ALTER TABLE').map((q) => q.sql)).toEqual([
+            "ALTER TABLE `blog` ADD COLUMN `collected_by` VARCHAR(8) NOT NULL DEFAULT 'script'",
+        ]);
+        expect(DATABASE.SCHEMA_VERSION).toBe('schema_v8');
+    });
+
+    test('a table already on schema v8 is left alone', async () => {
+        const pool = legacyTablePool({
+            columns: ['id', 'public_id', 'note', 'admin_modified_at', 'deleted_at', ...TRACKING_COLUMNS.map((c) => c.name)],
+            indexes: ['PRIMARY', ...Object.keys(ADMIN_INDEXES)],
+        });
+        await migrateAppTable(pool, 'blog');
+        expect(pool.matching('ALTER TABLE')).toHaveLength(0);
     });
 
     test('backfillPublicIds returns zero when every row already has an ID', async () => {
@@ -211,6 +234,10 @@ describe('DatabaseManager admin wiring', () => {
         return manager;
     };
 
+    test('a new app table is born on schema v8, with collected_by', () => {
+        expect(DatabaseManager.appTableDDL('blog')).toContain("`collected_by` VARCHAR(8) NOT NULL DEFAULT 'script'");
+    });
+
     test('a new app table is created with the admin columns and indexes', () => {
         const ddl = DatabaseManager.appTableDDL('blog');
         expect(ddl).toContain('`public_id` CHAR(36) NOT NULL');
@@ -241,7 +268,10 @@ describe('DatabaseManager admin wiring', () => {
         });
         const [insert] = manager.pool.matching('INSERT INTO `blog`');
         expect(insert.sql).toContain('hostname, language, utm_source, utm_medium, utm_campaign, utm_term, utm_content,');
-        expect(insert.params.slice(-9)).toEqual(['www.example.com', 'en', 's'.repeat(100), 'email', 'launch', null, 'hero', 'Bavaria', 'Munich']);
+        expect(insert.params.slice(-10, -1)).toEqual(['www.example.com', 'en', 's'.repeat(100), 'email', 'launch', null, 'hero', 'Bavaria', 'Munich']);
+        // Which side collected it: the tracker script, unless the caller says otherwise.
+        expect(insert.sql).toContain('region, city, collected_by');
+        expect(insert.params.at(-1)).toBe(COLLECTED_BY.SCRIPT);
         const [log] = manager.pool.matching('INSERT INTO `_view_log`');
         expect(log.params.at(-1)).toBe('www.example.com');
     });
@@ -478,5 +508,99 @@ describe('pruneViewLog', () => {
         const logRepo = { pruneViewLog: async () => { throw new TypeError('locked'); } };
         expect(await pruneViewLog({ logRepo, days: 90 })).toBe(0);
         expect(lines.join('\n')).toContain('Automatic view log pruning failed: locked');
+    });
+});
+
+describe('one page load reported by both sides is one view', () => {
+    const VIEW = '22222222-2222-4222-8222-222222222222';
+    const isMergeSelect = (sql) => /^\s*SELECT id, public_id, is_unique FROM `blog`/.test(sql);
+    const view = (overrides) => ({
+        ip: '203.0.113.5', deviceSize: 'medium', pagePath: '/post', pageTitle: 'A post', sessionId: 's-1',
+        uniqueWindowHours: 24, visitorSecret: 'a'.repeat(64), mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS, ...overrides,
+    });
+    /** A manager whose table holds `found` (or nothing) for the merge lookup, and whose claim succeeds `claimed` times. */
+    const managerFinding = (found, { claimed = 1 } = {}) => {
+        const manager = new DatabaseManager({ mode: 'connect' });
+        let claims = claimed;
+        manager.pool = createScriptedPool(withVisitorSalt((sql) => {
+            if (isMergeSelect(sql)) return [found ? [found] : []];
+            if (/^\s*UPDATE `blog`/.test(sql)) return [{ affectedRows: claims-- > 0 ? 1 : 0 }];
+            if (sql.includes('INSERT INTO')) return [{ insertId: 9 }];
+            return [[]];
+        }));
+        return manager;
+    };
+
+    test('the tracker\'s view completes the edge\'s, and returns its ID so engagement attaches to it', async () => {
+        const manager = managerFinding({ id: 5, public_id: VIEW, is_unique: 1 });
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT }));
+        expect(result).toEqual({ duplicate: false, insertId: 5, publicId: VIEW, isUnique: true, merged: true });
+
+        const [select] = manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`');
+        expect(select.sql).toContain(DatabaseManager.LIVE_ROW);
+        expect(select.sql).toContain('timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND)');
+        expect(select.sql).toContain("SUBSTRING_INDEX(page_path, '#', 1) = ?");
+        expect(select.sql).toContain('ORDER BY id DESC');
+        expect(select.params).toEqual([expect.stringMatching(/^[0-9a-f]{64}$/), COLLECTED_BY.EDGE, 'pageview', 120, '/post']);
+
+        const [update] = manager.pool.matching('UPDATE `blog`');
+        expect(update.sql).toContain('SET collected_by = ?, page_path = ?, page_title = ?, devicesize = COALESCE(?, devicesize), session_id = ?');
+        expect(update.sql).toContain('WHERE id = ? AND collected_by = ?');
+        expect(update.params).toEqual([COLLECTED_BY.BOTH, '/post', 'A post', 'medium', 's-1', 5, COLLECTED_BY.EDGE]);
+        // No second view, and no second entry in the view log: no view was added.
+        expect(manager.pool.matching('INSERT INTO')).toHaveLength(0);
+    });
+
+    test('the edge\'s report after the tracker\'s only marks the view as seen by both', async () => {
+        const manager = managerFinding({ id: 7, public_id: VIEW, is_unique: 0 });
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.EDGE, pageTitle: null, sessionId: null }));
+        expect(result).toMatchObject({ merged: true, publicId: VIEW, duplicate: true, isUnique: false });
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params[1]).toBe(COLLECTED_BY.SCRIPT);
+        const [update] = manager.pool.matching('UPDATE `blog`');
+        expect(update.sql).toMatch(/SET collected_by = \? WHERE id = \? AND collected_by = \?/);
+        expect(update.params).toEqual([COLLECTED_BY.BOTH, 7, COLLECTED_BY.SCRIPT]);
+        expect(manager.pool.matching('INSERT INTO')).toHaveLength(0);
+    });
+
+    test('with nothing to merge into, the view is stored as the side that saw it', async () => {
+        const manager = managerFinding(null);
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.EDGE }));
+        expect(result.merged).toBe(false);
+        const [insert] = manager.pool.matching('INSERT INTO `blog`');
+        expect(insert.params.at(-1)).toBe(COLLECTED_BY.EDGE);
+        expect(manager.pool.matching('INSERT INTO `_view_log`')).toHaveLength(1);
+    });
+
+    test('a view another report claimed first is not taken twice: this one is stored', async () => {
+        const manager = managerFinding({ id: 5, public_id: VIEW, is_unique: 1 }, { claimed: 0 });
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT }));
+        expect(result.merged).toBe(false);
+        expect(result.publicId).not.toBe(VIEW);
+        expect(manager.pool.matching('INSERT INTO `blog`')).toHaveLength(1);
+    });
+
+    test('a hash-routed page matches the edge\'s path without its fragment, and keeps the route', async () => {
+        const manager = managerFinding({ id: 5, public_id: VIEW, is_unique: 1 });
+        await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, pagePath: '/docs#spec/config' }));
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params.at(-1)).toBe('/docs');
+        expect(manager.pool.matching('UPDATE `blog`')[0].params[1]).toBe('/docs#spec/config');
+    });
+
+    test.each([
+        ['without a merge window', { mergeWindowSeconds: 0 }],
+        ['for a custom event', { eventType: 'signup' }],
+        ['without a page', { pagePath: undefined }],
+        ['from a side that is neither', { collectedBy: COLLECTED_BY.BOTH }],
+    ])('nothing is looked for %s', async (_label, overrides) => {
+        const manager = managerFinding({ id: 5, public_id: VIEW, is_unique: 1 });
+        const result = await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, ...overrides }));
+        expect(manager.pool.matching('SELECT id, public_id, is_unique')).toHaveLength(0);
+        expect(result.merged).toBe(false);
+    });
+
+    test('the window is the caller\'s: the route widens it by how long the page had been open', async () => {
+        const manager = managerFinding(null);
+        await manager.registerEvent('blog', view({ collectedBy: COLLECTED_BY.SCRIPT, mergeWindowSeconds: 420 }));
+        expect(manager.pool.matching('SELECT id, public_id, is_unique FROM `blog`')[0].params[3]).toBe(420);
     });
 });

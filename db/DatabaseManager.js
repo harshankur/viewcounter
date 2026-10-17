@@ -3,6 +3,7 @@ const mysql = require('mysql2/promise');
 
 const {
     APP_REGISTRY_TABLE,
+    COLLECTED_BY,
     DATABASE,
     EVENT_TYPE,
     FIELD_MAX_LENGTH,
@@ -459,6 +460,8 @@ class DatabaseManager {
             userAgent = '',
             visitorSecret,
             source = VIEW_LOG_SOURCE.REGISTER_VIEW,
+            collectedBy = COLLECTED_BY.SCRIPT,
+            mergeWindowSeconds = 0,
         } = data;
 
         // Privacy boundary. Neither the raw IP nor the raw User-Agent is bound
@@ -478,6 +481,14 @@ class DatabaseManager {
             salt,
         );
         const maskedIp = PrivacyUtils.maskIP(ip);
+
+        // One page load reported by both sides is one view, not two.
+        if (mergeWindowSeconds > 0 && eventType === EVENT_TYPE.PAGEVIEW) {
+            const merged = await this.mergePageLoad(appId, {
+                hashedVisitor, collectedBy, mergeWindowSeconds, pagePath, pageTitle, deviceSize, sessionId,
+            });
+            if (merged) return merged;
+        }
 
         let isUnique = 1;
         if (uniqueWindowHours > 0 && eventType === EVENT_TYPE.PAGEVIEW) {
@@ -505,8 +516,8 @@ class DatabaseManager {
                 browser, browser_version, os, os_version, device_type,
                 session_id, event_type, event_data, is_unique,
                 hostname, language, utm_source, utm_medium, utm_campaign, utm_term, utm_content,
-                region, city
-            ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                region, city, collected_by
+            ) VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 publicId,
                 truncate(maskedIp, FIELD_MAX_LENGTH.MASKED_IP),
@@ -536,6 +547,7 @@ class DatabaseManager {
                 truncate(utmContent, FIELD_MAX_LENGTH.UTM),
                 truncate(region, FIELD_MAX_LENGTH.REGION),
                 truncate(city, FIELD_MAX_LENGTH.CITY),
+                collectedBy,
             ]
         );
 
@@ -555,7 +567,81 @@ class DatabaseManager {
             insertId: result.insertId,
             publicId,
             isUnique: isUnique === 1,
+            merged: false,
         };
+    }
+
+    /**
+     * Merge a page view into the other side's record of the same page load.
+     *
+     * With an edge Worker in front of a site and the tracker allowed to run,
+     * one page load is reported twice: by the Worker, when it serves the page,
+     * and by the tracker a moment later. The second report finds the first,
+     * a view of the same page by the same visitor, recorded by the other side
+     * within the window and not merged yet, and completes it instead of adding
+     * a view:
+     *
+     *  - the tracker's report fills in what only the page knows (its title,
+     *    the size of its window, the session, a hash route) and returns the
+     *    edge view's ID, so its engagement reports attach to it;
+     *  - the Worker's report, arriving after the tracker's (rare), only marks
+     *    the view as seen by both.
+     *
+     * The page is compared without a fragment, which only the tracker sends
+     * (for hash-routed pages). Uniqueness is the first report's, as it would
+     * have been with one report. The view log gains no entry: no view was
+     * added. Two reports arriving at the same instant may each find nothing
+     * and both be stored; that is accepted, the window is short and the rows
+     * are told apart by `collected_by`.
+     *
+     * @param {string} appId already validated
+     * @param {{ hashedVisitor: string, collectedBy: string, mergeWindowSeconds: number,
+     *   pagePath?: string, pageTitle?: string, deviceSize?: string, sessionId?: string }} report
+     * @returns {Promise<object|null>} what registerEvent returns, or null when there is nothing to merge into
+     */
+    async mergePageLoad(appId, { hashedVisitor, collectedBy, mergeWindowSeconds, pagePath, pageTitle, deviceSize, sessionId }) {
+        const fromScript = collectedBy === COLLECTED_BY.SCRIPT;
+        if (!fromScript && collectedBy !== COLLECTED_BY.EDGE) return null;
+        const storedPath = truncate(pagePath, FIELD_MAX_LENGTH.PAGE_PATH);
+        if (!storedPath) return null;
+        const counterpart = fromScript ? COLLECTED_BY.EDGE : COLLECTED_BY.SCRIPT;
+
+        const [rows] = await this.pool.query(
+            `SELECT id, public_id, is_unique FROM \`${appId}\`
+             WHERE visitor_hash = ? AND collected_by = ? AND event_type = ?
+               AND timestamp > DATE_SUB(NOW(), INTERVAL ? SECOND) AND ${LIVE_ROW}
+               AND SUBSTRING_INDEX(page_path, '#', 1) = ?
+             ORDER BY id DESC
+             LIMIT 1`,
+            [hashedVisitor, counterpart, EVENT_TYPE.PAGEVIEW, mergeWindowSeconds, storedPath.split('#')[0]]
+        );
+        const row = rows[0];
+        if (!row) return null;
+
+        // Claimed only if it is still unmerged, so two reports cannot both take it.
+        const [result] = fromScript
+            ? await this.pool.query(
+                `UPDATE \`${appId}\`
+                 SET collected_by = ?, page_path = ?, page_title = ?, devicesize = COALESCE(?, devicesize), session_id = ?
+                 WHERE id = ? AND collected_by = ?`,
+                [
+                    COLLECTED_BY.BOTH,
+                    storedPath,
+                    truncate(pageTitle, FIELD_MAX_LENGTH.PAGE_TITLE),
+                    truncate(deviceSize, FIELD_MAX_LENGTH.DEVICE_SIZE),
+                    truncate(sessionId, FIELD_MAX_LENGTH.SESSION_ID),
+                    row.id,
+                    counterpart,
+                ]
+            )
+            : await this.pool.query(
+                `UPDATE \`${appId}\` SET collected_by = ? WHERE id = ? AND collected_by = ?`,
+                [COLLECTED_BY.BOTH, row.id, counterpart]
+            );
+        if (!(result?.affectedRows > 0)) return null;
+
+        const isUnique = row.is_unique === 1 || row.is_unique === true;
+        return { duplicate: !isUnique, insertId: row.id, publicId: row.public_id, isUnique, merged: true };
     }
 
     /**

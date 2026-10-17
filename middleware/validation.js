@@ -1,6 +1,7 @@
 const { body, query, param, validationResult } = require('express-validator');
 
 const {
+    EDGE,
     FIELD_MAX_LENGTH,
     HTTP_STATUS,
     PAYLOAD_LIMITS,
@@ -10,7 +11,7 @@ const {
     TREND_PERIODS,
     UUID_PATTERN,
 } = require('../constants');
-const { UTM_PARAMETERS } = require('../utils/visitorContext');
+const { UTM_PARAMETERS, httpUrl } = require('../utils/visitorContext');
 const { jsonByteLength } = require('../utils/stringUtils');
 const { isValidAppId } = require('../utils/appIdUtils');
 
@@ -88,6 +89,38 @@ const validateRegisterView = (allowedValues) => [
     boundedQuery('referrer', FIELD_MAX_LENGTH.REFERRER),
     boundedQuery('sessionId', FIELD_MAX_LENGTH.SESSION_ID),
     ...UTM_PARAMETERS.map((name) => boundedQuery(name, FIELD_MAX_LENGTH.UTM)),
+    // Seconds the page had been open, sent with a page's first view so a view
+    // sent late still merges with the edge's record of that page load.
+    boundedInt('age', 0, TRACKING.MAX_PAGE_AGE_SECONDS),
+];
+
+/** An optional body string that may also be null, as a Worker sends an absent header. */
+const nullableBody = (name, max) =>
+    body(name)
+        .optional({ values: 'null' })
+        .isString().withMessage(`${name} must be a string`)
+        .isLength({ max }).withMessage(`${name} must be at most ${max} characters`);
+
+/**
+ * Validate an edge report: a page request a Worker in front of a site saw,
+ * reported server to server. Which origins the URL may have is checked after
+ * this, against the app's registered sites; the address after that.
+ */
+const validateEdgeView = (allowedValues) => [
+    body('appId')
+        .notEmpty().withMessage('appId is required')
+        .custom((value) => allowedValues.appId.includes(value)).withMessage('Invalid appId'),
+    body('url')
+        .isString().withMessage('url must be a string')
+        .isLength({ max: EDGE.MAX_URL_LENGTH }).withMessage(`url must be at most ${EDGE.MAX_URL_LENGTH} characters`)
+        .custom((value) => httpUrl(value) !== null).withMessage('url must be an absolute http(s) URL'),
+    nullableBody('referrer', EDGE.MAX_REFERRER_LENGTH),
+    body('ip')
+        .isString().withMessage('ip must be a string')
+        .isLength({ min: 1, max: EDGE.MAX_IP_LENGTH }).withMessage(`ip must be 1 to ${EDGE.MAX_IP_LENGTH} characters`),
+    nullableBody('userAgent', EDGE.MAX_USER_AGENT_LENGTH),
+    nullableBody('mobile', EDGE.MAX_CLIENT_HINT_LENGTH),
+    nullableBody('acceptLanguage', EDGE.MAX_ACCEPT_LANGUAGE_LENGTH),
 ];
 
 /**
@@ -250,6 +283,7 @@ const handleTrackingValidation = (onReject) => (req, res, next) => {
 module.exports = {
     validateAppRegistration,
     validateRegisterView,
+    validateEdgeView,
     validateEvent,
     validateEngage,
     validateStatsRequest,

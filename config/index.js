@@ -6,6 +6,7 @@ require('dotenv').config({ quiet: true });
 const {
     ADMIN,
     DATABASE,
+    EDGE,
     INSECURE_DEFAULTS,
     NODE_ENV,
     PRIVACY,
@@ -123,6 +124,7 @@ class Config {
         this.auth = this.loadAuthConfig();
         this.privacy = this.loadPrivacyConfig();
         this.admin = this.loadAdminConfig();
+        this.edge = this.loadEdgeConfig();
         // Optional: an .mmdb city database (DB-IP City Lite or GeoLite2 City)
         // for each view's region and city. Without it, country only.
         this.geo = { cityDatabase: this.env.GEOIP_CITY_DB || null };
@@ -403,6 +405,23 @@ class Config {
     }
 
     /**
+     * Edge counting: the secret a Worker in front of a site presents to
+     * POST /edge/view, server to server.
+     *
+     * `EDGE_SECRET` is its own credential tier (SECURITY.md §3): it can only
+     * add page views, and it is independent of the read keys, the admin keys,
+     * and the admin password. It is read from the environment only, never from
+     * a config file, and never logged. Unset, the endpoint does not exist (404)
+     * and nothing else changes. A secret that is set but shorter than the
+     * minimum is kept, so validate() can refuse to start on it, but never
+     * enables the endpoint.
+     */
+    loadEdgeConfig() {
+        const secret = this.env.EDGE_SECRET || '';
+        return { secret, enabled: secret.length >= EDGE.MIN_SECRET_LENGTH };
+    }
+
+    /**
      * Fail-fast startup validation (CONFIG.md §3, SECURITY.md §1).
      *
      * Refuses to boot a production deployment that is still sitting on the
@@ -418,6 +437,7 @@ class Config {
         void this.privacy.visitorSecret;
 
         this.validateAdmin();
+        this.validateEdge();
         this.warnAboutUnknownRateLimitApps();
 
         if (!this.server.isProduction) {
@@ -484,7 +504,29 @@ class Config {
         }
     }
 
-    /** Surface the same problems as warnings outside production. */
+    /**
+     * EDGE_SECRET checks, in every environment: a secret that is set but too
+     * short is a mistake, not a choice, and quietly leaving edge counting off
+     * would hide it. The error names the setting, never its value. Reusing
+     * another credential as the secret collapses two tiers into one.
+     */
+    validateEdge() {
+        const { secret, enabled } = this.edge;
+        if (!secret) return;
+
+        if (!enabled) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, {
+                field: 'EDGE_SECRET',
+                reason: `must be at least ${EDGE.MIN_SECRET_LENGTH} characters`,
+            });
+        }
+
+        const others = [...Object.keys(this.auth.readKeyScopes), ...this.auth.adminApiKeys, this.admin.password];
+        if (others.includes(secret)) {
+            logWarning(WarningType.EDGE_SECRET_REUSED);
+        }
+    }
+
     /**
      * A per-app rate limit figure for an app this configuration does not
      * list is most likely a typo, and would otherwise never apply without a
@@ -500,6 +542,7 @@ class Config {
         }
     }
 
+    /** Surface the same problems as warnings outside production. */
     warnAboutDevelopmentDefaults() {
         if (Object.keys(this.auth.readKeyScopes).length === 0) {
             logWarning(WarningType.READ_API_UNPROTECTED);

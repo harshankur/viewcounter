@@ -1,6 +1,8 @@
 const UAParser = require('ua-parser-js');
 const { isbot, isbotMatch } = require('isbot');
 
+const { MOBILE_CLIENT_HINT } = require('../constants');
+
 /**
  * ua-parser-js 1.x is used because 2.x is licensed AGPL-3.0, which an MIT
  * package cannot pass on to the people who install it. 1.x names a few things
@@ -101,11 +103,16 @@ class UserAgentParser {
     }
 
     /**
-     * Get a simple device size category (for backward compatibility)
+     * Get a simple device size category, for a request with no window to
+     * measure (a custom event, a page request seen at the edge).
      * @param {string} userAgent - User agent string
+     * @param {string|null} [mobileHint] - the Sec-CH-UA-Mobile header, where
+     *   known: a browser that says it is on a phone is one, whatever its user
+     *   agent (which Chrome reduces) suggests
      * @returns {string} Device size: small, medium, or large
      */
-    static getDeviceSize(userAgent) {
+    static getDeviceSize(userAgent, mobileHint = null) {
+        if (mobileHint === MOBILE_CLIENT_HINT) return 'small';
         const { deviceType } = this.parse(userAgent);
 
         if (deviceType === 'mobile' || deviceType === 'wearable') return 'small';

@@ -3,7 +3,7 @@
  * coarse visitor context from a request, and counting what was not stored.
  */
 
-const { primaryLanguage, hostnameOf, utmTags, UTM_PARAMETERS } = require('../utils/visitorContext');
+const { primaryLanguage, hostnameOf, utmTags, UTM_PARAMETERS, httpUrl, originAndPath, urlUtmTags } = require('../utils/visitorContext');
 const { createRejectionCounter } = require('../db/rejectionCounter');
 const { TRACKING } = require('../constants');
 
@@ -56,6 +56,40 @@ describe('utmTags', () => {
 
     test('names exactly the five standard parameters', () => {
         expect(UTM_PARAMETERS).toEqual(['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']);
+    });
+});
+
+describe('httpUrl', () => {
+    test('parses an absolute http(s) URL', () => {
+        expect(httpUrl('https://Example.com/a?b=1').hostname).toBe('example.com');
+        expect(httpUrl('http://example.com').pathname).toBe('/');
+    });
+
+    test.each([[''], ['/relative'], ['ftp://example.com/'], ['javascript:alert(1)'], ['https://'], [null], [undefined], [42]])(
+        'refuses %p', (value) => {
+            expect(httpUrl(value)).toBeNull();
+        });
+});
+
+describe('originAndPath', () => {
+    test('keeps the origin and the path, never the query, fragment, or credentials', () => {
+        expect(originAndPath('https://user:pass@www.example.com/reset?token=SECRET&email=a%40b.c#step')).toBe('https://www.example.com/reset');
+        expect(originAndPath('https://example.com')).toBe('https://example.com/');
+    });
+
+    test.each([[''], [null], ['android-app://com.example/'], ['not a url']])('is empty for %p', (value) => {
+        expect(originAndPath(value)).toBe('');
+    });
+});
+
+describe('urlUtmTags', () => {
+    test('reads the campaign tags of a page URL, the first of each, and nothing else', () => {
+        const url = new URL('https://example.com/?utm_source=news&utm_source=other&utm_medium=%20email%20&email=a%40b.c&utm_campaign=');
+        expect(urlUtmTags(url)).toEqual({ utmSource: 'news', utmMedium: 'email', utmCampaign: null, utmTerm: null, utmContent: null });
+    });
+
+    test('bounds each one like the tracker\'s', () => {
+        expect(urlUtmTags(new URL(`https://example.com/?utm_term=${'t'.repeat(300)}`)).utmTerm).toHaveLength(100);
     });
 });
 

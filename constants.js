@@ -60,6 +60,8 @@ const FIELD_MAX_LENGTH = {
     UTM: 100,
     REGION: 100,
     CITY: 100,
+    /** 'script', 'edge', or 'both' (COLLECTED_BY). */
+    COLLECTED_BY: 8,
 };
 
 /** Bounds for user-supplied pagination and range parameters. */
@@ -97,7 +99,7 @@ const DATABASE = {
     QUERY_TIMEOUT_MS: 5_000,
     CONNECT_TIMEOUT_MS: 10_000,
     DEFAULT_PORT: 3306,
-    SCHEMA_VERSION: 'schema_v7',
+    SCHEMA_VERSION: 'schema_v8',
     /** Rows given a public_id per statement when backfilling an old table. */
     BACKFILL_BATCH_SIZE: 500,
 };
@@ -371,7 +373,47 @@ const VIEW_LOG_SOURCE = {
     EVENT: 'event',
     /** Time on page and scroll depth for a view already recorded. */
     ENGAGE: 'engage',
+    /** A page view reported server-to-server by an edge Worker in front of the site. */
+    EDGE: 'edge',
 };
+
+/**
+ * Which side collected a view: the tracker script in the page, the edge
+ * Worker in front of the site (which sees only the request for the page), or
+ * both, for one page load reported by each and merged into one view.
+ */
+const COLLECTED_BY = {
+    SCRIPT: 'script',
+    EDGE: 'edge',
+    BOTH: 'both',
+};
+
+/**
+ * Edge counting: POST /edge/view, which a Worker in front of a site calls for
+ * each HTML page it serves, server to server. Off unless EDGE_SECRET is set.
+ */
+const EDGE = {
+    /** Relative to where the router is mounted. */
+    PATH: '/edge/view',
+    /** The Worker presents `Authorization: Bearer <EDGE_SECRET>`. */
+    AUTH_HEADER: 'authorization',
+    AUTH_SCHEME: 'Bearer',
+    /** A shorter EDGE_SECRET stops the server from starting. */
+    MIN_SECRET_LENGTH: 32,
+    /** The page URL as requested, query included; only its path and campaign tags are kept. */
+    MAX_URL_LENGTH: 2048,
+    /** The raw Referer header; reduced to an origin and a path before it is stored. */
+    MAX_REFERRER_LENGTH: 2048,
+    /** The longest textual IP address, an IPv4-mapped IPv6 one. */
+    MAX_IP_LENGTH: 45,
+    MAX_USER_AGENT_LENGTH: 1024,
+    MAX_ACCEPT_LANGUAGE_LENGTH: 512,
+    /** Sec-CH-UA-Mobile is a structured-header boolean: "?1" or "?0". */
+    MAX_CLIENT_HINT_LENGTH: 8,
+};
+
+/** The Sec-CH-UA-Mobile value of a browser that says it is on a phone. */
+const MOBILE_CLIENT_HINT = '?1';
 
 /** Service-owned tables. All carry the reserved `_` prefix. */
 const ADMIN_LOG_TABLE = '_admin_log';
@@ -403,6 +445,20 @@ const TRACKING = {
     REJECTION_MAX_KEYS_PER_HOUR: 1000,
     /** Rejections are only ever stored as per-minute counts. */
     REJECTION_BUCKET_MS: 60 * 1000,
+    /**
+     * How long after one side records a page view the other side's report of
+     * the same page load is merged into it rather than stored as a second view:
+     * the edge Worker reports the request for the page, and the tracker's view
+     * arrives a moment later (or, rarely, the other way round).
+     */
+    MERGE_WINDOW_SECONDS: 120,
+    /**
+     * The tracker says how long its page had been open when it sent its first
+     * view (`age`), so that a view sent late, after the visitor took a while
+     * to allow it, still merges with the edge's record of that page load.
+     * Longer than a view accepts engagement for is never needed.
+     */
+    MAX_PAGE_AGE_SECONDS: 24 * 60 * 60,
 };
 
 /** What happened to one tracking request, as the tracking log reports it. */
@@ -427,6 +483,8 @@ const REJECTION_REASON = {
     RATE_LIMITED: 'rate_limited',
     /** Engagement for a view that does not exist, is trashed, or is too old. */
     UNKNOWN_VIEW: 'unknown_view',
+    /** An edge report without the right EDGE_SECRET. */
+    UNAUTHORIZED: 'unauthorized',
     SERVER_ERROR: 'server_error',
 };
 
@@ -546,6 +604,9 @@ module.exports = {
     ADMIN_ACTION,
     ADMIN_ERROR_CODE,
     VIEW_LOG_SOURCE,
+    COLLECTED_BY,
+    EDGE,
+    MOBILE_CLIENT_HINT,
     ADMIN_LOG_TABLE,
     ADMIN_SESSIONS_TABLE,
     VIEW_LOG_TABLE,

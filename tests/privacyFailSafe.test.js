@@ -146,6 +146,32 @@ describe('Privacy Fail-Safe Verification', () => {
         expect(logSql).not.toMatch(/masked_ip|visitor_hash|user_agent/);
     });
 
+    test.each([['script', 'edge'], ['edge', 'script']])(
+        'Fail-Safe: merging a %s report into the %s view binds neither the raw IP nor the User-Agent', async (side) => {
+            const rawIP = '88.88.88.88';
+            const rawUA = 'Mozilla/5.0 (MergeProbe/1.0)';
+            const usual = mockPool.query.getMockImplementation();
+            mockPool.query.mockImplementation(async (sql, params = []) => {
+                interceptedSql.push(sql);
+                interceptedParams.push(...params);
+                if (/^\s*SELECT salt FROM `_visitor_salts`/.test(sql)) return [[{ salt: TEST_VISITOR_SALT }]];
+                if (/^\s*SELECT id, public_id, is_unique/.test(sql)) return [[{ id: 3, public_id: 'p', is_unique: 1 }]];
+                return [{ affectedRows: 1, insertId: 1 }];
+            });
+            try {
+                const result = await dbManager.registerEvent('test_app', {
+                    ip: rawIP, deviceSize: 'small', userAgent: rawUA, pagePath: '/a', pageTitle: 'A',
+                    visitorSecret: TEST_VISITOR_SECRET, collectedBy: side, mergeWindowSeconds: 120,
+                });
+                expect(result.merged).toBe(true);
+            } finally {
+                mockPool.query.mockImplementation(usual);
+            }
+            for (const [needle, label] of [[rawIP, 'raw IPv4'], ['88.88.88.0', 'masked IPv4 in a merge'], [rawUA, 'raw User-Agent'], ['MergeProbe', 'User-Agent fragment']]) {
+                expectAbsentEverywhere(needle, label);
+            }
+        });
+
     describe('Visitor hash irreversibility', () => {
         const ip = '198.51.100.42';
         const ua = 'Mozilla/5.0';

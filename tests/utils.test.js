@@ -183,6 +183,12 @@ describe('errorUtils', () => {
         }
     });
 
+    test('a reused EDGE_SECRET is warned about in words that name no value', () => {
+        expect(WARNING_MESSAGES[WarningType.EDGE_SECRET_REUSED]).toBe(
+            'EDGE_SECRET is identical to an API key or the admin password. Use an independent secret so '
+            + 'leaking one credential tier never unlocks another.');
+    });
+
     test('every warning message resolves without throwing', () => {
         for (const type of Object.values(WarningType)) {
             expect(() => logWarning(type, { file: 'f', field: 'x', source: 's', value: 'v', path: '/p', max: 1 }))
@@ -506,6 +512,13 @@ describe('userAgentParser.getDeviceSize()', () => {
 
         expect(UserAgentParser.getDeviceSize(mobileUA)).toBe('small');
         expect(UserAgentParser.getDeviceSize(desktopUA)).toBe('large');
+    });
+
+    test('a browser that says it is on a phone (Sec-CH-UA-Mobile: ?1) is small, whatever its user agent', () => {
+        const desktopUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36';
+        expect(UserAgentParser.getDeviceSize(desktopUA, '?1')).toBe('small');
+        expect(UserAgentParser.getDeviceSize(desktopUA, '?0')).toBe('large');
+        expect(UserAgentParser.getDeviceSize('', null)).toBe('large');
     });
 });
 

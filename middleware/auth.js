@@ -13,7 +13,7 @@
 
 const crypto = require('crypto');
 
-const { API_KEY_HEADER, HTTP_STATUS, SCOPE_ALL } = require('../constants');
+const { API_KEY_HEADER, EDGE, HTTP_STATUS, SCOPE_ALL } = require('../constants');
 
 /**
  * Constant-time string comparison (agent-instructions SECURITY.md §2).
@@ -182,8 +182,49 @@ function requireAdminApiKey(authConfig) {
     };
 }
 
+/**
+ * The token of an `Authorization: Bearer <token>` header, or '' for any other
+ * or no header. The scheme is matched case-insensitively, as HTTP has it.
+ *
+ * @param {import('express').Request} req
+ * @returns {string}
+ */
+function bearerToken(req) {
+    const header = req.get(EDGE.AUTH_HEADER);
+    if (typeof header !== 'string') return '';
+    const prefix = `${EDGE.AUTH_SCHEME} `;
+    if (header.slice(0, prefix.length).toLowerCase() !== prefix.toLowerCase()) return '';
+    return header.slice(prefix.length).trim();
+}
+
+/**
+ * Require the edge secret: the Worker in front of a site presents it as a
+ * bearer token on POST /edge/view.
+ *
+ * Its own credential tier (SECURITY.md §3): it may only add page views. The
+ * comparison is constant-time, and a missing header costs the same comparison
+ * as a wrong one. A refusal is reported to `onReject`, never with the header's
+ * value, so the tracking log can show a Worker with the wrong secret.
+ *
+ * @param {{ secret: string }} edgeConfig
+ * @param {{ onReject?: (req: import('express').Request) => void }} [options]
+ * @returns {import('express').RequestHandler}
+ */
+function requireEdgeSecret(edgeConfig, { onReject = () => {} } = {}) {
+    const secret = String(edgeConfig?.secret || '');
+
+    return (req, res, next) => {
+        // An empty secret never matches, even an empty token.
+        if (secret && safeEqual(bearerToken(req), secret)) return next();
+        onReject(req);
+        return res.status(HTTP_STATUS.UNAUTHORIZED).json({ message: 'Missing or invalid edge secret' });
+    };
+}
+
 module.exports = {
     requireReadApiKey,
+    requireEdgeSecret,
+    bearerToken,
     requireAppScope,
     requireAdminApiKey,
     safeEqual,

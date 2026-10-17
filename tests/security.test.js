@@ -359,3 +359,75 @@ describe('Constant-time key comparison', () => {
         expect('short'.length).toBeLessThan(PRIVACY.MIN_API_KEY_LENGTH);
     });
 });
+
+describe('The edge secret', () => {
+    const { bearerToken, requireEdgeSecret } = require('../middleware/auth');
+    const SECRET = 'z'.repeat(40);
+    const fakeReq = (authorization) => ({ get: (name) => (name.toLowerCase() === 'authorization' ? authorization : undefined) });
+    const run = (secret, authorization) => {
+        const res = { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+        const next = jest.fn();
+        const onReject = jest.fn();
+        requireEdgeSecret({ secret }, { onReject })(fakeReq(authorization), res, next);
+        return { res, next, onReject };
+    };
+
+    test.each([
+        [`Bearer ${SECRET}`, SECRET],
+        [`bearer ${SECRET}`, SECRET],
+        [`BEARER   ${SECRET}  `, SECRET],
+        [`Basic ${SECRET}`, ''],
+        [SECRET, ''],
+        ['Bearer', ''],
+        [undefined, ''],
+    ])('bearerToken(%p) is %p', (header, token) => {
+        expect(bearerToken(fakeReq(header))).toBe(token);
+    });
+
+    test('the right secret passes', () => {
+        const { next, onReject } = run(SECRET, `Bearer ${SECRET}`);
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(onReject).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ['missing', undefined],
+        ['wrong', `Bearer ${'y'.repeat(40)}`],
+        ['a prefix of it', `Bearer ${SECRET.slice(0, 39)}`],
+        ['longer than it', `Bearer ${SECRET}z`],
+    ])('a %s secret is a 401 and a reported refusal', (_label, header) => {
+        const { res, next, onReject } = run(SECRET, header);
+        expect(next).not.toHaveBeenCalled();
+        expect(onReject).toHaveBeenCalledTimes(1);
+        expect(res.statusCode).toBe(401);
+        expect(res.body).toEqual({ message: 'Missing or invalid edge secret' });
+    });
+
+    test('with no secret configured nothing passes, not even an empty token', () => {
+        expect(run('', 'Bearer ').next).not.toHaveBeenCalled();
+        expect(run(undefined, undefined).next).not.toHaveBeenCalled();
+    });
+
+    test('is compared in constant time', () => {
+        const crypto = require('crypto');
+        const spy = jest.spyOn(crypto, 'timingSafeEqual');
+        try {
+            run(SECRET, `Bearer ${'y'.repeat(40)}`);
+            run(SECRET, 'Bearer short');
+            // Once for the equal-length comparison, once for the dummy one on a length mismatch.
+            expect(spy).toHaveBeenCalledTimes(2);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+});
+
+describe('Without EDGE_SECRET the edge endpoint does not exist', () => {
+    test('POST /edge/view is a 404 and stores nothing', async () => {
+        const before = dbManager.pool.queries.length;
+        await request(server).post('/edge/view').set('Authorization', `Bearer ${'z'.repeat(40)}`)
+            .send({ appId: 'bound_app', url: 'https://registered.example/', ip: '198.51.100.7', userAgent: 'Mozilla/5.0' })
+            .expect(404);
+        expect(dbManager.pool.queries.slice(before).some((q) => /insert into/i.test(q.sql))).toBe(false);
+    });
+});

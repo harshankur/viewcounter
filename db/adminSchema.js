@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const {
     ADMIN_LOG_TABLE,
     ADMIN_SESSIONS_TABLE,
+    COLLECTED_BY,
     DATABASE,
     FIELD_MAX_LENGTH,
     TRACKING_REJECTIONS_TABLE,
@@ -46,6 +47,10 @@ const ADMIN_COLUMNS = [
  * long the page was visible and how far it was scrolled. 3.3 added
  * `last_seen_at`: when the page last reported its engagement, which is how
  * "right now" still counts a visitor who has been reading one page for a while.
+ * 3.6 added `collected_by` (schema v8): which side recorded the view, the
+ * tracker script, the edge Worker in front of the site, or both for one page
+ * load. Rows from before it were all recorded by the script, which is what the
+ * default gives them.
  */
 const TRACKING_COLUMNS = [
     { name: 'hostname', ddl: `VARCHAR(${FIELD_MAX_LENGTH.HOSTNAME}) DEFAULT NULL` },
@@ -60,6 +65,7 @@ const TRACKING_COLUMNS = [
     { name: 'engaged_ms', ddl: 'INT UNSIGNED DEFAULT NULL' },
     { name: 'scroll_depth', ddl: 'TINYINT UNSIGNED DEFAULT NULL' },
     { name: 'last_seen_at', ddl: 'DATETIME DEFAULT NULL' },
+    { name: 'collected_by', ddl: `VARCHAR(${FIELD_MAX_LENGTH.COLLECTED_BY}) NOT NULL DEFAULT '${COLLECTED_BY.SCRIPT}'` },
 ];
 
 /**

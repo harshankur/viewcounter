@@ -37,6 +37,7 @@ const READ_KEY_GLOBAL = 'g'.repeat(40);  // unscoped
 const ADMIN_KEY = 'A'.repeat(40);
 const ADMIN_PASSWORD = 'e2e-admin-password-0123';
 const VISITOR_SECRET = 'f'.repeat(64);
+const EDGE_SECRET = 'E'.repeat(40);
 
 const RAW_IP = '203.0.113.77';           // the address we will send
 const RAW_UA = 'Mozilla/5.0 (X11; Linux x86_64) DistinctiveFingerprint/1.0 Chrome/120.0.0.0 Safari/537.36';
@@ -141,6 +142,7 @@ async function main() {
         UNIQUE_VISITOR_WINDOW_HOURS: '24',
         ADMIN_PASSWORD,
         TRASH_RETENTION_DAYS: '30',
+        EDGE_SECRET,
     };
 
     const proc = spawn('node', ['index.js'], { cwd: RUN_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -173,6 +175,7 @@ async function main() {
         await verifyBoundaries();
         await verifyProvisioning(db);
         await verifyTracking(db);
+        await verifyEdge(db);
         await verifyStatementTimeout(db);
         await verifyMigration(db);
         await verifyEmbedding(db);
@@ -356,6 +359,99 @@ async function verifyTracking(db) {
     check('engagement for a view that does not exist is counted', counted('unknown_view', { source: 'engage' }), shown('unknown_view'));
     const dump = JSON.stringify(reasons);
     check('counted rejections hold no IP or user agent', !dump.includes('198.51.100') && !dump.includes('DistinctiveFingerprint'));
+}
+
+/**
+ * 3.6 edge counting: a Worker's report of a page request becomes a view, and
+ * the tracker's view of the same page load merges into it (or it into the
+ * tracker's), on the real engine's clock and SQL.
+ */
+async function verifyEdge(db) {
+    section('Edge counting and merged page loads');
+    const ORIGIN = 'https://edge.example';
+    const provisioned = await req('POST', '/apps', { key: ADMIN_KEY, body: { appId: 'edge_site', origins: [ORIGIN] } });
+    check('an app for edge counting is provisioned', provisioned.status === 200, `got ${provisioned.status}`);
+
+    // The server sees this runner at 127.0.0.1 with BROWSER_UA; the Worker reports the same visitor.
+    const edge = (path, { secret = EDGE_SECRET, url = `${ORIGIN}${path}`, ...overrides } = {}) => fetch(`${BASE}/edge/view`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}`, 'user-agent': 'Cloudflare-Workers' },
+        body: JSON.stringify({
+            appId: 'edge_site', url, referrer: 'https://www.google.com/search?q=PRIVATE', ip: '127.0.0.1',
+            userAgent: BROWSER_UA, mobile: '?0', acceptLanguage: 'de-DE,de;q=0.9', ...overrides,
+        }),
+    });
+    const view = (path, extra = '') => req('GET', `/registerView?appId=edge_site&deviceSize=medium&page=${encodeURIComponent(path)}&title=Title&sessionId=s-1${extra}`,
+        { headers: { origin: ORIGIN } });
+    const rowsAt = async (path) => (await db.query('SELECT * FROM `edge_site` WHERE page_path = ? ORDER BY id', [path]))[0];
+    const age = (path, seconds) => db.query('UPDATE `edge_site` SET timestamp = DATE_SUB(timestamp, INTERVAL ? SECOND) WHERE page_path = ?', [seconds, path]);
+
+    const refused = await edge('/e2e/refused', { secret: 'x'.repeat(40) });
+    check('a report with the wrong secret is refused with 401', refused.status === 401, `got ${refused.status}`);
+    const foreign = await edge('/e2e/foreign', { url: 'https://elsewhere.example/e2e/foreign' });
+    check('a page on a site not registered for the app is refused with 403', foreign.status === 403, `got ${foreign.status}`);
+    check('neither was stored', (await rowsAt('/e2e/refused')).length === 0 && (await rowsAt('/e2e/foreign')).length === 0);
+
+    const first = await edge('/e2e/one', { url: `${ORIGIN}/e2e/one?utm_source=feed&token=SECRET#frag` });
+    const [edgeRow] = await rowsAt('/e2e/one');
+    check('an edge report is stored as a view, answered 204', first.status === 204 && edgeRow?.collected_by === 'edge', `got ${first.status}`);
+    check('with the path alone, no title, its campaign tag, and the page before as origin and path',
+        edgeRow?.page_title === null && edgeRow?.utm_source === 'feed' && edgeRow?.referrer === 'https://www.google.com/search'
+        && edgeRow?.source_type === 'campaign' && edgeRow?.language === 'de' && edgeRow?.masked_ip === '127.0.0.0',
+        JSON.stringify({ title: edgeRow?.page_title, utm: edgeRow?.utm_source, referrer: edgeRow?.referrer, ip: edgeRow?.masked_ip }));
+    check('nothing of the query reached the row', !JSON.stringify(edgeRow).includes('SECRET') && !JSON.stringify(edgeRow).includes('PRIVATE'));
+
+    const merged = await view('/e2e/one');
+    const oneRows = await rowsAt('/e2e/one');
+    check('the tracker\'s view of the same page load returns the edge view\'s ID',
+        merged.status === 200 && merged.body?.id === edgeRow?.public_id && merged.body?.recorded === true, JSON.stringify(merged.body));
+    check('and is one view, collected by both, completed with what the page knows',
+        oneRows.length === 1 && oneRows[0].collected_by === 'both' && oneRows[0].page_title === 'Title'
+        && oneRows[0].devicesize === 'medium' && oneRows[0].session_id === 's-1', JSON.stringify(oneRows.map((r) => r.collected_by)));
+    const engaged = await fetch(`${BASE}/engage`, {
+        method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8', origin: ORIGIN, 'user-agent': BROWSER_UA },
+        body: JSON.stringify({ appId: 'edge_site', id: merged.body?.id, ms: 12000, scroll: 40 }),
+    });
+    const [[afterEngage]] = await db.query('SELECT engaged_ms, scroll_depth FROM `edge_site` WHERE public_id = ?', [edgeRow?.public_id]);
+    check('its engagement attaches to the merged view', engaged.status === 204 && Number(afterEngage?.engaged_ms) === 12000
+        && Number(afterEngage?.scroll_depth) === 40, JSON.stringify(afterEngage));
+
+    const scriptFirst = await view('/e2e/two');
+    const late = await edge('/e2e/two');
+    const twoRows = await rowsAt('/e2e/two');
+    check('the edge report after the tracker\'s view only marks it as seen by both',
+        late.status === 204 && twoRows.length === 1 && twoRows[0].collected_by === 'both' && twoRows[0].public_id === scriptFirst.body?.id,
+        JSON.stringify(twoRows.map((r) => r.collected_by)));
+
+    await edge('/e2e/three');
+    await age('/e2e/three', 300);
+    const expired = await view('/e2e/three');
+    const threeRows = await rowsAt('/e2e/three');
+    check('past the merge window, the tracker\'s view is a view of its own',
+        threeRows.length === 2 && threeRows[0].collected_by === 'edge' && threeRows[1].collected_by === 'script'
+        && expired.body?.id === threeRows[1].public_id, JSON.stringify(threeRows.map((r) => r.collected_by)));
+
+    await edge('/e2e/four');
+    await age('/e2e/four', 300);
+    const aged = await view('/e2e/four', '&age=400');
+    const fourRows = await rowsAt('/e2e/four');
+    check('a view sent late merges when the page says how long it had been open',
+        fourRows.length === 1 && fourRows[0].collected_by === 'both' && aged.body?.id === fourRows[0].public_id,
+        JSON.stringify(fourRows.map((r) => r.collected_by)));
+
+    await edge('/e2e/hash');
+    const routed = await view('/e2e/hash#spec/config');
+    const [hashRow] = await rowsAt('/e2e/hash#spec/config');
+    check('a hash-routed page merges with the edge\'s path and keeps its route',
+        hashRow?.collected_by === 'both' && routed.body?.id === hashRow?.public_id && (await rowsAt('/e2e/hash')).length === 0);
+
+    await view('/e2e/spa');
+    await view('/e2e/spa');
+    const spaRows = await rowsAt('/e2e/spa');
+    check('views from the tracker alone never merge with each other', spaRows.length === 2 && spaRows.every((r) => r.collected_by === 'script'));
+
+    const [[logged]] = await db.query("SELECT COUNT(*) AS n FROM `_view_log` WHERE app_id = 'edge_site' AND source = 'edge'");
+    check('edge views are in the tracking log as the edge\'s', Number(logged.n) === 4, `${logged.n} entries`);
 }
 
 async function verifySchema(db) {
@@ -682,6 +778,12 @@ async function verifyMigration(db) {
         check(`${table} has no column for raw personal data`,
             !['ip', 'visitor_hash', 'user_agent', 'page_title', 'referrer', 'note'].some(n => logBy[n]));
     }
+
+    const collectedBy = by.collected_by;
+    const [[{ n: notScript }]] = await db.query("SELECT COUNT(*) AS n FROM `legacy_app` WHERE collected_by <> 'script'");
+    check('schema v8: the legacy table gained collected_by, VARCHAR(8) NOT NULL',
+        collectedBy?.CHARACTER_MAXIMUM_LENGTH === 8 && collectedBy?.IS_NULLABLE === 'NO', JSON.stringify(collectedBy));
+    check('every existing row reads as collected by the script', Number(notScript) === 0, `${notScript} rows say otherwise`);
 
     const fresh = await req('GET', '/registerView?appId=legacy_app&deviceSize=small', { headers: { 'x-forwarded-for': '198.51.100.9' } });
     check('the migrated table accepts new views', fresh.status === 200, `got ${fresh.status}`);

@@ -83,10 +83,12 @@ function createApp() {
 
     // A tracking request turned away here is counted in the tracking log like
     // any other refusal (in memory, written in batches).
-    // (Engagement reports have a limiter of their own, on their route.)
+    // (Engagement reports have a limiter of their own, on their route, and so
+    // do edge reports while that endpoint exists: they all come from the
+    // Worker's addresses, so theirs counts the visitor's address each names.)
     app.use(buildPerIpLimiter(config.server.rateLimit, (req) => {
         if (trackingSourceFor(req.path)) router.countRejection(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' });
-    }));
+    }, { edgeEnabled: Boolean(config.edge?.enabled) }));
 
     app.use(router);
 

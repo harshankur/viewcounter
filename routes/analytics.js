@@ -7,6 +7,8 @@ const { ipKeyGenerator } = rateLimit;
 const geoip = require('geoip-country');
 
 const {
+    COLLECTED_BY,
+    EDGE,
     EVENT_TYPE,
     HTTP_STATUS,
     QUERY_LIMITS,
@@ -21,13 +23,14 @@ const ReferrerParser = require('../utils/referrerParser');
 const PrivacyUtils = require('../utils/privacyUtils');
 const logger = require('../utils/logger');
 const { getClientIp, isValidIP, normalizeIp } = require('../utils/ipUtils');
-const { requireReadApiKey, requireAppScope, requireAdminApiKey, appsInScope } = require('../middleware/auth');
+const { requireReadApiKey, requireAppScope, requireAdminApiKey, requireEdgeSecret, appsInScope } = require('../middleware/auth');
 const { requireRegisteredOrigin, requestedAppId, requestOrigin, noStore } = require('../middleware/security');
 const { createRejectionCounter } = require('../db/rejectionCounter');
-const { hostnameOf, primaryLanguage, utmTags } = require('../utils/visitorContext');
+const { hostnameOf, httpUrl, originAndPath, primaryLanguage, urlUtmTags, utmTags } = require('../utils/visitorContext');
 const {
     validateAppRegistration,
     validateRegisterView,
+    validateEdgeView,
     validateEvent,
     validateEngage,
     validateStatsRequest,
@@ -52,6 +55,7 @@ const TRACKING_PATHS = {
     '/registerView': VIEW_LOG_SOURCE.REGISTER_VIEW,
     '/event': VIEW_LOG_SOURCE.EVENT,
     '/engage': VIEW_LOG_SOURCE.ENGAGE,
+    [EDGE.PATH]: VIEW_LOG_SOURCE.EDGE,
 };
 
 const TRACKING_PATHS_LOWER = Object.fromEntries(Object.entries(TRACKING_PATHS).map(([path, source]) => [path.toLowerCase(), source]));
@@ -166,8 +170,16 @@ function buildPerAppLimiter(rateLimitConfig, onLimit = () => {}) {
     });
 }
 
-/** Whether a request is an engagement report, the one tracking request a page repeats. */
-const isEngagement = (req) => trackingSourceFor(req.path) === VIEW_LOG_SOURCE.ENGAGE;
+/**
+ * Which per-address budget a request draws on. Engagement reports and edge
+ * reports each have their own, limited on their routes; everything else
+ * shares the general one.
+ */
+const LIMITER = {
+    GENERAL: 'general',
+    ENGAGE: 'engage',
+    EDGE: 'edge',
+};
 
 /**
  * The app a request is limited as: for a tracking request, the app its route
@@ -180,6 +192,13 @@ const appOf = (req) => (trackingSourceFor(req.path) ? requestedAppId(req) : '');
  * A per-IP limiter: `max` requests per window from one address, or the app's
  * own figure (`maxByApp`) for tracking requests to an app that has one. Zero
  * means no limit, as the general figure or as an app's own.
+ *
+ * Edge reports (POST /edge/view) are the third kind, with a limiter on their
+ * route. They all come from the Worker's few addresses, so it counts the
+ * visitor's address each report names instead, which validation has checked
+ * by then. The limiter of everything else leaves them alone only while the
+ * endpoint exists (`edgeEnabled`); with no EDGE_SECRET a request there is
+ * limited and answered like any request to a path that does not exist.
  *
  * There are two of these, with separate budgets: one for engagement reports
  * and one for everything else. A page being read reports its engagement every
@@ -195,12 +214,15 @@ const appOf = (req) => (trackingSourceFor(req.path) ? requestedAppId(req) : '');
  *
  * @param {{ max: number, windowMs: number, maxByApp?: Record<string, number> }} rateLimitConfig
  * @param {(req: import('express').Request) => void} [onLimit] called for a refused request
- * @param {{ engagement?: boolean }} [options] true for the limiter of engagement
- *     reports, which is mounted on that route so it can know the app; false
+ * @param {{ engagement?: boolean, edge?: boolean, edgeEnabled?: boolean,
+ *   clientIp?: (req: import('express').Request, res: import('express').Response) => string }} [options]
+ *     `engagement` for the limiter of engagement reports, mounted on that
+ *     route so it can know the app; `edge` for the limiter of edge reports,
+ *     mounted on theirs, with `clientIp` giving the visitor's address; neither
  *     (the default) for the limiter of everything else, mounted app-wide
  * @returns {import('express').RequestHandler}
  */
-function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = false } = {}) {
+function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = false, edge = false, edgeEnabled = false, clientIp = null } = {}) {
     const { max = 0, windowMs, maxByApp = {} } = rateLimitConfig || {};
     const ownFigure = (req) => (Object.hasOwn(maxByApp, appOf(req)) ? maxByApp[appOf(req)] : null);
     const pass = (req, res, next) => next();
@@ -214,23 +236,35 @@ function buildPerIpLimiter(rateLimitConfig, onLimit = () => {}, { engagement = f
             res.status(options.statusCode).json(options.message);
         },
     };
+    const addressOf = (req, res) => ipKeyGenerator(clientIp ? clientIp(req, res) : req.ip);
 
     // The general budget keeps the library's own key (the address) and, with
-    // it, the library's checks for a misconfigured proxy.
-    const general = max > 0 ? rateLimit({ ...shared, limit: max }) : pass;
+    // it, the library's checks for a misconfigured proxy. Only edge reports,
+    // whose address is the one they name, need a key of their own.
+    const general = max > 0
+        ? rateLimit({ ...shared, limit: max, ...(clientIp ? { keyGenerator: addressOf } : {}) })
+        : pass;
     // Apps with a figure of their own: one counter per address and app.
     const own = Object.values(maxByApp).some((value) => value > 0)
         ? rateLimit({
             ...shared,
             limit: (req) => ownFigure(req),
-            keyGenerator: (req) => `${ipKeyGenerator(req.ip)}|${appOf(req)}`,
+            keyGenerator: (req, res) => `${addressOf(req, res)}|${appOf(req)}`,
         })
         : pass;
 
+    const mine = engagement ? LIMITER.ENGAGE : (edge ? LIMITER.EDGE : LIMITER.GENERAL);
+    /** The budget a request draws on: reports' own, on their routes, are POSTs only. */
+    const kindOf = (req) => {
+        if (req.method !== 'POST') return LIMITER.GENERAL;
+        const source = trackingSourceFor(req.path);
+        if (source === VIEW_LOG_SOURCE.ENGAGE) return LIMITER.ENGAGE;
+        if (source === VIEW_LOG_SOURCE.EDGE && (edge || edgeEnabled)) return LIMITER.EDGE;
+        return LIMITER.GENERAL;
+    };
+
     return (req, res, next) => {
-        // The reports' limiter is the one on their route: POST /engage.
-        const isReport = isEngagement(req) && req.method === 'POST';
-        if (isReport !== engagement) return next();
+        if (kindOf(req) !== mine) return next();
         const figure = ownFigure(req);
         if (figure === null) return general(req, res, next);
         return figure > 0 ? own(req, res, next) : next();
@@ -321,6 +355,9 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     const requireScope = requireAppScope();
     const requireAdmin = requireAdminApiKey(config.auth);
 
+    // Edge counting exists only with an EDGE_SECRET (config.edge).
+    const edgeEnabled = Boolean(config.edge?.enabled);
+
     // Tracking requests that are not stored are counted for the tracking log,
     // so an operator can see why a site's views are not arriving.
     const rejections = createRejectionCounter({
@@ -328,13 +365,18 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     });
     const reject = (req, reason, { appId, detail } = {}) => {
         const source = trackingSourceFor(req.path);
-        if (!source) return;
+        // Without edge counting, /edge/view is a path like any other that does not exist.
+        if (!source || (source === VIEW_LOG_SOURCE.EDGE && !edgeEnabled)) return;
         rejections.count({
             source,
             reason,
             appId: appId ?? req.query?.appId ?? req.body?.appId,
             detail,
-            hostname: hostnameOf(requestOrigin(req)),
+            // An edge report comes from a Worker, not the site's page: the
+            // site is the one in the URL it reports.
+            hostname: source === VIEW_LOG_SOURCE.EDGE
+                ? hostnameOf(httpUrl(req.body?.url)?.origin)
+                : hostnameOf(requestOrigin(req)),
         });
     };
 
@@ -355,9 +397,58 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' }), { engagement: true });
     const trackingValidation = handleTrackingValidation(reject);
 
-    /** Views from these are counted in the tracking log and never stored. */
-    const refuseBot = (req) => {
-        const userAgent = req.get('user-agent') || '';
+    const requireEdge = requireEdgeSecret(config.edge, {
+        onReject: (req) => {
+            reject(req, REJECTION_REASON.UNAUTHORIZED);
+            // Never the header itself: a near miss of the secret is still most of it.
+            logger.warn('Rejected an edge report without the right EDGE_SECRET', logContext(req));
+        },
+    });
+    // An edge report's address is the visitor's, named in its body and
+    // checked by requireVisitorIp before this runs.
+    const limitEdgePerVisitor = buildPerIpLimiter(config.server?.rateLimit,
+        (req) => reject(req, REJECTION_REASON.RATE_LIMITED, { detail: 'ip' }),
+        { edge: true, clientIp: (req, res) => res.locals.visitorIp });
+
+    /**
+     * The page an edge report names must be on one of its app's registered
+     * sites, as a browser's view must come from one. It is checked even
+     * though the Worker holds the secret: a site mapped to the wrong app in
+     * the Worker's SITES would otherwise file its views under that app.
+     * Unlike the browser check, an app with no sites registered accepts no
+     * edge reports at all, since there is nothing to check the URL against.
+     * Read per request: apps registered at runtime add their sites.
+     * @type {import('express').RequestHandler}
+     */
+    const requireEdgeSite = (req, res, next) => {
+        const { appId, url } = req.body;
+        const registered = Object.hasOwn(config.allowed.origins || {}, appId) ? config.allowed.origins[appId] : undefined;
+        if (Array.isArray(registered) && registered.includes(httpUrl(url).origin)) return next();
+        reject(req, REJECTION_REASON.ORIGIN_NOT_ALLOWED, { appId });
+        return res.status(HTTP_STATUS.FORBIDDEN).json({ message: 'The page is not on a site registered for this appId' });
+    };
+
+    /**
+     * The visitor's address an edge report names, normalized, for the limit
+     * and the handler. One that does not parse is refused as a browser view
+     * from an unparseable address is.
+     * @type {import('express').RequestHandler}
+     */
+    const requireVisitorIp = (req, res, next) => {
+        const ip = normalizeIp(req.body.ip);
+        if (isValidIP(ip)) {
+            res.locals.visitorIp = ip;
+            return next();
+        }
+        reject(req, REJECTION_REASON.INVALID_IP);
+        return res.status(HTTP_STATUS.BAD_REQUEST).json({ message: 'Invalid IP address format' });
+    };
+
+    /**
+     * Views from these are counted in the tracking log and never stored. An
+     * edge report passes the user agent it reports: its own is the Worker's.
+     */
+    const refuseBot = (req, userAgent = req.get('user-agent') || '') => {
         if (!UserAgentParser.isBot(userAgent)) return false;
         reject(req, REJECTION_REASON.BOT, { detail: UserAgentParser.botName(userAgent) });
         return true;
@@ -400,6 +491,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
         async (req, res) => {
             try {
                 const { appId, deviceSize, page, title, referrer, sessionId } = req.query;
+                const pageAge = intQuery(req, 'age', 0);
                 if (refuseBot(req)) {
                     return res.json({ message: 'Automated clients are not counted', recorded: false, duplicate: false });
                 }
@@ -453,9 +545,14 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                     visitorSecret: config.privacy.visitorSecret,
                     uniqueWindowHours: config.server.uniqueVisitorWindowHours,
                     source: VIEW_LOG_SOURCE.REGISTER_VIEW,
+                    collectedBy: COLLECTED_BY.SCRIPT,
+                    // With edge counting on, the Worker has usually recorded
+                    // this page load already; the view completes that one.
+                    // The window runs from when the page was loaded.
+                    mergeWindowSeconds: edgeEnabled ? TRACKING.MERGE_WINDOW_SECONDS + pageAge : 0,
                 });
 
-                logger.audit('registerView', { ...logContext(req), appId, duplicate: result.duplicate });
+                logger.audit('registerView', { ...logContext(req), appId, duplicate: result.duplicate, merged: result.merged === true });
 
                 // `id` lets the page report engagement for this view later.
                 if (result.duplicate) {
@@ -577,6 +674,89 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
             }
         }
     );
+
+    /**
+     * A page view seen at the edge: a Worker in front of the site reports
+     * each HTML page it serves, server to server, with only what the request
+     * for the page carried. Nothing is read from or stored on the visitor's
+     * device, and the page sends nothing itself. There is no Origin to check
+     * and no CORS: the secret authenticates the Worker, and the reported
+     * page's site is checked against the app's. The address limit counts the
+     * visitor's address, not the Worker's; the app's budget is spent as for
+     * any view.
+     *
+     * Answers 204 whether the view was stored, merged into the tracker's
+     * view of the same page load, or refused as a bot: the Worker has nothing
+     * to do with the difference.
+     */
+    if (edgeEnabled) {
+        router.post(EDGE.PATH,
+            requireEdge,
+            limitPerApp,
+            validateEdgeView(config.allowed),
+            trackingValidation,
+            requireEdgeSite,
+            requireVisitorIp,
+            limitEdgePerVisitor,
+            async (req, res) => {
+                try {
+                    const { appId, url, referrer, userAgent, mobile, acceptLanguage } = req.body;
+                    const agent = typeof userAgent === 'string' ? userAgent : '';
+                    if (refuseBot(req, agent)) return res.status(HTTP_STATUS.NO_CONTENT).end();
+
+                    const ip = res.locals.visitorIp;
+                    const page = httpUrl(url);
+                    const hostname = hostnameOf(page.origin);
+                    const ipInfo = geoip.lookup(ip);
+                    const place = geo.city ? geo.city.lookup(ip) : { region: null, city: null };
+                    const uaData = UserAgentParser.parse(agent);
+                    // The Referer header is the page before, in full: kept as
+                    // its origin and path, as the tracker sends it.
+                    const referrerData = ReferrerParser.parse(originAndPath(referrer), hostname);
+                    const utm = urlUtmTags(page);
+
+                    const result = await dbManager.registerEvent(appId, {
+                        ip,
+                        country: ipInfo?.country || null,
+                        // No window to measure: the phone hint, or the device the user agent names.
+                        deviceSize: UserAgentParser.getDeviceSize(agent, mobile),
+                        // The path alone: the query and fragment never leave the request.
+                        pagePath: page.pathname,
+                        // The title is in the page, which the edge never reads.
+                        pageTitle: null,
+                        referrer: referrerData.referrer,
+                        referrerDomain: referrerData.referrerDomain,
+                        sourceType: utm.utmSource || utm.utmMedium ? SOURCE_TYPE.CAMPAIGN : referrerData.sourceType,
+                        hostname,
+                        language: primaryLanguage(acceptLanguage),
+                        ...utm,
+                        region: place.region,
+                        city: place.city,
+                        browser: uaData.browser,
+                        browserVersion: uaData.browserVersion,
+                        os: uaData.os,
+                        osVersion: uaData.osVersion,
+                        deviceType: uaData.deviceType,
+                        sessionId: null,
+                        eventType: EVENT_TYPE.PAGEVIEW,
+                        userAgent: agent,
+                        visitorSecret: config.privacy.visitorSecret,
+                        uniqueWindowHours: config.server.uniqueVisitorWindowHours,
+                        source: VIEW_LOG_SOURCE.EDGE,
+                        collectedBy: COLLECTED_BY.EDGE,
+                        // Rarely, the tracker's view of this page load came first.
+                        mergeWindowSeconds: TRACKING.MERGE_WINDOW_SECONDS,
+                    });
+
+                    logger.audit('edgeView', { ...logContext(req), appId, duplicate: result.duplicate, merged: result.merged === true });
+                    return res.status(HTTP_STATUS.NO_CONTENT).end();
+                } catch (error) {
+                    reject(req, REJECTION_REASON.SERVER_ERROR);
+                    return handleRouteError(req, res, error, 'register edge view');
+                }
+            }
+        );
+    }
 
     // ---- Read API. Everything below requires a valid key. -------------------
 

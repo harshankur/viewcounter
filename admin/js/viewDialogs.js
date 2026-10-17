@@ -27,6 +27,7 @@ function displayValue(field, value) {
     if (field === 'isUnique') return value ? t('common.yes') : t('common.no');
     if (value === null || value === undefined || value === '') return t('common.none');
     if (field === 'sourceType') return tOr(`sources.${value}`, value);
+    if (field === 'collectedBy') return tOr(`collectedBy.${value}`, value);
     if (field === 'deviceSize') return tOr(`deviceSizes.${value}`, value);
     if (field === 'deviceType') return valueLabel('deviceType', value);
     if (field === 'language') return valueLabel('language', value);

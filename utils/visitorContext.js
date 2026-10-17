@@ -67,4 +67,42 @@ function utmTags(params = {}) {
     };
 }
 
-module.exports = { UTM_PARAMETERS, primaryLanguage, hostnameOf, utmTags };
+/**
+ * A URL, if it is an absolute http(s) one.
+ * @param {unknown} value
+ * @returns {URL|null}
+ */
+function httpUrl(value) {
+    if (typeof value !== 'string' || value === '') return null;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * A page address reduced to its origin and path, as the tracker sends the
+ * page before: its query and fragment can carry tokens or emails, and any
+ * user name or password in it never leaves memory either. Anything that is
+ * not an http(s) URL is dropped.
+ *
+ * @param {unknown} value e.g. a Referer header
+ * @returns {string} e.g. "https://www.example.com/post", or '' for none
+ */
+function originAndPath(value) {
+    const url = httpUrl(value);
+    return url ? `${url.origin}${url.pathname}` : '';
+}
+
+/**
+ * The campaign tags of a page URL's query, as utmTags reads them from a
+ * request: the first value of each, trimmed and bounded.
+ * @param {URL} url
+ */
+function urlUtmTags(url) {
+    return utmTags(Object.fromEntries(UTM_PARAMETERS.map((name) => [name, url.searchParams.get(name)])));
+}
+
+module.exports = { UTM_PARAMETERS, primaryLanguage, hostnameOf, utmTags, httpUrl, originAndPath, urlUtmTags };

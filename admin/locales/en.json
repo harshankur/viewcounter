@@ -336,7 +336,13 @@
         "region": "Region",
         "city": "City",
         "engagedMs": "Time on page",
-        "scrollDepth": "Scroll depth"
+        "scrollDepth": "Scroll depth",
+        "collectedBy": "Counted by"
+    },
+    "collectedBy": {
+        "script": "Tracker script",
+        "edge": "Edge (page request only)",
+        "both": "Edge and tracker script"
     },
     "edit": {
         "titleSingle": "Edit view",
@@ -449,12 +455,14 @@
         "invalid_ip": "unreadable IP address",
         "rate_limited": "rate limited",
         "unknown_view": "view not found",
+        "unauthorized": "wrong edge secret",
         "server_error": "server error"
     },
     "logSources": {
         "registerView": "Page view",
         "event": "Event",
-        "engage": "Engagement"
+        "engage": "Engagement",
+        "edge": "Edge page view"
     },
     "ranges": {
         "24h": "24 hours",

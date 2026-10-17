@@ -32,7 +32,7 @@ const ADMIN_VIEW_COLUMNS = [
     'browser', 'browser_version', 'os', 'os_version', 'device_type',
     'session_id', 'event_type', 'event_data', 'is_unique',
     'hostname', 'language', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
-    'region', 'city', 'engaged_ms', 'scroll_depth',
+    'region', 'city', 'engaged_ms', 'scroll_depth', 'collected_by',
     'note', 'admin_modified_at', 'deleted_at',
 ].join(', ');
 
@@ -164,6 +164,7 @@ function toApiRow(row, appId = row.app_id) {
         city: row.city ?? null,
         engagedMs: row.engaged_ms ?? null,
         scrollDepth: row.scroll_depth ?? null,
+        collectedBy: row.collected_by ?? null,
         note: row.note,
         adminModifiedAt: row.admin_modified_at,
         deletedAt: row.deleted_at,
