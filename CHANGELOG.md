@@ -5,13 +5,20 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.8.0]
+
+A single-page app whose address names a place within a page, such as a
+section of a lesson, can count the page once. Nothing needs doing to upgrade.
+
 ### Added
 
 - **`data-hash-depth`** on `tracker.js` and `consent.js`: of a fragment that
   `data-hash` counts as a page, only its first parts between `/` are kept
   (`2`: `#learn/lesson/section` counts as `#learn/lesson`). A site whose
   address names a place within a page, such as a section, counts the page
-  once instead of every place in it.
+  once instead of every place in it. The parts are counted after the `#` or
+  a router's `#/`, and the value is a whole number from 1 to 99 (anything
+  else keeps every part).
 
 ## [3.7.1]
 
