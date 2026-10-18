@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.7.1]
+
+The consent prompt follows a site that switches its language in place: it
+links the privacy notice the page names now, and a prompt on screen during
+the switch is built again at once. Nothing needs doing to upgrade.
+
 ### Fixed
 
 - **The consent prompt kept the privacy notice it loaded with.** A site

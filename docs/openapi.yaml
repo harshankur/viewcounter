@@ -29,7 +29,7 @@ info:
     of a site reports each HTML page it serves, authenticated with its own
     secret (`EDGE_SECRET`) as a bearer token. Without that secret the endpoint
     does not exist.
-  version: 3.7.0
+  version: 3.7.1
   contact:
     name: Harsh Ankur
     url: https://github.com/harshankur/viewcounter
