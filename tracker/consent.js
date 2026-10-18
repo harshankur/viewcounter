@@ -48,7 +48,7 @@
  * "granted", "denied", or "unset", grant() and deny() answer for the visitor.
  * Every change fires a "viewcounter:consent" event on window, with
  * event.detail.status. A click on any element with the attribute
- * data-viewcounter-consent opens the prompt (a footer link "Privacy settings").
+ * data-viewcounter-consent opens the prompt (a footer button "Privacy settings").
  *
  * The prompt is styled in a closed shadow root, so the page's CSS cannot
  * reach it. These custom properties on the viewcounter-consent element (or

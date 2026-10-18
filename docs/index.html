@@ -710,11 +710,23 @@
             font-size: 0.85rem;
         }
 
-        footer a {
+        footer a,
+        footer button {
             color: inherit;
         }
 
-        footer a:hover {
+        /* The Privacy settings button reads as one of the links beside it. */
+        footer button {
+            padding: 0;
+            border: 0;
+            background: none;
+            font: inherit;
+            text-decoration: underline;
+            cursor: pointer;
+        }
+
+        footer a:hover,
+        footer button:hover {
             color: var(--primary);
         }
 
@@ -1329,7 +1341,7 @@
                         <div class="code-line"><span class="code-comment">// where the law asks for consent first, load the prompt instead:</span></div>
                         <div class="code-line"><span>&lt;script defer src="https://your-server/consent.js" data-app="blog"</span></div>
                         <div class="code-line"><span>&nbsp;&nbsp;data-hosts="blog.example.com" data-privacy-url="/privacy"&gt;&lt;/script&gt;</span></div>
-                        <div class="code-line"><span>&lt;a href="#" data-viewcounter-consent&gt;Privacy settings&lt;/a&gt;</span></div>
+                        <div class="code-line"><span>&lt;button type="button" data-viewcounter-consent&gt;Privacy settings&lt;/button&gt;</span></div>
                         <div class="code-line"><span class="code-comment">// the tracker loads on a yes; a no loads nothing and stops it at once</span></div>
                     </div>
                 </div>
@@ -1406,12 +1418,13 @@
 
     <footer>
         <!-- The legal pages are shared by every site on harshankur.com and live there; the privacy
-             link opens this site's own section. -->
+             link opens this site's own section, in English like this page. -->
         <p class="legal">
             <a href="https://harshankur.com/impressum" target="_blank" rel="noopener">Legal notice</a>
-            <a href="https://harshankur.com/datenschutz#viewcounter" target="_blank" rel="noopener">Privacy</a>
-            <!-- Opens the counter's consent prompt again, to change the answer (consent.js, below). -->
-            <a href="#" data-viewcounter-consent>Privacy settings</a>
+            <a href="https://harshankur.com/datenschutz#en-viewcounter" target="_blank" rel="noopener">Privacy</a>
+            <!-- Opens the counter's consent prompt again, to change the answer (consent.js, below):
+                 a button, since it opens a question and goes nowhere. -->
+            <button type="button" data-viewcounter-consent>Privacy settings</button>
         </p>
         <p><span class="prompt-char">❯</span> echo "Built with ❤️ for the Open Source community." &amp;&amp; echo
             "ViewCounter © 2026 <a href="https://harshankur.com" target="_blank" rel="noopener">Harsh Ankur</a>"<span

@@ -1141,7 +1141,7 @@ yes:
         data-hosts="blog.example.com" data-privacy-url="https://blog.example.com/privacy"></script>
 
 <!-- in the footer, so the answer can be changed at any time -->
-<a href="#" data-viewcounter-consent>Privacy settings</a>
+<button type="button" data-viewcounter-consent>Privacy settings</button>
 ```
 
 The prompt is a small card in the bottom corner. It blocks nothing, takes no
@@ -1182,7 +1182,9 @@ one tab holds in the site's other tabs too.
 
 Every change fires a `viewcounter:consent` event on `window`, with
 `event.detail.status`. A click on any element with the attribute
-`data-viewcounter-consent` opens the prompt.
+`data-viewcounter-consent` opens the prompt. Make it a `<button type="button">`:
+it opens a question and goes nowhere, and a link to `#` would change the
+address where the script is blocked.
 
 Load `consent.js` instead of `tracker.js`, never both: a tracker the page loads
 itself before the prompt runs cannot know to wait. (One loaded after it does
