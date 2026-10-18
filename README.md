@@ -352,7 +352,8 @@ are erased with it after `TRASH_RETENTION_DAYS` (when the trash is kept
 forever, they are erased at once instead). So a view is gone for good at most
 `VIEW_RETENTION_DAYS` plus `TRASH_RETENTION_DAYS` after it was recorded: the
 period a privacy notice must name (GDPR Art. 5(1)(e), Art. 13(2)(a)). Each run
-that retires anything is recorded in the admin log as a count.
+that retires anything is recorded in the admin log as a count. A view restored
+from the trash after that age is retired again within the hour.
 
 ### A language that could say too much
 

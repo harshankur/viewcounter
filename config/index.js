@@ -469,6 +469,7 @@ class Config {
         this.validateAdmin();
         this.validateEdge();
         this.warnAboutUnknownRateLimitApps();
+        this.warnAboutUnknownNoLanguageApps();
 
         if (!this.server.isProduction) {
             this.warnAboutDevelopmentDefaults();
@@ -569,6 +570,17 @@ class Config {
             for (const appId of Object.keys(figures)) {
                 if (!this.allowed.appId.includes(appId)) logWarning(WarningType.RATE_LIMIT_UNKNOWN_APP, { field, appId });
             }
+        }
+    }
+
+    /**
+     * An app in NO_LANGUAGE_APPS that this configuration does not list is most
+     * likely a typo, which would leave the app meant still storing a language.
+     * A warning, not an error: an app may be registered while the server runs.
+     */
+    warnAboutUnknownNoLanguageApps() {
+        for (const appId of this.privacy.noLanguageApps || []) {
+            if (!this.allowed.appId.includes(appId)) logWarning(WarningType.NO_LANGUAGE_UNKNOWN_APP, { appId });
         }
     }
 

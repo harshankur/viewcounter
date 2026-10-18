@@ -313,7 +313,7 @@ paths:
                   type: string
                   nullable: true
                   maxLength: 512
-                  description: The raw Accept-Language header. Only its first primary subtag is kept.
+                  description: The raw Accept-Language header. Only its first primary subtag is kept, and none for an app in NO_LANGUAGE_APPS.
                 pageQuery:
                   type: array
                   nullable: true

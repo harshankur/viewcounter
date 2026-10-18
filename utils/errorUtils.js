@@ -51,6 +51,7 @@ const WarningType = {
     VIEW_EXPIRY_FAILED: 'VIEW_EXPIRY_FAILED',
     SALT_PRUNE_FAILED: 'SALT_PRUNE_FAILED',
     RATE_LIMIT_UNKNOWN_APP: 'RATE_LIMIT_UNKNOWN_APP',
+    NO_LANGUAGE_UNKNOWN_APP: 'NO_LANGUAGE_UNKNOWN_APP',
     EDGE_SECRET_REUSED: 'EDGE_SECRET_REUSED',
 };
 
@@ -130,6 +131,8 @@ const WARNING_MESSAGES = {
         `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
     [WarningType.VIEW_EXPIRY_FAILED]: (info) =>
         `Automatic retirement of old views failed for '${info?.appId}': ${info?.cause}`,
+    [WarningType.NO_LANGUAGE_UNKNOWN_APP]: (info) =>
+        `NO_LANGUAGE_APPS names '${info?.appId}', which is not one of the configured apps: check for a typo, or that app keeps storing a language`,
     [WarningType.RATE_LIMIT_UNKNOWN_APP]: (info) =>
         `${info?.field} names '${info?.appId}', which is not one of the configured apps: its figure applies only if an app of that name is registered later`,
     [WarningType.EDGE_SECRET_REUSED]:

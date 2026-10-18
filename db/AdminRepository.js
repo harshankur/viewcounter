@@ -8,6 +8,7 @@
  */
 
 const {
+    ADMIN,
     ADMIN_RANGE_DAYS,
     ADMIN_SORT_COLUMNS,
     EDITABLE_FIELDS,
@@ -472,17 +473,21 @@ class AdminRepository {
      * @returns {Promise<number>} rows trashed or erased
      */
     async expireOlderThan(appId, days, trashDays) {
-        const [result] = trashDays > 0
-            ? await this.pool.query(
-                `UPDATE ${this.table(appId)} SET deleted_at = NOW()
-                 WHERE ${STATE.ACTIVE} AND \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-                [days]
-            )
-            : await this.pool.query(
-                `DELETE FROM ${this.table(appId)} WHERE \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)`,
-                [days]
-            );
-        return Number(result?.affectedRows || 0);
+        // In batches, oldest first, so no one statement holds its locks for long
+        // (the first run after a retention is set may meet years of views).
+        const sql = trashDays > 0
+            ? `UPDATE ${this.table(appId)} SET deleted_at = NOW()
+               WHERE ${STATE.ACTIVE} AND \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)
+               ORDER BY \`timestamp\` LIMIT ?`
+            : `DELETE FROM ${this.table(appId)} WHERE \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)
+               ORDER BY \`timestamp\` LIMIT ?`;
+        let total = 0;
+        for (;;) {
+            const [result] = await this.pool.query(sql, [days, ADMIN.VIEW_EXPIRY_BATCH_SIZE]);
+            const changed = Number(result?.affectedRows || 0);
+            total += changed;
+            if (changed < ADMIN.VIEW_EXPIRY_BATCH_SIZE) return total;
+        }
     }
 
     /**

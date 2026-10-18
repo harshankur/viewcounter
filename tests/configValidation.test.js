@@ -403,6 +403,20 @@ describe('per-app rate limit figures', () => {
     });
 });
 
+test('an app in NO_LANGUAGE_APPS that is not configured is warned about, since a typo would keep a language', () => {
+    const writes = [];
+    const logger = require('../utils/logger');
+    logger.configure({ level: logger.LogLevel.WARN, writer: (line) => writes.push(String(line)) });
+    try {
+        buildConfig({ NODE_ENV: 'development', ALLOWED_APP_IDS: 'lidpractice,blog', NO_LANGUAGE_APPS: 'lidpractise,blog' }).validate();
+    } finally {
+        logger.configure({ level: logger.LogLevel.SILENT, writer: () => {} });
+    }
+    const warned = writes.filter((line) => line.includes('NO_LANGUAGE_UNKNOWN_APP'));
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toContain("NO_LANGUAGE_APPS names 'lidpractise'");
+});
+
 describe('EDGE_SECRET', () => {
     const EDGE_SECRET = 's'.repeat(EDGE.MIN_SECRET_LENGTH);
 

@@ -206,6 +206,8 @@ const ADMIN = {
     MAX_VIEW_RETENTION_DAYS: 3650,
     /** Rows removed per statement when pruning the view log, so no delete holds locks for long. */
     VIEW_LOG_PRUNE_BATCH_SIZE: 5000,
+    /** Old views are retired in batches of this many, so no statement holds its locks for long. */
+    VIEW_EXPIRY_BATCH_SIZE: 5000,
     /** How often expired trash and old view-log entries are checked for. */
     RETENTION_INTERVAL_MS: 60 * 60 * 1000,
     /** The tracking log's summary covers this many recent hours. */

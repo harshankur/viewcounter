@@ -196,14 +196,23 @@ describe('AdminRepository', () => {
             expect(await repo.expireOlderThan('blog', 396, 30)).toBe(3);
             expect(pool.queries[0].sql).toMatch(/^UPDATE `blog` SET deleted_at = NOW\(\)/);
             expect(pool.queries[0].sql).toContain('deleted_at IS NULL AND `timestamp` < DATE_SUB(NOW(), INTERVAL ? DAY)');
-            expect(pool.queries[0].params).toEqual([396]);
+            expect(pool.queries[0].sql).toMatch(/ORDER BY `timestamp` LIMIT \?$/);
+            expect(pool.queries[0].params).toEqual([396, ADMIN.VIEW_EXPIRY_BATCH_SIZE]);
         });
 
         test('expireOlderThan erases every row past the retention when the trash is kept forever', async () => {
             const pool = createScriptedPool(() => [{ affectedRows: 2 }]);
             const repo = new AdminRepository(dbWith(pool));
             expect(await repo.expireOlderThan('blog', 396, 0)).toBe(2);
-            expect(pool.queries[0].sql).toMatch(/^DELETE FROM `blog` WHERE `timestamp` < DATE_SUB\(NOW\(\), INTERVAL \? DAY\)$/);
+            expect(pool.queries[0].sql).toMatch(/^DELETE FROM `blog` WHERE `timestamp` < DATE_SUB\(NOW\(\), INTERVAL \? DAY\)\s+ORDER BY `timestamp` LIMIT \?$/);
+        });
+
+        test('expireOlderThan goes on in batches until a batch comes back short', async () => {
+            const sizes = [ADMIN.VIEW_EXPIRY_BATCH_SIZE, ADMIN.VIEW_EXPIRY_BATCH_SIZE, 7];
+            const pool = createScriptedPool(() => [{ affectedRows: sizes.shift() }]);
+            const repo = new AdminRepository(dbWith(pool));
+            expect(await repo.expireOlderThan('blog', 396, 30)).toBe(2 * ADMIN.VIEW_EXPIRY_BATCH_SIZE + 7);
+            expect(pool.queries).toHaveLength(3);
         });
 
         test('purgeExpired treats a missing affectedRows as zero', async () => {
