@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The consent prompt kept the privacy notice it loaded with.** A site
+  whose privacy notice has a section per language, and that switches its
+  language in place, changes `data-privacy-url` with it; the prompt now
+  reads it each time it is shown, as it does the page's language.
+
 ## [3.7.0]
 
 Pages told apart only by their query, such as a blog's `/?post=hello`, can

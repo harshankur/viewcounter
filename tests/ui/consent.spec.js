@@ -334,6 +334,21 @@ test.describe('language', () => {
         await expect(prompt(page)).toBeVisible();
     });
 
+    test('a page that points data-privacy-url at the notice in its new language is linked to that one', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await expect(prompt(page).getByRole('link', { name: 'Privacy notice' })).toHaveAttribute('href', PRIVACY);
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        await page.evaluate(() => {
+            document.querySelector('script[src$="consent.js"]').dataset.privacyUrl = 'https://example.com/datenschutz#de';
+            document.documentElement.lang = 'de';
+        });
+        await page.evaluate(() => window.viewcounterConsent.open());
+        const region = page.getByRole('region', { name: 'Nutzungsstatistik' });
+        await expect(region.getByRole('link', { name: 'Datenschutzerklärung' })).toHaveAttribute('href', 'https://example.com/datenschutz#de');
+        await expect(page.locator('viewcounter-consent')).toHaveCount(1);
+    });
+
     test('data-edge="false" does not claim that pages are counted without consent', async ({ page }) => {
         await visitor(page);
         await page.goto(lab('edge=false'));

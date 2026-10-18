@@ -32,7 +32,8 @@
  *                                   digits, _ and -); the app ID by default.
  *                                   Apps sharing one site share one answer by
  *                                   sharing the key
- *   data-privacy-url="https://..."  the privacy notice the prompt links to
+ *   data-privacy-url="https://..."  the privacy notice the prompt links to, read
+ *                                   each time the prompt is shown
  *   data-lang="de"                  "de" or "en"; otherwise German when <html lang>
  *                                   starts with "de", English when it does not,
  *                                   as it is each time the prompt is shown
@@ -117,15 +118,22 @@
     let lang = language();
     let text = TEXT[lang];
 
-    /** Only an http(s) address is linked, never a script URL. */
-    const privacyUrl = (() => {
+    /**
+     * The privacy notice the prompt links: data-privacy-url, read each time the
+     * prompt is built, so a site that switches its language in place can point
+     * it at the notice in that language. Only an http(s) address is linked,
+     * never a script URL.
+     */
+    const privacyUrl = () => {
         try {
             const url = new URL(script.dataset.privacyUrl || '', location.href);
             return script.dataset.privacyUrl && /^https?:$/.test(url.protocol) ? url.href : '';
         } catch {
             return '';
         }
-    })();
+    };
+    /** The address the prompt was built with. */
+    let builtPrivacyUrl = '';
 
     // ---- The answer ---------------------------------------------------------
 
@@ -292,8 +300,9 @@
             // Equal weight: the same look, side by side, neither preselected.
             element('div', { className: 'actions' }, [button(text.allow, GRANTED), button(text.deny, DENIED)]),
         ];
-        if (privacyUrl) {
-            content.push(element('a', { href: privacyUrl, target: '_blank', rel: 'noopener', textContent: text.privacy }));
+        builtPrivacyUrl = privacyUrl();
+        if (builtPrivacyUrl) {
+            content.push(element('a', { href: builtPrivacyUrl, target: '_blank', rel: 'noopener', textContent: text.privacy }));
         }
         card = element('div', { className: 'card', lang, hidden: true }, content);
         card.setAttribute('role', 'region');
@@ -317,8 +326,8 @@
 
     /** Show the prompt; `focus` when the visitor asked for it, so the keyboard lands in it. */
     function show(focus) {
-        // Built again in the page's language, if it changed since.
-        if (host && language() !== lang) {
+        // Built again in the page's language, or with its privacy notice, if either changed since.
+        if (host && (language() !== lang || privacyUrl() !== builtPrivacyUrl)) {
             host.remove();
             host = null;
         }
