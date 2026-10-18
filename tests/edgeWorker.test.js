@@ -14,7 +14,7 @@ const path = require('path');
 
 const EDGE_DIR = path.join(__dirname, '..', 'edge');
 const worker = require('../edge/src/counting.cjs');
-const { appFor, handle, optedOut, parseSites, payload, report, reportedReferrer, reportedUrl, shouldCount, REPORT_PATH, REPORT_TIMEOUT_MS } = worker;
+const { appFor, handle, optedOut, parseSites, payload, report, reportedReferrer, reportedUrl, shouldCount, siteFor, REPORT_PATH, REPORT_TIMEOUT_MS } = worker;
 
 const SECRET = 'e'.repeat(40);
 const ENV = {
@@ -23,6 +23,7 @@ const ENV = {
     SITES: JSON.stringify({
         'example.com': 'homepage',
         'docs.example.com': [{ prefix: '/blog/', app: 'docsblog' }, { prefix: '/', app: 'docs' }, { prefix: '/blog/archive/', app: 'archive' }],
+        'notes.example.com': { app: 'notes', query: ['post'] },
     }),
 };
 
@@ -186,6 +187,33 @@ describe('parseSites and appFor', () => {
     });
 });
 
+describe('siteFor: the page parameters of a site', () => {
+    const site = (sites, url) => siteFor(sites, new URL(url));
+
+    test('a hostname given as an object names its app and the parameters its pages are told apart by', () => {
+        expect(site(parseSites(ENV.SITES), 'https://notes.example.com/?post=a')).toEqual({ app: 'notes', query: ['post'] });
+        expect(site(parseSites(ENV.SITES), 'https://example.com/')).toEqual({ app: 'homepage', query: [] });
+    });
+
+    test('a prefix rule takes them too', () => {
+        const sites = { 'a.example': [{ prefix: '/', app: 'site' }, { prefix: '/docs/', app: 'docs', query: ['v'] }] };
+        expect(site(sites, 'https://a.example/docs/x')).toEqual({ app: 'docs', query: ['v'] });
+        expect(site(sites, 'https://a.example/x')).toEqual({ app: 'site', query: [] });
+    });
+
+    test('only valid names are kept, once each, at most ten, never a campaign tag', () => {
+        const names = ['post', 'post', 'utm_source', 'with space', 7, 'a.b-c_d', ...Array.from({ length: 12 }, (_, i) => `p${i}`)];
+        const { query } = site({ 'a.example': { app: 'a', query: names } }, 'https://a.example/');
+        expect(query).toEqual(['post', 'a.b-c_d', 'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']);
+        expect(site({ 'a.example': { app: 'a', query: 'post' } }, 'https://a.example/').query).toEqual([]);
+    });
+
+    test('an object without an app is no site', () => {
+        expect(site({ 'a.example': { query: ['post'] } }, 'https://a.example/')).toBeNull();
+        expect(site({ 'a.example': { app: '' } }, 'https://a.example/')).toBeNull();
+    });
+});
+
 describe('payload', () => {
     test('is what the request carried, reduced to what is kept, and no cookie or other header', () => {
         const body = payload(pageRequest('https://example.com/post?utm_source=feed&token=T&email=a%40b.c'), 'homepage');
@@ -217,6 +245,12 @@ describe('reportedUrl and reportedReferrer', () => {
         const url = new URL('https://example.com/a/b?x=1&utm_campaign=launch&utm_source=feed&utm_source=other&utm_term=');
         expect(reportedUrl(url, {})).toBe('https://example.com/a/b?utm_source=feed&utm_campaign=launch&utm_term=');
         expect(reportedUrl(new URL('https://example.com/?q=search'), {})).toBe('https://example.com/');
+    });
+
+    test('the page parameters come first, in their order, with the first value of each; an empty one is left out', () => {
+        const url = new URL('https://example.com/?token=T&tab=&utm_source=feed&post=hello%20world&post=other');
+        expect(reportedUrl(url, {}, ['post', 'tab'])).toBe('https://example.com/?post=hello+world&utm_source=feed');
+        expect(reportedUrl(url, { CAMPAIGNS: 'false' }, ['post'])).toBe('https://example.com/?post=hello+world');
     });
 
     test('CAMPAIGNS="false" leaves the tags out too', () => {
@@ -307,6 +341,24 @@ describe('handle', () => {
         expect(reports).toEqual([expect.objectContaining({ body: expect.objectContaining({ appId: 'homepage', url: 'https://example.com/post?utm_source=feed' }) })]);
     });
 
+    test('a site with page parameters reports them, and names them, so viewcounter keeps them', async () => {
+        const { send, reports } = fakeFetch();
+        const ctx = fakeCtx();
+        await handle(pageRequest('https://notes.example.com/?post=hello&token=T'), ENV, ctx, send);
+        await Promise.all(ctx.pending);
+        expect(reports[0].body).toMatchObject({ appId: 'notes', url: 'https://notes.example.com/?post=hello', pageQuery: ['post'] });
+        expect(JSON.stringify(reports[0].body)).not.toMatch(/token/);
+    });
+
+    test('a site without page parameters names none', async () => {
+        const { send, reports } = fakeFetch();
+        const ctx = fakeCtx();
+        await handle(pageRequest('https://example.com/?post=hello'), ENV, ctx, send);
+        await Promise.all(ctx.pending);
+        expect(reports[0].body.url).toBe('https://example.com/');
+        expect(reports[0].body).not.toHaveProperty('pageQuery');
+    });
+
     test('a hostname split by path reports the app of the page', async () => {
         const { send, reports } = fakeFetch();
         const ctx = fakeCtx();
@@ -376,5 +428,7 @@ describe('wrangler.jsonc', () => {
         for (const route of config.routes) expect(route.pattern.endsWith(route.zone_name + '/*')).toBe(true);
         expect(appFor(sites, new URL('https://officeparser.harshankur.com/blog/post'))).toBe('officeparserblog');
         expect(appFor(sites, new URL('https://officeparser.harshankur.com/'))).toBe('officeparser');
+        // The blog's posts are /?post=<name>.
+        expect(siteFor(sites, new URL('https://blog.harshankur.com/?post=a'))).toEqual({ app: 'blog', query: ['post'] });
     });
 });

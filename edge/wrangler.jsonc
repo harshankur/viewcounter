@@ -13,7 +13,10 @@
 // stand in front of (its zone must be on Cloudflare, with the DNS record
 // proxied), and SITES mapping each hostname to the app ID its views are
 // stored under. The site of every app must be in that app's `origins` in the
-// server's allowed.json, or its reports are refused.
+// server's allowed.json, or its reports are refused. A site whose pages differ
+// only in their query names those parameters, as the blog does with
+// {"app": "blog", "query": ["post"]} (the tracker's data-query): they are
+// reported as part of the page, and the rest of the query never is.
 //
 // Two optional vars match the tracker's options of the same meaning:
 // "RESPECT_DNT": "true" reports nothing for a browser sending Do Not Track or
@@ -30,7 +33,7 @@
     "vars": {
         "VIEWCOUNTER_URL": "https://views.harshankur.com",
         // hostname -> appId, or hostname -> [{ prefix, app }]: the longest matching prefix wins.
-        "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":\"blog\",\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":\"lidpractice\"}"
+        "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":{\"app\":\"blog\",\"query\":[\"post\"]},\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":\"lidpractice\"}"
     },
     "routes": [
         { "pattern": "harshankur.com/*", "zone_name": "harshankur.com" },

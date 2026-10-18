@@ -2,6 +2,7 @@ const crypto = require('crypto');
 
 const DatabaseManager = require('../db/DatabaseManager');
 const PrivacyUtils = require('../utils/privacyUtils');
+const { pageQuery } = require('../utils/visitorContext');
 const { TEST_VISITOR_SECRET } = require('./jestSetup');
 const { TEST_VISITOR_SALT } = require('./support/scriptedPool');
 
@@ -187,6 +188,21 @@ describe('Privacy Fail-Safe Verification', () => {
             // The masked address is how the merge recognises the visitor: what is stored, and only that.
             expect(interceptedSql.some((sql) => sql.includes('88.88.88.0'))).toBe(false);
         });
+
+    test('Fail-Safe: of a page URL\'s query, only the parameters named as part of the page are ever stored', async () => {
+        // An edge report's page is its path plus pageQuery(url, the names it
+        // sent); everything else in the query (a token, an email) is dropped.
+        const url = new URL('https://site.example/?token=SECRET-TOKEN&email=a%40b.c&post=hello');
+        const pagePath = `${url.pathname}${pageQuery(url, ['post'])}`;
+        expect(pagePath).toBe('/?post=hello');
+        expect(pageQuery(url)).toBe('');
+
+        await dbManager.registerEvent('test_app', {
+            ip: '10.0.0.9', deviceSize: 'medium', userAgent: 'Mozilla/5.0', visitorSecret: TEST_VISITOR_SECRET, pagePath,
+        });
+        expect(interceptedParams).toContain('/?post=hello');
+        for (const needle of ['SECRET-TOKEN', 'token=', 'a@b.c', 'a%40b.c']) expectAbsentEverywhere(needle, 'unnamed query parameter');
+    });
 
     describe('Visitor hash irreversibility', () => {
         const ip = '198.51.100.42';

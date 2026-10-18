@@ -147,6 +147,15 @@ test('Allow loads the tracker with the site\'s options, and the tracker sends th
     expect(sent.views).toHaveLength(1);
 });
 
+test('the page parameters reach the tracker too', async ({ page }) => {
+    const sent = await visitor(page);
+    await page.goto(`${lab('query=post')}&post=hello`);
+    await prompt(page).getByRole('button', { name: 'Allow' }).click();
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(await trackerTags(page).evaluate((node) => node.dataset.query)).toBe('post');
+    expect(sent.views[0].searchParams.get('page')).toBe('/consent-lab/start?post=hello');
+});
+
 test('No thanks loads nothing and sends nothing, now or after a reload', async ({ page }) => {
     await recordEvents(page);
     const sent = await visitor(page);

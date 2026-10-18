@@ -8,8 +8,8 @@
  * request through to the site unchanged. For each HTML page it served, it then
  * reports the page view to viewcounter's POST /edge/view, server to server,
  * after the visitor already has the page. The report carries only what the
- * request for the page carried, and less: its URL as an origin, a path, and
- * the campaign tags; its Referer as an origin and a path; the visitor's
+ * request for the page carried, and less: its URL as an origin, a path, the
+ * query parameters the site's pages are told apart by, and the campaign tags; its Referer as an origin and a path; the visitor's
  * address, user agent, Sec-CH-UA-Mobile, and Accept-Language. Nothing is read
  * from or stored on the visitor's device, and no cookie or other header is
  * forwarded. viewcounter keeps a masked address and coarse details.
@@ -18,7 +18,10 @@
  *   VIEWCOUNTER_URL  where viewcounter runs, e.g. https://views.example.com
  *   SITES            JSON: hostname -> appId, or hostname -> [{ "prefix": "/blog/",
  *                    "app": "blog" }, { "prefix": "/", "app": "site" }], where the
- *                    longest matching path prefix wins
+ *                    longest matching path prefix wins. A site whose pages differ
+ *                    only in their query (/?post=hello) names those parameters:
+ *                    hostname -> { "app": "blog", "query": ["post"] }, and a
+ *                    prefix rule takes "query" too (as the tracker's data-query)
  *   EDGE_SECRET      the server's EDGE_SECRET, set with `wrangler secret put EDGE_SECRET`
  *   RESPECT_DNT      "true": report nothing for a browser that sends Do Not Track
  *                    or Global Privacy Control (as the tracker's data-respect-dnt)
@@ -101,16 +104,22 @@ function optedOut(request, env) {
 }
 
 /**
- * A page URL as it is reported: its origin, its path, and its campaign tags
- * (unless CAMPAIGNS is "false"). The rest of a query string can carry
- * tokens or emails, and the fragment never reaches a server at all.
+ * A page URL as it is reported: its origin, its path, the query parameters
+ * the site names as part of its pages, and its campaign tags (unless
+ * CAMPAIGNS is "false"). The rest of a query string can carry tokens or
+ * emails, and the fragment never reaches a server at all.
  *
  * @param {URL} url
  * @param {{ CAMPAIGNS?: string }} env
+ * @param {string[]} [pageQuery] the site's page parameters, e.g. ["post"]
  * @returns {string}
  */
-function reportedUrl(url, env) {
+function reportedUrl(url, env, pageQuery = []) {
     const kept = new URLSearchParams();
+    for (const name of pageQuery) {
+        const value = url.searchParams.get(name);
+        if (value) kept.set(name, value);
+    }
     if (String(env.CAMPAIGNS) !== 'false') {
         for (const name of UTM_PARAMETERS) {
             const value = url.searchParams.get(name);
@@ -146,7 +155,7 @@ const parsedSites = new Map();
  * is counted rather than everything breaking.
  *
  * @param {string|object|undefined} raw
- * @returns {Record<string, string|{ prefix: string, app: string }[]>}
+ * @returns {Record<string, string|object>}
  */
 function parseSites(raw) {
     if (raw && typeof raw === 'object') return raw;
@@ -164,18 +173,38 @@ function parseSites(raw) {
     return parsedSites.get(raw);
 }
 
+/** A query parameter a site may name as part of its pages; never a campaign tag, which is kept apart. */
+const PAGE_QUERY_NAME = /^(?!utm_)[A-Za-z0-9_.-]{1,64}$/;
+/** As many page parameters as viewcounter accepts in one report. */
+const MAX_PAGE_QUERY = 10;
+
 /**
- * The app a page belongs to: its hostname's app, or, for a hostname split by
- * path, the app of the longest prefix the path starts with.
+ * A site's page parameters as configured: the valid names, in their order.
+ * Anything else in the list is ignored rather than sent and refused.
  *
- * @param {Record<string, string|{ prefix: string, app: string }[]>} sites
- * @param {URL} url
- * @returns {string|null}
+ * @param {unknown} query
+ * @returns {string[]}
  */
-function appFor(sites, url) {
+function pageQueryOf(query) {
+    if (!Array.isArray(query)) return [];
+    return [...new Set(query.filter((name) => typeof name === 'string' && PAGE_QUERY_NAME.test(name)))].slice(0, MAX_PAGE_QUERY);
+}
+
+/**
+ * The site a page belongs to: its hostname's app and page parameters, or, for
+ * a hostname split by path, those of the longest prefix the path starts with.
+ *
+ * @param {Record<string, string|{ app: string, query?: string[] }|{ prefix: string, app: string, query?: string[] }[]>} sites
+ * @param {URL} url
+ * @returns {{ app: string, query: string[] }|null}
+ */
+function siteFor(sites, url) {
     const host = url.hostname.toLowerCase();
     const entry = Object.hasOwn(sites, host) ? sites[host] : undefined;
-    if (typeof entry === 'string') return entry || null;
+    if (typeof entry === 'string') return entry ? { app: entry, query: [] } : null;
+    if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
+        return typeof entry.app === 'string' && entry.app ? { app: entry.app, query: pageQueryOf(entry.query) } : null;
+    }
     if (!Array.isArray(entry)) return null;
 
     let best = null;
@@ -184,7 +213,19 @@ function appFor(sites, url) {
         if (!url.pathname.startsWith(rule.prefix)) continue;
         if (!best || rule.prefix.length > best.prefix.length) best = rule;
     }
-    return best ? best.app : null;
+    return best ? { app: best.app, query: pageQueryOf(best.query) } : null;
+}
+
+/**
+ * The app a page belongs to (see siteFor).
+ *
+ * @param {Record<string, string|object>} sites
+ * @param {URL} url
+ * @returns {string|null}
+ */
+function appFor(sites, url) {
+    const site = siteFor(sites, url);
+    return site ? site.app : null;
 }
 
 /**
@@ -194,14 +235,17 @@ function appFor(sites, url) {
  * @param {Request} request
  * @param {string} appId
  * @param {{ CAMPAIGNS?: string }} [env]
+ * @param {string[]} [pageQuery] the site's page parameters, e.g. ["post"]
  * @returns {{ appId: string, url: string, referrer: string, ip: string|null, userAgent: string,
- *   mobile?: string, acceptLanguage?: string }}
+ *   mobile?: string, acceptLanguage?: string, pageQuery?: string[] }}
  */
-function payload(request, appId, env = {}) {
+function payload(request, appId, env = {}, pageQuery = []) {
     const header = (name) => request.headers.get(name);
     return {
         appId,
-        url: reportedUrl(new URL(request.url), env),
+        url: reportedUrl(new URL(request.url), env, pageQuery),
+        // Which of the URL's parameters viewcounter keeps as part of the page; left out for none.
+        pageQuery: pageQuery.length ? pageQuery : undefined,
         referrer: reportedReferrer(header('referer')),
         ip: header('cf-connecting-ip'),
         userAgent: header('user-agent') || '',
@@ -219,11 +263,12 @@ function payload(request, appId, env = {}) {
  * @param {string} appId
  * @param {{ VIEWCOUNTER_URL?: string, EDGE_SECRET?: string }} env
  * @param {typeof fetch} [send] fetch, injectable for tests
+ * @param {string[]} [pageQuery] the site's page parameters, e.g. ["post"]
  * @returns {Promise<void>}
  */
-async function report(request, appId, env, send = fetch) {
+async function report(request, appId, env, send = fetch, pageQuery = []) {
     try {
-        const body = payload(request, appId, env);
+        const body = payload(request, appId, env, pageQuery);
         // Without the visitor's address (a local `wrangler dev`, say) there is no view to count.
         if (!body.ip || !env.VIEWCOUNTER_URL || !env.EDGE_SECRET) return;
         const response = await send(`${String(env.VIEWCOUNTER_URL).replace(/\/+$/, '')}${REPORT_PATH}`, {
@@ -253,8 +298,8 @@ async function handle(request, env, ctx, send = fetch) {
     const response = await send(request);
     try {
         if (shouldCount(request, response) && !optedOut(request, env)) {
-            const appId = appFor(parseSites(env.SITES), new URL(request.url));
-            if (appId) ctx.waitUntil(report(request, appId, env, send));
+            const site = siteFor(parseSites(env.SITES), new URL(request.url));
+            if (site) ctx.waitUntil(report(request, site.app, env, send, site.query));
         }
     } catch {
         // Counting must never cost the visitor their page.
@@ -263,5 +308,5 @@ async function handle(request, env, ctx, send = fetch) {
 }
 
 module.exports = {
-    REPORT_PATH, REPORT_TIMEOUT_MS, shouldCount, optedOut, reportedUrl, reportedReferrer, parseSites, appFor, payload, report, handle,
+    REPORT_PATH, REPORT_TIMEOUT_MS, shouldCount, optedOut, reportedUrl, reportedReferrer, parseSites, siteFor, appFor, payload, report, handle,
 };

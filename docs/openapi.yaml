@@ -283,8 +283,9 @@ paths:
                   example: https://blog.example.com/post?utm_source=newsletter
                   description: >-
                     The page URL the visitor requested (the edge Worker sends
-                    its origin, path, and utm_* tags only). Only its path and
-                    its utm_* tags are kept.
+                    its origin, path, the parameters named in pageQuery, and
+                    utm_* tags only). Only its path, the parameters named in
+                    pageQuery, and its utm_* tags are kept.
                 referrer:
                   type: string
                   nullable: true
@@ -311,6 +312,18 @@ paths:
                   nullable: true
                   maxLength: 512
                   description: The raw Accept-Language header. Only its first primary subtag is kept.
+                pageQuery:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: string
+                    pattern: '^(?!utm_)[A-Za-z0-9_.-]{1,64}$'
+                  example: [post]
+                  description: >-
+                    The query parameters of url that are part of the page, for
+                    a site whose pages differ only in their query (/?post=hello).
+                    The page is stored as its path and these parameters, in this
+                    order, each with its first non-empty value.
       responses:
         '204':
           description: >-

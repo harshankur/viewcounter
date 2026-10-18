@@ -94,6 +94,26 @@ test('a stored edge view holds the masked address and its side, never the raw re
     expect(log.params).toContain('edge');
 });
 
+test('of the query, only the parameters the report names as part of the page are kept', async () => {
+    const from = dbManager.pool.queries.length;
+    await report('192.0.2.88', 'https://site.example/?token=SECRET-TOKEN&post=hello%20world&utm_source=feed')
+        .send({ pageQuery: ['post'] }).expect(204);
+    const statements = statementsSince(from);
+    const insert = statements.find((q) => /^\s*INSERT INTO `site`/.test(q.sql));
+    expect(insert.params).toContain('/?post=hello+world');
+    expect(insert.params).toContain('feed');
+    expect(JSON.stringify(statements)).not.toContain('SECRET-TOKEN');
+});
+
+test.each([
+    ['a campaign tag', ['utm_source']],
+    ['a name with other characters', ['post name']],
+    ['not a list', 'post'],
+    ['more than ten names', Array.from({ length: 11 }, (_, i) => `p${i}`)],
+])('a report naming %s as a page parameter is refused', async (_, pageQuery) => {
+    await report('192.0.2.99').send({ pageQuery }).expect(422);
+});
+
 test('a burst of unreadable bodies without the secret is refused unread, then limited by the sender\'s address', async () => {
     const malformed = () => request(server).post(EDGE.PATH).set('Content-Type', 'application/json').send('{"appId": ');
     const oversized = () => request(server).post(EDGE.PATH).set('Content-Type', 'application/json')

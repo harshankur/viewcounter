@@ -316,6 +316,42 @@ test('without data-hash, a fragment is never part of the page', async ({ page })
     expect(sent.views).toHaveLength(1);
 });
 
+test('a query parameter named in data-query is part of the page, and nothing else of the query is', async ({ page, baseURL }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start?token=secret&query=post&post=hello%20world&utm_source=feed');
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start?post=hello+world');
+    expect(sent.views[0].searchParams.get('utm_source')).toBe('feed');
+    expect(sent.views[0].href).not.toMatch(/secret/);
+
+    // A single-page app that only changes the named parameter shows another page.
+    await page.waitForTimeout(100);
+    await page.evaluate(() => window.history.replaceState({}, '', '/tracker-lab/start?query=post&post=second'));
+    await expect.poll(() => sent.views.length).toBe(2);
+    expect(Object.fromEntries(sent.views[1].searchParams)).toMatchObject({
+        // The page it came from is a referrer like any other: an origin and a path, no query.
+        page: '/tracker-lab/start?post=second', referrer: `${new URL(baseURL).origin}/tracker-lab/start`,
+    });
+    await expect.poll(() => sent.engagement.length).toBe(1);
+
+    // Any other parameter changing is the same page.
+    await page.evaluate(() => window.history.replaceState({}, '', '/tracker-lab/start?query=post&post=second&tab=2'));
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(2);
+});
+
+test('without data-query, the query is never part of the page', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto('/tracker-lab/start?post=hello');
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start');
+    await page.evaluate(() => window.history.replaceState({}, '', '/tracker-lab/start?post=other'));
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(1);
+});
+
 test('a link to another site records only its hostname', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

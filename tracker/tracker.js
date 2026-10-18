@@ -21,7 +21,8 @@
  * how long it was visible and, on a page that scrolls, how far (reported when the page
  * is hidden or left, and every half minute while it is being read), clicks on links to
  * other sites and on downloads, and the campaign tags of the landing URL.
- * The page before is sent as its origin and path only.
+ * A page is sent as its path (and the query parameters named in data-query);
+ * the page before as its origin and path only.
  *
  * It stores nothing on the visitor's device (no cookie, no localStorage, no
  * sessionStorage), and it sends no identifier: the server tells repeat visits
@@ -38,6 +39,10 @@
  *   data-spa="false"                do not treat history changes as page views
  *   data-hash="#docs/,#spec/"       count a URL fragment that starts with one of
  *                                   these as its own page (hash-routed pages)
+ *   data-query="post"               query parameters that are part of the page,
+ *                                   for pages told apart only by their query
+ *                                   (/?post=hello); every other parameter stays
+ *                                   in the browser
  *   data-heartbeat="false"          report time on page only when the page is
  *                                   hidden or left, not while it is being read
  *   data-campaigns="false"          do not send the landing URL's utm_* tags
@@ -56,6 +61,9 @@
     const hosts = (script.dataset.hosts || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
     if (hosts.length && !hosts.includes(location.hostname.toLowerCase())) return;
     const hashRoutes = (script.dataset.hash || '').split(',').map((prefix) => prefix.trim()).filter(Boolean);
+    // As the server accepts them: never a campaign tag, which is sent on its own.
+    const pageParameters = [...new Set((script.dataset.query || '').split(',').map((name) => name.trim())
+        .filter((name) => /^(?!utm_)[A-Za-z0-9_.-]{1,64}$/.test(name)))].slice(0, 10);
     if (location.protocol !== 'http:' && location.protocol !== 'https:') return;
     // Automated browsers are not visitors.
     if (navigator.webdriver) return;
@@ -112,9 +120,22 @@
         }
     };
 
-    /** The page on screen: its path, and its fragment when that is one of the site's own routes. */
-    const currentPage = () => location.pathname
-        + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');
+    /**
+     * The page on screen: its path, the query parameters named as part of it
+     * (in the order they are named, as the edge Worker reports them), and its
+     * fragment when that is one of the site's own routes.
+     */
+    const currentPage = () => {
+        const query = new URLSearchParams(location.search);
+        const kept = new URLSearchParams();
+        for (const name of pageParameters) {
+            const value = query.get(name);
+            if (value) kept.set(name, value);
+        }
+        const named = kept.toString();
+        return location.pathname + (named ? `?${named}` : '')
+            + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');
+    };
 
     /**
      * When the page was first shown, on the clock performance.now() reads:
@@ -240,8 +261,8 @@
     // came from as its referrer (which the server files as internal).
     function navigated() {
         if (currentPage() === path) return;
-        // Like every referrer, without the fragment: the server keeps an origin and a path.
-        referrer = `${location.origin}${path.split('#')[0]}`;
+        // Like every referrer, without the query and fragment: the server keeps an origin and a path.
+        referrer = `${location.origin}${path.split(/[?#]/)[0]}`;
         path = currentPage();
         pageview();
     }

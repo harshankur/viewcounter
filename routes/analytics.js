@@ -27,7 +27,7 @@ const { getClientIp, isValidIP, normalizeIp } = require('../utils/ipUtils');
 const { requireReadApiKey, requireAppScope, requireAdminApiKey, requireEdgeSecret, edgeSecretMatches, appsInScope } = require('../middleware/auth');
 const { requireRegisteredOrigin, requestedAppId, requestOrigin, noStore } = require('../middleware/security');
 const { createRejectionCounter } = require('../db/rejectionCounter');
-const { hostnameOf, httpUrl, originAndPath, primaryLanguage, urlUtmTags, utmTags } = require('../utils/visitorContext');
+const { hostnameOf, httpUrl, originAndPath, pageQuery, primaryLanguage, urlUtmTags, utmTags } = require('../utils/visitorContext');
 const {
     validateAppRegistration,
     validateRegisterView,
@@ -800,7 +800,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
             limitPerApp,
             async (req, res) => {
                 try {
-                    const { appId, url, referrer, userAgent, mobile, acceptLanguage } = req.body;
+                    const { appId, url, referrer, userAgent, mobile, acceptLanguage, pageQuery: pageQueryNames } = req.body;
                     const agent = userAgent;
 
                     const ip = res.locals.visitorIp;
@@ -819,8 +819,10 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                         country: ipInfo?.country || null,
                         // No window to measure: the phone hint, or the device the user agent names.
                         deviceSize: UserAgentParser.getDeviceSize(agent, mobile),
-                        // The path alone: the query and fragment never leave the request.
-                        pagePath: page.pathname,
+                        // The path, and of the query only the parameters the
+                        // site's pages are told apart by; the rest of the query
+                        // and the fragment never leave the request.
+                        pagePath: `${page.pathname}${pageQuery(page, pageQueryNames)}`,
                         // The title is in the page, which the edge never reads.
                         pageTitle: null,
                         referrer: referrerData.referrer,

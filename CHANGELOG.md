@@ -5,6 +5,26 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+Pages told apart only by their query, such as a blog's `/?post=hello`, can
+now be counted one by one, by the tracker and at the edge alike. Nothing
+needs doing to upgrade: no schema change, and a site that names no
+parameters is counted as before.
+
+### Added
+
+- **Page parameters.** A site whose pages differ only in their query names
+  those parameters: `data-query="post"` on `tracker.js` or `consent.js`, and
+  `"query": ["post"]` on the site's entry in the edge Worker's `SITES`
+  (`{"app": "blog", "query": ["post"]}`). The page is then its path and these
+  parameters, in the order named, each with its first non-empty value
+  (`/?post=hello`); in a single-page app a change to one of them is a new
+  page view. Every other parameter still never leaves the browser or the
+  Worker, and the server keeps of an edge report's query only the parameters
+  the report names in its new `pageQuery` field, so a token or an email in a
+  URL is dropped even from a Worker that sends it. Until now every such page
+  was counted as `/`. Upgrade the server before the Worker: an older server
+  ignores `pageQuery` and keeps the path alone.
+
 ## [3.6.1]
 
 One page load counted by the edge and by the tracker is one view again for

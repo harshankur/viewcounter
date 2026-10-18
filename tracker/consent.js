@@ -39,8 +39,8 @@
  *                                   asks through the API below
  *   data-edge="false"               nothing counts this site's pages without
  *                                   consent (no edge Worker), and the prompt says so
- *   data-spa, data-hash, data-heartbeat, data-campaigns, data-outbound,
- *   data-downloads, data-respect-dnt
+ *   data-spa, data-hash, data-query, data-heartbeat, data-campaigns,
+ *   data-outbound, data-downloads, data-respect-dnt
  *                                   passed on to the tracker
  *
  * window.viewcounterConsent: open() shows the prompt again, status() is
@@ -72,7 +72,7 @@
     const EVENT = 'viewcounter:consent';
     const TRIGGER = 'data-viewcounter-consent';
     /** The tracker's own options, passed on to it as they are. */
-    const TRACKER_OPTIONS = ['app', 'hosts', 'spa', 'hash', 'heartbeat', 'campaigns', 'outbound', 'downloads', 'respectDnt'];
+    const TRACKER_OPTIONS = ['app', 'hosts', 'spa', 'hash', 'query', 'heartbeat', 'campaigns', 'outbound', 'downloads', 'respectDnt'];
     const base = script.src.replace(/[^/]*$/, '');
 
     const TEXT = {

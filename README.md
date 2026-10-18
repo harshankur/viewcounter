@@ -17,7 +17,7 @@ Visit our [Interactive Documentation](https://viewcounter.harshankur.com) for de
 - **Nothing on the visitor's device**: the tracker sets no cookie, uses no localStorage or sessionStorage, and sends no identifier with a view. (The optional admin UI signs its operator in with a session cookie; tracking never sets one.)
 - **Counting with and without consent**: where a script that measures a visit needs consent (the German TDDDG § 25, and the EDPB's Guidelines 2/2023 reading of ePrivacy Art. 5(3)), ViewCounter counts in two tiers: [edge counting](#edge-counting) needs no consent, since a Worker in front of the site reports each page request server to server and nothing runs in the browser; the [consent prompt](#the-consent-prompt) loads the tracker, with everything it measures, only once the visitor allows it. Saying no costs the visitor nothing.
 - **Data Sovereignty**: You own your data. Analytics never leave your private infrastructure.
-- **Minimal Collection**: records what analytics needs, each in a form that does not identify a person directly. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string are never stored.
+- **Minimal Collection**: records what analytics needs, each in a form that does not identify a person directly. [What Gets Tracked?](#what-gets-tracked) lists every field, where it comes from, and how it is stored; the raw IP address, the user agent, and the query string (apart from campaign tags and any parameters a site names as part of its pages) are never stored.
 - **Bots left out**: crawlers, link previewers, and automated browsers are recognised and never stored, only counted per minute by name.
 
 ### What is still yours to do
@@ -700,7 +700,7 @@ returned by any API.
 | **Region, City** | IP, with an optional [city database](#location-data) | Names, such as Bavaria and Munich | Where visitors are, more finely |
 | **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list) | Which languages to write in |
 | **Site** | `Origin` of the request; at the edge, the page URL | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
-| **Page Path** | `page`; at the edge, the page URL's path | Path only, such as `/blog/my-post` (neither side sends a query string) | Which pages are read |
+| **Page Path** | `page`; at the edge, the page URL's path | Path only, such as `/blog/my-post` (neither side sends a query string), plus the query parameters a site names as part of its pages (`data-query`, `"query"` in the Worker's `SITES`), such as `/?post=my-post` | Which pages are read |
 | **Page Title** | `title` | Text, up to 200 characters; empty for a view only the edge saw, since the edge never reads the page | Readable page names |
 | **Referrer** | `referrer` (the page's `document.referrer`); at the edge, the `Referer` header | Origin and path only: the query string and fragment are dropped (the tracker never sends them); absent or empty means direct | Where visits come from |
 | **Referrer Domain, Source Type** | Derived from the referrer | Hostname; search, social, email, campaign, referral, internal, or direct | Grouping sources |
@@ -715,7 +715,8 @@ returned by any API.
 
 **Never stored**: the raw IP address, the User-Agent string, cookies or any
 other identifier from the device, any query string or fragment (of the page or
-of its referrer) apart from the page's campaign tags, and anything about bots
+of its referrer) apart from the page's campaign tags and the parameters the
+site names as part of its pages, and anything about bots
 or refused requests beyond a per-minute count. Before 3.2, a referrer was stored
 as sent, query string included; the changelog shows how to strip older rows.
 
@@ -1108,6 +1109,7 @@ prerender either.
 | `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
 | `data-spa` | `true` | Treat history changes as page views |
 | `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page. A matching fragment is stored whole as part of the page, so list only prefixes whose fragments carry nothing private. As a referrer, such a page is its path alone |
+| `data-query` | none | Query parameters, comma-separated (`post`), that are part of the page, for sites whose pages differ only in their query (`/?post=hello`). The page is sent as its path and these parameters, in the order listed, each with its first value; a change to one of them in a single-page app is a new page view. Every other parameter stays in the browser, so list only parameters that carry nothing private. As a referrer, such a page is its path alone. Name the same parameters in the edge Worker's `SITES` entry, so both count a page alike |
 | `data-heartbeat` | `true` | Report time on page every half minute while the page is visible and in use, not only when it is hidden or left. It keeps the visitor in the admin's **Right now** while they read one page, and saves the time of a tab the browser closes without warning. It stops after half an hour without any input |
 | `data-campaigns` | `true` | Send the landing URL's `utm_*` tags with the view |
 | `data-outbound` | `true` | Record clicks on links to other sites, as `outbound` events |
@@ -1168,7 +1170,7 @@ one tab holds in the site's other tabs too.
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise |
 | `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
 | `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
-| `data-spa`, `data-hash`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
+| `data-spa`, `data-hash`, `data-query`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
 
 **API**, on `window.viewcounterConsent`:
 
@@ -1326,9 +1328,16 @@ prefixes and their apps, where the longest prefix the path starts with wins:
 ```json
 {
   "example.com": "homepage",
-  "docs.example.com": [{ "prefix": "/blog/", "app": "docsblog" }, { "prefix": "/", "app": "docs" }]
+  "docs.example.com": [{ "prefix": "/blog/", "app": "docsblog" }, { "prefix": "/", "app": "docs" }],
+  "notes.example.com": { "app": "notes", "query": ["post"] }
 }
 ```
+
+A site whose pages differ only in their query (`/?post=hello`) names those
+parameters with `"query"`, on a hostname's object or on a prefix rule, as the
+tracker's `data-query` does: they are reported as part of the page, in the
+order named, and the rest of the query never leaves the Worker. Up to ten
+names of letters, digits, `_`, `-` and `.`, never a `utm_` tag.
 
 The Worker counts a request only when all of these hold: it is a `GET`; it is
 for a top-level page (`Sec-Fetch-Dest: document` and, where the browser sends
@@ -1360,6 +1369,7 @@ at a quiet hour.
 | `userAgent` | no | The raw `User-Agent`, up to 1024 characters |
 | `mobile` | no | The raw `Sec-CH-UA-Mobile` (`?1` or `?0`) |
 | `acceptLanguage` | no | The raw `Accept-Language`, up to 512 characters |
+| `pageQuery` | no | The query parameters of `url` that are part of the page, as a list of up to ten names (letters, digits, `_`, `-`, `.`; no `utm_` tag). The page is stored as the path and these parameters, in this order, each with its first non-empty value; every other parameter is dropped. Anything else is a `422` |
 
 Absent optional fields may also be `null`. Answers:
 

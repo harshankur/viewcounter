@@ -8,8 +8,11 @@
  *   - hostname: which of the app's registered sites was visited;
  *   - UTM tags: the five campaign parameters, and only those. The rest of a
  *     landing URL's query string can carry emails, tokens, or IDs, so the
- *     tracker never sends it and the server never reads it.
+ *     tracker never sends it and the server never reads it, except the
+ *     parameters a site names as part of its pages (pageQuery).
  */
+
+const { URLSearchParams } = require('node:url');
 
 const { FIELD_MAX_LENGTH } = require('../constants');
 
@@ -105,4 +108,24 @@ function urlUtmTags(url) {
     return utmTags(Object.fromEntries(UTM_PARAMETERS.map((name) => [name, url.searchParams.get(name)])));
 }
 
-module.exports = { UTM_PARAMETERS, primaryLanguage, hostnameOf, utmTags, httpUrl, originAndPath, urlUtmTags };
+/**
+ * The query parameters that are part of a page, for a site whose pages differ
+ * only in their query ("/?post=hello"): the named ones the URL has, in the
+ * order they are named, each with its first value, and nothing else. The
+ * tracker builds a page the same way, so both see one page alike.
+ *
+ * @param {URL} url
+ * @param {string[]} [names] already validated
+ * @returns {string} e.g. "?post=hello", or '' for none
+ */
+function pageQuery(url, names = []) {
+    const kept = new URLSearchParams();
+    for (const name of names) {
+        const value = url.searchParams.get(name);
+        if (value) kept.set(name, value);
+    }
+    const query = kept.toString();
+    return query ? `?${query}` : '';
+}
+
+module.exports = { UTM_PARAMETERS, primaryLanguage, hostnameOf, utmTags, httpUrl, originAndPath, urlUtmTags, pageQuery };

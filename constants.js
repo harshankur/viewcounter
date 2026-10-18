@@ -400,7 +400,11 @@ const EDGE = {
     AUTH_SCHEME: 'Bearer',
     /** A shorter EDGE_SECRET stops the server from starting. */
     MIN_SECRET_LENGTH: 32,
-    /** The page URL as requested, query included; only its path and campaign tags are kept. */
+    /**
+     * The page URL as requested, query included; only its path, the query
+     * parameters the report names as part of the page, and its campaign tags
+     * are kept.
+     */
     MAX_URL_LENGTH: 2048,
     /** The raw Referer header; reduced to an origin and a path before it is stored. */
     MAX_REFERRER_LENGTH: 2048,
@@ -410,7 +414,16 @@ const EDGE = {
     MAX_ACCEPT_LANGUAGE_LENGTH: 512,
     /** Sec-CH-UA-Mobile is a structured-header boolean: "?1" or "?0". */
     MAX_CLIENT_HINT_LENGTH: 8,
+    /** At most this many query parameters can be named as part of a page. */
+    MAX_PAGE_QUERY: 10,
 };
+
+/**
+ * A query parameter's name, as a site may name it part of a page (a post in
+ * "/?post=hello", say): letters, digits, _, - and ., and never a campaign tag,
+ * which is kept apart.
+ */
+const PAGE_QUERY_NAME = /^(?!utm_)[A-Za-z0-9_.-]{1,64}$/;
 
 /** The Sec-CH-UA-Mobile value of a browser that says it is on a phone. */
 const MOBILE_CLIENT_HINT = '?1';
@@ -607,6 +620,7 @@ module.exports = {
     COLLECTED_BY,
     EDGE,
     MOBILE_CLIENT_HINT,
+    PAGE_QUERY_NAME,
     ADMIN_LOG_TABLE,
     ADMIN_SESSIONS_TABLE,
     VIEW_LOG_TABLE,
