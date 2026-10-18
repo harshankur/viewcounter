@@ -13,8 +13,8 @@
  *     cookie and sends nothing that identifies you.
  *   - Your answer is the one thing kept on your device: "granted" or "denied"
  *     in this site's localStorage, under "viewcounter-consent:" and the
- *     site's name for it. Change it at any time with the site's privacy settings
- *     link; saying no costs you nothing.
+ *     site's name for it. Change it at any time with the site's privacy
+ *     settings button or link; saying no costs you nothing.
  * Check it yourself: the source is at https://github.com/harshankur/viewcounter
  * and the homepage at https://viewcounter.harshankur.com.
  *
@@ -324,10 +324,15 @@
         (document.body || document.documentElement).appendChild(host);
     }
 
+    /** Whether the prompt was built in another language, or with another privacy notice, than the page names now. */
+    const outdated = () => host !== null && (language() !== lang || privacyUrl() !== builtPrivacyUrl);
+
     /** Show the prompt; `focus` when the visitor asked for it, so the keyboard lands in it. */
     function show(focus) {
+        // Focus inside the old prompt is not where it should go back to when this one closes.
+        const focusWasInside = host !== null && document.activeElement === host;
         // Built again in the page's language, or with its privacy notice, if either changed since.
-        if (host && (language() !== lang || privacyUrl() !== builtPrivacyUrl)) {
+        if (outdated()) {
             host.remove();
             host = null;
         }
@@ -337,7 +342,7 @@
         current.hidden = answered === UNSET;
         current.textContent = answered === UNSET ? '' : text[answered];
         if (focus) {
-            if (document.activeElement && document.activeElement !== host) returnFocus = document.activeElement;
+            if (!focusWasInside && document.activeElement && document.activeElement !== host) returnFocus = document.activeElement;
             card.hidden = false;
             // Focus lands in it, which says where the reader is: nothing to announce.
             announcer.textContent = '';
@@ -358,6 +363,17 @@
         announcer.textContent = '';
         if (hadFocus && returnFocus && returnFocus.isConnected) returnFocus.focus();
         returnFocus = null;
+    }
+
+    // A prompt on screen while the page switches its language, or names
+    // another privacy notice, is built again at once, as it was shown: with
+    // the keyboard in it if it was there.
+    const refresh = () => {
+        if (card && !card.hidden && outdated()) show(document.activeElement === host);
+    };
+    if (window.MutationObserver) {
+        new window.MutationObserver(refresh).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+        new window.MutationObserver(refresh).observe(script, { attributes: true, attributeFilter: ['data-privacy-url', 'data-lang'] });
     }
 
     // Escape puts the prompt away for this page view, without an answer:

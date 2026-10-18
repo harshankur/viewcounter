@@ -334,19 +334,51 @@ test.describe('language', () => {
         await expect(prompt(page)).toBeVisible();
     });
 
-    test('a page that points data-privacy-url at the notice in its new language is linked to that one', async ({ page }) => {
+    test('the prompt links the privacy notice the page names when it is shown, and only an http(s) one', async ({ page, baseURL }) => {
         await visitor(page);
         await page.goto(lab());
-        await expect(prompt(page).getByRole('link', { name: 'Privacy notice' })).toHaveAttribute('href', PRIVACY);
+        const link = () => prompt(page).getByRole('link', { name: 'Privacy notice' });
+        await expect(link()).toHaveAttribute('href', PRIVACY);
         await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        const point = (url) => page.evaluate((value) => { document.querySelector('script[src$="consent.js"]').dataset.privacyUrl = value; }, url);
+        // The address alone changes, in the same language.
+        await point('https://example.com/privacy#other');
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(link()).toHaveAttribute('href', 'https://example.com/privacy#other');
+        // A relative address is the site's own.
+        await point('/datenschutz#de');
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(link()).toHaveAttribute('href', `${new URL(baseURL).origin}/datenschutz#de`);
+        // A script address is never linked.
+        await point('javascript:alert(1)');
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(prompt(page)).toBeVisible();
+        await expect(prompt(page).getByRole('link')).toHaveCount(0);
+        await expect(page.locator('viewcounter-consent')).toHaveCount(1);
+    });
+
+    test('a prompt on screen follows a switch of language and privacy notice at once, keeping the keyboard', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        // Opened from the footer with the keyboard: focus is in the prompt.
+        await page.locator('#settings').focus();
+        await page.keyboard.press('Enter');
+        await expect(prompt(page).getByRole('button', { name: 'Allow' })).toBeFocused();
+        // The site switches to German while it is open.
         await page.evaluate(() => {
             document.querySelector('script[src$="consent.js"]').dataset.privacyUrl = 'https://example.com/datenschutz#de';
             document.documentElement.lang = 'de';
         });
-        await page.evaluate(() => window.viewcounterConsent.open());
         const region = page.getByRole('region', { name: 'Nutzungsstatistik' });
+        await expect(region).toBeVisible();
         await expect(region.getByRole('link', { name: 'Datenschutzerklärung' })).toHaveAttribute('href', 'https://example.com/datenschutz#de');
+        await expect(region.getByRole('button', { name: 'Erlauben' })).toBeFocused();
         await expect(page.locator('viewcounter-consent')).toHaveCount(1);
+        // Escape still returns the keyboard to the footer, where it came from.
+        await page.keyboard.press('Escape');
+        await expect(region).toBeHidden();
+        await expect(page.locator('#settings')).toBeFocused();
     });
 
     test('data-edge="false" does not claim that pages are counted without consent', async ({ page }) => {

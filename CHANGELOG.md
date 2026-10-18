@@ -10,7 +10,10 @@ All notable changes to this project are documented here. This project follows
 - **The consent prompt kept the privacy notice it loaded with.** A site
   whose privacy notice has a section per language, and that switches its
   language in place, changes `data-privacy-url` with it; the prompt now
-  reads it each time it is shown, as it does the page's language.
+  reads it each time it is shown, as it does the page's language, and a
+  prompt on screen during the switch is built again at once, with the
+  keyboard still in it if it was, and Escape still returning it to where the
+  visitor opened it from.
 
 ## [3.7.0]
 
