@@ -190,6 +190,22 @@ describe('AdminRepository', () => {
             expect(pool.queries[0].params).toEqual([30]);
         });
 
+        test('expireOlderThan moves live views older than the retention to the trash', async () => {
+            const pool = createScriptedPool(() => [{ affectedRows: 3 }]);
+            const repo = new AdminRepository(dbWith(pool));
+            expect(await repo.expireOlderThan('blog', 396, 30)).toBe(3);
+            expect(pool.queries[0].sql).toMatch(/^UPDATE `blog` SET deleted_at = NOW\(\)/);
+            expect(pool.queries[0].sql).toContain('deleted_at IS NULL AND `timestamp` < DATE_SUB(NOW(), INTERVAL ? DAY)');
+            expect(pool.queries[0].params).toEqual([396]);
+        });
+
+        test('expireOlderThan erases every row past the retention when the trash is kept forever', async () => {
+            const pool = createScriptedPool(() => [{ affectedRows: 2 }]);
+            const repo = new AdminRepository(dbWith(pool));
+            expect(await repo.expireOlderThan('blog', 396, 0)).toBe(2);
+            expect(pool.queries[0].sql).toMatch(/^DELETE FROM `blog` WHERE `timestamp` < DATE_SUB\(NOW\(\), INTERVAL \? DAY\)$/);
+        });
+
         test('purgeExpired treats a missing affectedRows as zero', async () => {
             const pool = createScriptedPool(() => [{}]);
             expect(await new AdminRepository(dbWith(pool)).purgeExpired('blog', 30)).toBe(0);

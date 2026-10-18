@@ -198,7 +198,7 @@ than running on a guessable default:
 
 **Optional**: `DB_MODE`, `PORT`, `LOG_LEVEL`, `RATE_LIMIT_WINDOW_MS`,
 `RATE_LIMIT_MAX`, `RATE_LIMIT_MAX_BY_APP`, `APP_RATE_LIMIT_MAX_BY_APP`, `UNIQUE_VISITOR_WINDOW_HOURS`, `ALLOWED_DEVICE_SIZES`,
-`TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`, `ADMIN_SESSION_IDLE_TIMEOUT`,
+`VIEW_RETENTION_DAYS`, `TRASH_RETENTION_DAYS`, `VIEW_LOG_RETENTION_DAYS`, `NO_LANGUAGE_APPS`, `ADMIN_SESSION_IDLE_TIMEOUT`,
 `ADMIN_SESSION_MAX_AGE`, `GEOIP_CITY_DB`.
 
 ### Time zones
@@ -343,6 +343,23 @@ run that removes anything is recorded in the admin log. It holds no personal
 data, so this only bounds its size; the views themselves are untouched. The
 admin log is never pruned: it is the record of who changed or erased what, and
 it grows only with admin activity.
+
+### How long views are kept
+
+Views are kept until an admin deletes them, unless `VIEW_RETENTION_DAYS` is
+set: then every hour, views recorded longer ago than that go to the trash, and
+are erased with it after `TRASH_RETENTION_DAYS` (when the trash is kept
+forever, they are erased at once instead). So a view is gone for good at most
+`VIEW_RETENTION_DAYS` plus `TRASH_RETENTION_DAYS` after it was recorded: the
+period a privacy notice must name (GDPR Art. 5(1)(e), Art. 13(2)(a)). Each run
+that retires anything is recorded in the admin log as a count.
+
+### A language that could say too much
+
+For a site whose visitors' language could hint at their origin (a test trainer
+for immigrants, say), list its app in `NO_LANGUAGE_APPS`: its views never keep
+a language, from the tracker, an event, or the edge. Give its entry in the edge
+Worker's `SITES` `"language": false` too, so the Worker does not even send it.
 
 ### Deleting, and GDPR
 
@@ -698,7 +715,7 @@ returned by any API.
 | **Visitor hash** | IP and User-Agent, with a secret | HMAC-SHA-256, keyed with a server secret and the window's salt, rotating every window; the salt is deleted when the window ends | Unique views, visitors, and visits; never returned |
 | **Country** | IP, looked up in memory | Two-letter code | Where visitors are |
 | **Region, City** | IP, with an optional [city database](#location-data) | Names, such as Bavaria and Munich | Where visitors are, more finely |
-| **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list) | Which languages to write in |
+| **Language** | `Accept-Language` | Primary subtag only, such as `de` (never `de-CH`, never a list); none at all for an app in `NO_LANGUAGE_APPS` | Which languages to write in |
 | **Site** | `Origin` of the request; at the edge, the page URL | Hostname only, such as `blog.example.com` | Several sites or subdomains on one app |
 | **Page Path** | `page`; at the edge, the page URL's path | The path, such as `/blog/my-post`, with no query string unless the site names parameters as part of its pages (`data-query`, `"query"` in the Worker's `SITES`): then those alone, sorted by name, such as `/?post=my-post` | Which pages are read |
 | **Page Title** | `title` | Text, up to 200 characters; empty for a view only the edge saw, since the edge never reads the page | Readable page names |
@@ -1342,6 +1359,8 @@ tracker's `data-query` does: they are reported as part of the page, sorted
 by name (so the order either side lists them in does not matter), and the
 rest of the query never leaves the Worker. Up to ten
 names of letters, digits, `_`, `-` and `.`, never a `utm_` tag.
+`"language": false` on an entry sends no `Accept-Language` for that site (see
+`NO_LANGUAGE_APPS`).
 
 The Worker counts a request only when all of these hold: it is a `GET`; it is
 for a top-level page (`Sec-Fetch-Dest: document` and, where the browser sends

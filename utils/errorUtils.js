@@ -48,6 +48,7 @@ const WarningType = {
     TRACKING_LOG_WRITE_FAILED: 'TRACKING_LOG_WRITE_FAILED',
     ADMIN_LOG_WRITE_FAILED: 'ADMIN_LOG_WRITE_FAILED',
     TRASH_PURGE_FAILED: 'TRASH_PURGE_FAILED',
+    VIEW_EXPIRY_FAILED: 'VIEW_EXPIRY_FAILED',
     SALT_PRUNE_FAILED: 'SALT_PRUNE_FAILED',
     RATE_LIMIT_UNKNOWN_APP: 'RATE_LIMIT_UNKNOWN_APP',
     EDGE_SECRET_REUSED: 'EDGE_SECRET_REUSED',
@@ -127,6 +128,8 @@ const WARNING_MESSAGES = {
         `Automatic view log pruning failed: ${info?.cause}`,
     [WarningType.TRASH_PURGE_FAILED]: (info) =>
         `Automatic trash purge failed for '${info?.appId}': ${info?.cause}`,
+    [WarningType.VIEW_EXPIRY_FAILED]: (info) =>
+        `Automatic retirement of old views failed for '${info?.appId}': ${info?.cause}`,
     [WarningType.RATE_LIMIT_UNKNOWN_APP]: (info) =>
         `${info?.field} names '${info?.appId}', which is not one of the configured apps: its figure applies only if an app of that name is registered later`,
     [WarningType.EDGE_SECRET_REUSED]:

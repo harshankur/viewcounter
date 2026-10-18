@@ -163,6 +163,7 @@ const initializeServer = async () => {
             getAppIds: () => config.allowed.appId,
             trashDays: config.admin.trashRetentionDays,
             viewLogDays: config.admin.viewLogRetentionDays,
+            viewDays: config.admin.viewRetentionDays,
         });
 
         isServerReady = true;

@@ -14,7 +14,7 @@ const {
     migrateAppTable,
 } = require('../db/adminSchema');
 const DatabaseManager = require('../db/DatabaseManager');
-const { purgeExpiredTrash, pruneViewLog, startRetention } = require('../db/retention');
+const { expireViews, purgeExpiredTrash, pruneViewLog, startRetention } = require('../db/retention');
 const { ADMIN_ACTION, COLLECTED_BY, DATABASE, TRACKING, VIEW_LOG_SOURCE } = require('../constants');
 const logger = require('../utils/logger');
 const { createScriptedPool, withVisitorSalt } = require('./support/scriptedPool');
@@ -443,6 +443,79 @@ describe('trash retention', () => {
             stop();
             await jest.advanceTimersByTimeAsync(5000);
             expect(calls).toHaveLength(3);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('views older than the view retention go to the trash, and the run is logged as a count', async () => {
+        const now = new Date('2026-10-18T00:00:00Z');
+        const repos = createMemoryRepos({
+            now: () => now,
+            views: {
+                blog: [
+                    { id: 'old', timestamp: new Date(now.getTime() - 400 * DAY), deletedAt: null },
+                    { id: 'young', timestamp: new Date(now.getTime() - 10 * DAY), deletedAt: null },
+                    { id: 'old-trashed', timestamp: new Date(now.getTime() - 500 * DAY), deletedAt: new Date(now.getTime() - DAY) },
+                ],
+            },
+        });
+        expect(await expireViews({ ...repos, appIds: ['blog'], days: 396, trashDays: 30 })).toEqual({ blog: 1 });
+        const rows = Object.fromEntries(repos.tables.get('blog').map((row) => [row.id, row]));
+        expect(rows.old.deletedAt).toEqual(now);
+        expect(rows.young.deletedAt).toBeNull();
+        // Already in the trash: left to the trash's own clock.
+        expect(rows['old-trashed'].deletedAt).toEqual(new Date(now.getTime() - DAY));
+        expect(repos.adminLog[0]).toMatchObject({ action: ADMIN_ACTION.VIEWS_EXPIRED, appId: 'blog', targetCount: 1, targetIds: [] });
+    });
+
+    test('with the trash kept forever, views past the retention are erased at once, trashed or not', async () => {
+        const now = new Date('2026-10-18T00:00:00Z');
+        const repos = createMemoryRepos({
+            now: () => now,
+            views: {
+                blog: [
+                    { id: 'old', timestamp: new Date(now.getTime() - 400 * DAY), deletedAt: null },
+                    { id: 'old-trashed', timestamp: new Date(now.getTime() - 500 * DAY), deletedAt: new Date(now.getTime() - DAY) },
+                    { id: 'young', timestamp: new Date(now.getTime() - 10 * DAY), deletedAt: null },
+                ],
+            },
+        });
+        expect(await expireViews({ ...repos, appIds: ['blog'], days: 396, trashDays: 0 })).toEqual({ blog: 2 });
+        expect(repos.tables.get('blog').map((row) => row.id)).toEqual(['young']);
+    });
+
+    test.each([0, -1, undefined])('a view retention of %s retires nothing', async (days) => {
+        const repos = createMemoryRepos({ views: { blog: [{ id: 'x', timestamp: new Date(0), deletedAt: null }] } });
+        expect(await expireViews({ ...repos, appIds: ['blog'], days, trashDays: 30 })).toEqual({});
+        expect(repos.tables.get('blog')[0].deletedAt).toBeNull();
+    });
+
+    test('a failing app does not stop the others from retiring old views', async () => {
+        const repos = createMemoryRepos({ views: { good: [{ id: 'x', timestamp: new Date(0), deletedAt: null }] } });
+        const original = repos.adminRepo.expireOlderThan;
+        repos.adminRepo.expireOlderThan = async (appId, ...rest) => {
+            if (appId === 'bad') throw new TypeError('locked');
+            return original(appId, ...rest);
+        };
+        expect(await expireViews({ ...repos, appIds: ['bad', 'good'], days: 1, trashDays: 30 })).toEqual({ good: 1 });
+        expect(lines.join('\n')).toContain("Automatic retirement of old views failed for 'bad': locked");
+    });
+
+    test('the schedule retires old views before it empties the trash, so they wait their trash period', async () => {
+        jest.useFakeTimers();
+        try {
+            const order = [];
+            const adminRepo = {
+                expireOlderThan: jest.fn(async () => { order.push('expire'); return 0; }),
+                purgeExpired: jest.fn(async () => { order.push('purge'); return 0; }),
+            };
+            const logRepo = { pruneViewLog: jest.fn(async () => 0), writeAdminLog: async () => true };
+            const stop = startRetention({ adminRepo, logRepo, getAppIds: () => ['a'], trashDays: 30, viewLogDays: 0, viewDays: 396, intervalMs: 1000 });
+            await jest.advanceTimersByTimeAsync(0);
+            expect(order).toEqual(['expire', 'purge']);
+            expect(adminRepo.expireOlderThan).toHaveBeenCalledWith('a', 396, 30);
+            stop();
         } finally {
             jest.useRealTimers();
         }

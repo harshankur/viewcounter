@@ -201,6 +201,9 @@ const ADMIN = {
     MAX_TRASH_RETENTION_DAYS: 3650,
     DEFAULT_VIEW_LOG_RETENTION_DAYS: 90,
     MAX_VIEW_LOG_RETENTION_DAYS: 3650,
+    /** Views themselves are kept until an admin deletes them unless VIEW_RETENTION_DAYS says otherwise. */
+    DEFAULT_VIEW_RETENTION_DAYS: 0,
+    MAX_VIEW_RETENTION_DAYS: 3650,
     /** Rows removed per statement when pruning the view log, so no delete holds locks for long. */
     VIEW_LOG_PRUNE_BATCH_SIZE: 5000,
     /** How often expired trash and old view-log entries are checked for. */
@@ -346,6 +349,7 @@ const ADMIN_ACTION = {
     VIEWS_PURGED: 'views_purged',
     TRASH_AUTO_PURGED: 'trash_auto_purged',
     VIEW_LOG_PRUNED: 'view_log_pruned',
+    VIEWS_EXPIRED: 'views_expired',
     /** The password entered again to allow a permanent erasure. */
     PASSWORD_CONFIRMED: 'password_confirmed',
 };

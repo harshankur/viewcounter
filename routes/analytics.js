@@ -384,6 +384,11 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
     // Edge counting exists only with an EDGE_SECRET (config.edge).
     const edgeEnabled = Boolean(config.edge?.enabled);
 
+    // NO_LANGUAGE_APPS: apps whose views never keep a language, for a site
+    // where the visitor's language could hint at their origin.
+    const noLanguageApps = new Set(config.privacy?.noLanguageApps || []);
+    const languageOf = (appId, acceptLanguage) => (noLanguageApps.has(appId) ? null : primaryLanguage(acceptLanguage));
+
     // Tracking requests that are not stored are counted for the tracking log,
     // so an operator can see why a site's views are not arriving.
     const rejections = createRejectionCounter({
@@ -624,7 +629,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                     // A tagged link is a campaign, whichever site it was clicked on.
                     sourceType: utm.utmSource || utm.utmMedium ? SOURCE_TYPE.CAMPAIGN : referrerData.sourceType,
                     hostname,
-                    language: primaryLanguage(req.get('accept-language')),
+                    language: languageOf(appId, req.get('accept-language')),
                     ...utm,
                     region: place.region,
                     city: place.city,
@@ -710,7 +715,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                     eventType,
                     eventData,
                     hostname: hostnameOf(requestOrigin(req)),
-                    language: primaryLanguage(req.get('accept-language')),
+                    language: languageOf(appId, req.get('accept-language')),
                     region: place.region,
                     city: place.city,
                     userAgent,
@@ -829,7 +834,7 @@ function createAnalyticsRouter({ config, dbManager, isReady = () => true, geo = 
                         referrerDomain: referrerData.referrerDomain,
                         sourceType: utm.utmSource || utm.utmMedium ? SOURCE_TYPE.CAMPAIGN : referrerData.sourceType,
                         hostname,
-                        language: primaryLanguage(acceptLanguage),
+                        language: languageOf(appId, acceptLanguage),
                         ...utm,
                         region: place.region,
                         city: place.city,

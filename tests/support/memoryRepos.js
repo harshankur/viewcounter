@@ -247,6 +247,18 @@ function createMemoryRepos({ views = {}, now = () => new Date() } = {}) {
             return [...matched];
         },
 
+        async expireOlderThan(appId, days, trashDays) {
+            const cutoff = now().getTime() - days * 24 * 60 * 60 * 1000;
+            const old = (row) => row.timestamp.getTime() < cutoff;
+            if (!(trashDays > 0)) {
+                const before = rowsOf(appId).length;
+                tables.set(appId, rowsOf(appId).filter((row) => !old(row)));
+                return before - rowsOf(appId).length;
+            }
+            const retired = rowsOf(appId).filter((row) => !isDeleted(row) && old(row));
+            for (const row of retired) row.deletedAt = now();
+            return retired.length;
+        },
         async purgeExpired(appId, days) {
             const cutoff = now().getTime() - days * 24 * 60 * 60 * 1000;
             const before = rowsOf(appId).length;

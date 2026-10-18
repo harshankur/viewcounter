@@ -462,6 +462,30 @@ class AdminRepository {
     }
 
     /**
+     * Retire views older than the view retention, recorded at `timestamp`:
+     * live ones go to the trash, to be erased with it; with the trash kept
+     * forever (`trashDays` 0), every row that old is erased at once instead,
+     * so the period a privacy notice names always holds.
+     * @param {string} appId
+     * @param {number} days
+     * @param {number} trashDays
+     * @returns {Promise<number>} rows trashed or erased
+     */
+    async expireOlderThan(appId, days, trashDays) {
+        const [result] = trashDays > 0
+            ? await this.pool.query(
+                `UPDATE ${this.table(appId)} SET deleted_at = NOW()
+                 WHERE ${STATE.ACTIVE} AND \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+                [days]
+            )
+            : await this.pool.query(
+                `DELETE FROM ${this.table(appId)} WHERE \`timestamp\` < DATE_SUB(NOW(), INTERVAL ? DAY)`,
+                [days]
+            );
+        return Number(result?.affectedRows || 0);
+    }
+
+    /**
      * Erase trashed rows older than the retention period.
      * @param {string} appId
      * @param {number} days

@@ -72,6 +72,25 @@ function parseAppNumbers(raw, field) {
     return figures;
 }
 
+/**
+ * Parse a comma-separated list of app IDs (NO_LANGUAGE_APPS). An entry that is
+ * not a valid app ID stops startup: a typo would silently keep storing what
+ * the operator meant to stop.
+ *
+ * @param {string|undefined} raw
+ * @param {string} field the env var, for the error
+ * @returns {string[]}
+ */
+function parseAppList(raw, field) {
+    const apps = parseList(raw);
+    for (const appId of apps) {
+        if (!isValidAppId(appId)) {
+            throw getError(ErrorType.CONFIG_INVALID_VALUE, { field, reason: `'${appId}' is not an app ID` });
+        }
+    }
+    return [...new Set(apps)];
+}
+
 /** Parse an integer env var, falling back when absent or unparseable. */
 function parseIntOr(raw, fallback) {
     const parsed = Number.parseInt(raw, 10);
@@ -123,6 +142,9 @@ class Config {
         this.allowed = this.loadAllowed();
         this.auth = this.loadAuthConfig();
         this.privacy = this.loadPrivacyConfig();
+        // Apps whose views never keep a language: for a site where the
+        // visitor's language could hint at their origin.
+        this.privacy.noLanguageApps = parseAppList(this.env.NO_LANGUAGE_APPS, 'NO_LANGUAGE_APPS');
         this.admin = this.loadAdminConfig();
         this.edge = this.loadEdgeConfig();
         // Optional: an .mmdb city database (DB-IP City Lite or GeoLite2 City)
@@ -345,6 +367,12 @@ class Config {
      * it is erased for good (GDPR Art. 5(1)(e), storage limitation). Zero keeps
      * trash until an admin empties it by hand.
      *
+     * `VIEW_RETENTION_DAYS` bounds how long a view itself is kept (GDPR
+     * Art. 5(1)(e) and the period a privacy notice must name, Art. 13(2)(a)):
+     * older views go to the trash, and from there are erased after
+     * `TRASH_RETENTION_DAYS`, or at once when the trash is kept forever. Zero
+     * keeps views until an admin deletes them.
+     *
      * `VIEW_LOG_RETENTION_DAYS` bounds the view register log, which gains a
      * row for every accepted view. It holds no personal data, so this is about
      * storage rather than law, but a log nobody bounds grows as large as all
@@ -401,6 +429,8 @@ class Config {
                 this.env.TRASH_RETENTION_DAYS, ADMIN.DEFAULT_TRASH_RETENTION_DAYS, ADMIN.MAX_TRASH_RETENTION_DAYS),
             viewLogRetentionDays: retention(
                 this.env.VIEW_LOG_RETENTION_DAYS, ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS, ADMIN.MAX_VIEW_LOG_RETENTION_DAYS),
+            viewRetentionDays: retention(
+                this.env.VIEW_RETENTION_DAYS, ADMIN.DEFAULT_VIEW_RETENTION_DAYS, ADMIN.MAX_VIEW_RETENTION_DAYS),
         };
     }
 

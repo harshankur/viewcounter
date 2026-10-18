@@ -18,7 +18,7 @@ const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.co
 /** The secret an edge Worker presents, when the build turns edge counting on. */
 const EDGE_SECRET = 'e'.repeat(48);
 
-function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, city = null, edge = false, bodyLimit = '1kb' } = {}) {
+function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, city = null, edge = false, bodyLimit = '1kb', noLanguageApps } = {}) {
     const dbManager = {
         healthCheck: async () => ({ healthy: true }),
         registerEvent: jest.fn(registerEvent || (async () => ({ duplicate: false, insertId: 7, publicId: VIEW_ID, isUnique: true }))),
@@ -32,7 +32,7 @@ function build({ perAppMax = 0, perAppMaxByApp, max, maxByApp, registerEvent, ci
             origins: { shop: ['https://shop.example.com', 'https://www.shop.example.com'] },
         },
         auth: { readKeyScopes: {}, adminApiKeys: [] },
-        privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2) },
+        privacy: { visitorSecret: 'a'.repeat(PRIVACY.SECRET_BYTES * 2), noLanguageApps },
         server: { uniqueVisitorWindowHours: 24, rateLimit: { windowMs: 60_000, perAppMax, perAppMaxByApp, max, maxByApp } },
         edge: edge ? { secret: EDGE_SECRET, enabled: true } : { secret: '', enabled: false },
     };
@@ -89,6 +89,23 @@ describe('GET /registerView', () => {
             utmSource: 'newsletter', utmMedium: 'email', utmCampaign: 'launch', utmTerm: 't', utmContent: 'c',
             sourceType: SOURCE_TYPE.CAMPAIGN,
         });
+    });
+
+    test('an app in NO_LANGUAGE_APPS keeps no language, from a view, an event, or the edge, and others still do', async () => {
+        const { app, dbManager } = build({ edge: true, noLanguageApps: ['shop'] });
+        await request(app).get('/registerView').query({ appId: 'shop', deviceSize: 'large', page: '/p' })
+            .set('Origin', 'https://shop.example.com').set('Accept-Language', 'ar-EG,ar;q=0.9').set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager).language).toBeNull();
+        await request(app).post('/event').set('Origin', 'https://shop.example.com').set('Accept-Language', 'uk')
+            .set('User-Agent', CHROME).send({ appId: 'shop', eventType: 'x' }).expect(200);
+        expect(stored(dbManager).language).toBeNull();
+        await request(app).post(EDGE.PATH).set('Authorization', `Bearer ${EDGE_SECRET}`)
+            .send({ appId: 'shop', url: 'https://shop.example.com/p', ip: '198.51.100.9', userAgent: CHROME, acceptLanguage: 'tr-TR' }).expect(204);
+        expect(stored(dbManager).language).toBeNull();
+        // Another app is not affected.
+        await request(app).get('/registerView').query({ appId: 'blog', deviceSize: 'large', page: '/p' })
+            .set('Origin', 'https://blog.example.com').set('Accept-Language', 'ar').set('User-Agent', CHROME).expect(200);
+        expect(stored(dbManager).language).toBe('ar');
     });
 
     test('a tagged landing is a campaign even when the click came from a search engine', async () => {

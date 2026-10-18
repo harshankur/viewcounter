@@ -1,5 +1,9 @@
 /**
- * Scheduled retention: expired trash, and old view-log entries.
+ * Scheduled retention: old views, expired trash, and old view-log entries.
+ *
+ * Views (GDPR Art. 5(1)(e), and the period a privacy notice names): a view
+ * older than VIEW_RETENTION_DAYS goes to the trash and is erased with it; with
+ * the trash kept forever it is erased at once.
  *
  * Trash (GDPR Art. 5(1)(e), storage limitation): a soft-deleted view is kept
  * for TRASH_RETENTION_DAYS so a mistaken delete can be undone, then erased for
@@ -49,6 +53,31 @@ async function purgeExpiredTrash({ adminRepo, logRepo, appIds, days }) {
 }
 
 /**
+ * Retire views older than `days` in every app once: to the trash, or erased
+ * when the trash is kept forever. Logged as a count per app, never as IDs.
+ *
+ * @param {{ adminRepo: object, logRepo: object, appIds: string[], days: number, trashDays: number }} deps
+ * @returns {Promise<Record<string, number>>} rows retired per app
+ */
+async function expireViews({ adminRepo, logRepo, appIds, days, trashDays }) {
+    const retired = {};
+    if (!(days > 0)) return retired;
+
+    for (const appId of appIds) {
+        try {
+            const count = await adminRepo.expireOlderThan(appId, days, trashDays > 0 ? trashDays : 0);
+            retired[appId] = count;
+            if (count > 0) {
+                await logRepo.writeAdminLog({ action: ADMIN_ACTION.VIEWS_EXPIRED, appId, targetCount: count });
+            }
+        } catch (cause) {
+            logWarning(WarningType.VIEW_EXPIRY_FAILED, { appId, cause: cause.message });
+        }
+    }
+    return retired;
+}
+
+/**
  * Remove view-log entries older than `days` once. A failure is reported and
  * the next run tries again.
  *
@@ -70,21 +99,23 @@ async function pruneViewLog({ logRepo, days }) {
 }
 
 /**
- * Run both jobs now and then on an interval. A job whose retention is zero
- * (keep forever) is skipped; when both are, nothing is scheduled.
+ * Run the jobs now and then on an interval: old views first, so the trash run
+ * that follows sees them. A job whose retention is zero (keep forever) is
+ * skipped; when all are, nothing is scheduled.
  *
  * `getAppIds` is called on every run, so apps provisioned at runtime are
  * covered without a restart. The timer is unref'd so it never keeps the
  * process alive on its own.
  *
  * @param {{ adminRepo: object, logRepo: object, getAppIds: () => string[],
- *   trashDays: number, viewLogDays: number, intervalMs?: number }} deps
+ *   trashDays: number, viewLogDays: number, viewDays?: number, intervalMs?: number }} deps
  * @returns {() => void} stops the schedule
  */
-function startRetention({ adminRepo, logRepo, getAppIds, trashDays, viewLogDays, intervalMs = ADMIN.RETENTION_INTERVAL_MS }) {
-    if (!(trashDays > 0) && !(viewLogDays > 0)) return () => {};
+function startRetention({ adminRepo, logRepo, getAppIds, trashDays, viewLogDays, viewDays = 0, intervalMs = ADMIN.RETENTION_INTERVAL_MS }) {
+    if (!(trashDays > 0) && !(viewLogDays > 0) && !(viewDays > 0)) return () => {};
 
     const run = async () => {
+        await expireViews({ adminRepo, logRepo, appIds: getAppIds(), days: viewDays, trashDays });
         await purgeExpiredTrash({ adminRepo, logRepo, appIds: getAppIds(), days: trashDays });
         await pruneViewLog({ logRepo, days: viewLogDays });
     };
@@ -94,4 +125,4 @@ function startRetention({ adminRepo, logRepo, getAppIds, trashDays, viewLogDays,
     return () => clearInterval(timer);
 }
 
-module.exports = { purgeExpiredTrash, pruneViewLog, startRetention };
+module.exports = { expireViews, purgeExpiredTrash, pruneViewLog, startRetention };

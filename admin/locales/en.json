@@ -439,6 +439,7 @@
         "views_purged": "Erased",
         "trash_auto_purged": "Trash auto-erased",
         "view_log_pruned": "Tracking log pruned",
+        "views_expired": "Old views retired",
         "password_confirmed": "Password confirmed"
     },
     "outcomes": {

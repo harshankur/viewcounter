@@ -22,7 +22,10 @@
  *                    longest matching path prefix wins. A site whose pages differ
  *                    only in their query (/?post=hello) names those parameters:
  *                    hostname -> { "app": "blog", "query": ["post"] }, and a
- *                    prefix rule takes "query" too (as the tracker's data-query)
+ *                    prefix rule takes "query" too (as the tracker's data-query).
+ *                    "language": false sends no Accept-Language for that site,
+ *                    where the visitor's language could hint at their origin
+ *                    (the server's NO_LANGUAGE_APPS keeps none either)
  *   EDGE_SECRET      the server's EDGE_SECRET, set with `wrangler secret put EDGE_SECRET`
  *   RESPECT_DNT      "true": report nothing for a browser that sends Do Not Track
  *                    or Global Privacy Control (as the tracker's data-respect-dnt)
@@ -199,14 +202,16 @@ function pageQueryOf(query) {
  *
  * @param {Record<string, string|{ app: string, query?: string[] }|{ prefix: string, app: string, query?: string[] }[]>} sites
  * @param {URL} url
- * @returns {{ app: string, query: string[] }|null}
+ * @returns {{ app: string, query: string[], language: boolean }|null}
  */
 function siteFor(sites, url) {
     const host = url.hostname.toLowerCase();
     const entry = Object.hasOwn(sites, host) ? sites[host] : undefined;
-    if (typeof entry === 'string') return entry ? { app: entry, query: [] } : null;
+    if (typeof entry === 'string') return entry ? { app: entry, query: [], language: true } : null;
     if (entry && typeof entry === 'object' && !Array.isArray(entry)) {
-        return typeof entry.app === 'string' && entry.app ? { app: entry.app, query: pageQueryOf(entry.query) } : null;
+        return typeof entry.app === 'string' && entry.app
+            ? { app: entry.app, query: pageQueryOf(entry.query), language: entry.language !== false }
+            : null;
     }
     if (!Array.isArray(entry)) return null;
 
@@ -216,7 +221,7 @@ function siteFor(sites, url) {
         if (!url.pathname.startsWith(rule.prefix)) continue;
         if (!best || rule.prefix.length > best.prefix.length) best = rule;
     }
-    return best ? { app: best.app, query: pageQueryOf(best.query) } : null;
+    return best ? { app: best.app, query: pageQueryOf(best.query), language: best.language !== false } : null;
 }
 
 /**
@@ -239,10 +244,11 @@ function appFor(sites, url) {
  * @param {string} appId
  * @param {{ CAMPAIGNS?: string }} [env]
  * @param {string[]} [pageQuery] the site's page parameters, e.g. ["post"]
+ * @param {boolean} [language] false: the visitor's language is not reported
  * @returns {{ appId: string, url: string, referrer: string, ip: string|null, userAgent: string,
  *   mobile?: string, acceptLanguage?: string, pageQuery?: string[] }}
  */
-function payload(request, appId, env = {}, pageQuery = []) {
+function payload(request, appId, env = {}, pageQuery = [], language = true) {
     const header = (name) => request.headers.get(name);
     return {
         appId,
@@ -254,7 +260,7 @@ function payload(request, appId, env = {}, pageQuery = []) {
         userAgent: header('user-agent') || '',
         // Left out when the browser sent none.
         mobile: header('sec-ch-ua-mobile') ?? undefined,
-        acceptLanguage: header('accept-language') ?? undefined,
+        acceptLanguage: language ? header('accept-language') ?? undefined : undefined,
     };
 }
 
@@ -267,11 +273,12 @@ function payload(request, appId, env = {}, pageQuery = []) {
  * @param {{ VIEWCOUNTER_URL?: string, EDGE_SECRET?: string }} env
  * @param {typeof fetch} [send] fetch, injectable for tests
  * @param {string[]} [pageQuery] the site's page parameters, e.g. ["post"]
+ * @param {boolean} [language] false: the visitor's language is not reported
  * @returns {Promise<void>}
  */
-async function report(request, appId, env, send = fetch, pageQuery = []) {
+async function report(request, appId, env, send = fetch, pageQuery = [], language = true) {
     try {
-        const body = payload(request, appId, env, pageQuery);
+        const body = payload(request, appId, env, pageQuery, language);
         // Without the visitor's address (a local `wrangler dev`, say) there is no view to count.
         if (!body.ip || !env.VIEWCOUNTER_URL || !env.EDGE_SECRET) return;
         const response = await send(`${String(env.VIEWCOUNTER_URL).replace(/\/+$/, '')}${REPORT_PATH}`, {
@@ -302,7 +309,7 @@ async function handle(request, env, ctx, send = fetch) {
     try {
         if (shouldCount(request, response) && !optedOut(request, env)) {
             const site = siteFor(parseSites(env.SITES), new URL(request.url));
-            if (site) ctx.waitUntil(report(request, site.app, env, send, site.query));
+            if (site) ctx.waitUntil(report(request, site.app, env, send, site.query, site.language));
         }
     } catch {
         // Counting must never cost the visitor their page.

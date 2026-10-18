@@ -5,6 +5,21 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- **`VIEW_RETENTION_DAYS`**: views older than this go to the trash every
+  hour and are erased with it after `TRASH_RETENTION_DAYS` (at once when the
+  trash is kept forever), so a privacy notice can name how long views are
+  kept (GDPR Art. 5(1)(e), Art. 13(2)(a)). Each run is recorded in the admin
+  log as "Old views retired". Unset or 0 keeps views until an admin deletes
+  them, as before.
+- **`NO_LANGUAGE_APPS`**: the views of these apps never keep a language, from
+  the tracker, an event, or the edge, for a site whose visitors' language could
+  hint at their origin. The edge Worker's `SITES` entry takes
+  `"language": false`, so the Worker does not send it either. The edge Worker
+  of this repository now also honours Do Not Track and Global Privacy Control
+  (`RESPECT_DNT`).
+
 ## [3.8.0]
 
 A single-page app whose address names a place within a page, such as a

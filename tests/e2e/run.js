@@ -143,6 +143,7 @@ async function main() {
         ADMIN_PASSWORD,
         TRASH_RETENTION_DAYS: '30',
         EDGE_SECRET,
+        NO_LANGUAGE_APPS: 'tenant_b',
     };
 
     const proc = spawn('node', ['index.js'], { cwd: RUN_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -293,6 +294,23 @@ async function verifyEmbedding(db) {
         check('pruning the view log removes exactly the entries past the retention',
             pruned === OLD_ENTRIES && Number(before) - Number(after) === OLD_ENTRIES && Number(stale) === 0,
             `pruned ${pruned}, ${before} -> ${after}, ${stale} stale left`);
+
+        // View retention on the real engine: live views past it go to the
+        // trash, younger ones and the trash's own rows are left; with the
+        // trash kept forever, everything past it is erased.
+        await db.query('UPDATE `legacy_embed` SET deleted_at = NULL');
+        const [ids] = await db.query('SELECT id FROM `legacy_embed` ORDER BY id');
+        await db.query('UPDATE `legacy_embed` SET `timestamp` = DATE_SUB(NOW(), INTERVAL 400 DAY) WHERE id IN (?)', [[ids[0].id, ids[1].id]]);
+        await db.query('UPDATE `legacy_embed` SET deleted_at = NOW() WHERE id = ?', [ids[1].id]);
+        const retired = await embedded.admin.expireOlderThan('legacy_embed', 396, 30);
+        const [[{ trashed }]] = await db.query('SELECT COUNT(*) AS trashed FROM `legacy_embed` WHERE deleted_at IS NOT NULL');
+        const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM `legacy_embed`');
+        check('old live views go to the trash, the rest are left', retired === 1 && Number(trashed) === 2 && Number(total) === ids.length,
+            `retired ${retired}, ${trashed} trashed of ${total}`);
+        const erased = await embedded.admin.expireOlderThan('legacy_embed', 396, 0);
+        const [[{ left }]] = await db.query('SELECT COUNT(*) AS `left` FROM `legacy_embed`');
+        check('with the trash kept forever, every view past the retention is erased', erased === 2 && Number(left) === ids.length - 2,
+            `erased ${erased}, ${left} left of ${ids.length}`);
     } catch (err) {
         check('an embedded manager works over a legacy table', false, err.message);
     } finally {
@@ -320,6 +338,12 @@ async function verifyTracking(db) {
         && row?.utm_medium === 'email' && row?.utm_campaign === 'launch' && row?.utm_term === 't' && row?.utm_content === 'hero',
         JSON.stringify({ hostname: row?.hostname, language: row?.language, utm: row?.utm_source }));
     check('a tagged landing is a campaign even from a search engine', row?.source_type === 'campaign', row?.source_type);
+
+    const quiet = await req('GET', '/registerView?appId=tenant_b&deviceSize=small&page=/q',
+        { headers: { ...headers, origin: 'https://b.example', 'accept-language': 'ar-EG,ar;q=0.9' } });
+    const [[quietRow]] = await db.query('SELECT language FROM `tenant_b` WHERE public_id = ?', [quiet.body?.id]);
+    check('an app in NO_LANGUAGE_APPS stores no language', quiet.status === 200 && quietRow && quietRow.language === null,
+        JSON.stringify({ status: quiet.status, language: quietRow?.language }));
 
     const engage = (body) => fetch(`${BASE}/engage`, {
         method: 'POST', headers: { ...headers, 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body),

@@ -191,14 +191,14 @@ describe('siteFor: the page parameters of a site', () => {
     const site = (sites, url) => siteFor(sites, new URL(url));
 
     test('a hostname given as an object names its app and the parameters its pages are told apart by', () => {
-        expect(site(parseSites(ENV.SITES), 'https://notes.example.com/?post=a')).toEqual({ app: 'notes', query: ['post'] });
-        expect(site(parseSites(ENV.SITES), 'https://example.com/')).toEqual({ app: 'homepage', query: [] });
+        expect(site(parseSites(ENV.SITES), 'https://notes.example.com/?post=a')).toEqual({ app: 'notes', query: ['post'], language: true });
+        expect(site(parseSites(ENV.SITES), 'https://example.com/')).toEqual({ app: 'homepage', query: [], language: true });
     });
 
     test('a prefix rule takes them too', () => {
         const sites = { 'a.example': [{ prefix: '/', app: 'site' }, { prefix: '/docs/', app: 'docs', query: ['v'] }] };
-        expect(site(sites, 'https://a.example/docs/x')).toEqual({ app: 'docs', query: ['v'] });
-        expect(site(sites, 'https://a.example/x')).toEqual({ app: 'site', query: [] });
+        expect(site(sites, 'https://a.example/docs/x')).toEqual({ app: 'docs', query: ['v'], language: true });
+        expect(site(sites, 'https://a.example/x')).toEqual({ app: 'site', query: [], language: true });
     });
 
     test('only valid names are kept, once each, at most ten, never a campaign tag', () => {
@@ -206,6 +206,21 @@ describe('siteFor: the page parameters of a site', () => {
         const { query } = site({ 'a.example': { app: 'a', query: names } }, 'https://a.example/');
         expect(query).toEqual(['post', 'a.b-c_d', 'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']);
         expect(site({ 'a.example': { app: 'a', query: 'post' } }, 'https://a.example/').query).toEqual([]);
+    });
+
+    test('"language": false keeps the visitor\'s language out of the report, and only for that site', async () => {
+        const sites = { 'quiet.example': { app: 'quiet', language: false }, 'a.example': [{ prefix: '/', app: 'a', language: false }] };
+        expect(site(sites, 'https://quiet.example/')).toEqual({ app: 'quiet', query: [], language: false });
+        expect(site(sites, 'https://a.example/x')).toEqual({ app: 'a', query: [], language: false });
+        const env = { ...ENV, SITES: JSON.stringify({ ...JSON.parse(ENV.SITES), 'quiet.example': { app: 'quiet', language: false } }) };
+        const { send, reports } = fakeFetch();
+        const ctx = fakeCtx();
+        await handle(pageRequest('https://quiet.example/'), env, ctx, send);
+        await handle(pageRequest('https://example.com/'), env, ctx, send);
+        await Promise.all(ctx.pending);
+        expect(reports[0].body).not.toHaveProperty('acceptLanguage');
+        expect(JSON.stringify(reports[0].body)).not.toContain('de-DE');
+        expect(reports[1].body.acceptLanguage).toBe('de-DE,de;q=0.9');
     });
 
     test('an object without an app is no site', () => {
@@ -429,7 +444,10 @@ describe('wrangler.jsonc', () => {
         for (const route of config.routes) expect(route.pattern.endsWith(route.zone_name + '/*')).toBe(true);
         expect(appFor(sites, new URL('https://officeparser.harshankur.com/blog/post'))).toBe('officeparserblog');
         expect(appFor(sites, new URL('https://officeparser.harshankur.com/'))).toBe('officeparser');
+        // LiD Practice reports no language.
+        expect(siteFor(sites, new URL('https://lidpractice.de/'))).toEqual({ app: 'lidpractice', query: [], language: false });
+        expect(config.vars.RESPECT_DNT).toBe('true');
         // The blog's posts are /?post=<name>.
-        expect(siteFor(sites, new URL('https://blog.harshankur.com/?post=a'))).toEqual({ app: 'blog', query: ['post'] });
+        expect(siteFor(sites, new URL('https://blog.harshankur.com/?post=a'))).toEqual({ app: 'blog', query: ['post'], language: true });
     });
 });

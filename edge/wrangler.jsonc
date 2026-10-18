@@ -16,7 +16,9 @@
 // server's allowed.json, or its reports are refused. A site whose pages differ
 // only in their query names those parameters, as the blog does with
 // {"app": "blog", "query": ["post"]} (the tracker's data-query): they are
-// reported as part of the page, and the rest of the query never is.
+// reported as part of the page, and the rest of the query never is. LiD
+// Practice sends no language ("language": false): its visitors' language could
+// hint at their origin, and the server keeps none for it (NO_LANGUAGE_APPS).
 //
 // Two optional vars match the tracker's options of the same meaning:
 // "RESPECT_DNT": "true" reports nothing for a browser sending Do Not Track or
@@ -32,9 +34,11 @@
     "preview_urls": false,
     "vars": {
         "VIEWCOUNTER_URL": "https://views.harshankur.com",
+        // A browser sending Do Not Track or Global Privacy Control has objected: nothing is reported for it.
+        "RESPECT_DNT": "true",
         // hostname -> appId, hostname -> { app, query }, or hostname -> [{ prefix, app, query? }]:
         // the longest matching prefix wins; "query" names the parameters that are part of a page.
-        "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":{\"app\":\"blog\",\"query\":[\"post\"]},\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":\"lidpractice\"}"
+        "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":{\"app\":\"blog\",\"query\":[\"post\"]},\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":{\"app\":\"lidpractice\",\"language\":false}}"
     },
     "routes": [
         { "pattern": "harshankur.com/*", "zone_name": "harshankur.com" },

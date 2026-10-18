@@ -422,9 +422,28 @@ describe('admin config', () => {
                 enabled: true,
                 trashRetentionDays: ADMIN.DEFAULT_TRASH_RETENTION_DAYS,
                 viewLogRetentionDays: ADMIN.DEFAULT_VIEW_LOG_RETENTION_DAYS,
+                viewRetentionDays: ADMIN.DEFAULT_VIEW_RETENTION_DAYS,
                 sessionIdleMs: ADMIN.SESSION_IDLE_TIMEOUT_MS,
                 sessionMaxAgeMs: ADMIN.SESSION_ABSOLUTE_TIMEOUT_MS,
             });
+    });
+
+    test('VIEW_RETENTION_DAYS keeps views forever by default, and takes 1 to 3650 days', () => {
+        const days = (value) => new Config({ NODE_ENV: 'test', VIEW_RETENTION_DAYS: value }).admin.viewRetentionDays;
+        expect(new Config({ NODE_ENV: 'test' }).admin.viewRetentionDays).toBe(0);
+        expect(days('396')).toBe(396);
+        expect(days('3650')).toBe(3650);
+        // Out of range or unreadable falls back to keeping, as the other retentions do.
+        expect(days('3651')).toBe(0);
+        expect(days('-5')).toBe(0);
+        expect(days('soon')).toBe(0);
+    });
+
+    test('NO_LANGUAGE_APPS lists app IDs, once each, and refuses anything else', () => {
+        expect(new Config({ NODE_ENV: 'test' }).privacy.noLanguageApps).toEqual([]);
+        expect(new Config({ NODE_ENV: 'test', NO_LANGUAGE_APPS: ' lidpractice, other ,lidpractice' }).privacy.noLanguageApps)
+            .toEqual(['lidpractice', 'other']);
+        expect(() => new Config({ NODE_ENV: 'test', NO_LANGUAGE_APPS: 'lid practice' })).toThrow(/NO_LANGUAGE_APPS/);
     });
 
     test('session timeouts default to 7 days unused and 30 days in all', () => {
