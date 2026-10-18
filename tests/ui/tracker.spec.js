@@ -328,6 +328,29 @@ test('data-hash-depth keeps the first parts of a route, so a place within a page
     expect(sent.views[2].searchParams.get('page')).toBe('/tracker-lab/start#learn');
 });
 
+test('data-hash-depth counts after a router\'s "#/", and a depth that is not 1 to 99 keeps every part', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto(`/tracker-lab/start?hash=${encodeURIComponent('#/learn')}&hash-depth=2#/learn/lesson-a/part-1`);
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start#/learn/lesson-a');
+
+    for (const depth of ['0', '100', '2.5', 'two']) {
+        const before = sent.views.length;
+        await page.goto(`/tracker-lab/start?hash=${encodeURIComponent('#learn')}&hash-depth=${encodeURIComponent(depth)}#learn/lesson-a/part-1`);
+        await expect.poll(() => sent.views.length).toBe(before + 1);
+        expect(sent.views.at(-1).searchParams.get('page'), depth).toBe('/tracker-lab/start#learn/lesson-a/part-1');
+    }
+});
+
+test('a prefix with its own "/" still matches the whole fragment before it is cut', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto(`/tracker-lab/start?hash=${encodeURIComponent('#docs/')}&hash-depth=1#docs/intro`);
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start#docs');
+});
+
 test('without data-hash, a fragment is never part of the page', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

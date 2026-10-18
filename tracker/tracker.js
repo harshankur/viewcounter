@@ -41,8 +41,9 @@
  *                                   these as its own page (hash-routed pages)
  *   data-hash-depth="2"             of such a fragment, keep only its first parts
  *                                   between "/" (#learn/lesson/section counts as
- *                                   #learn/lesson), for routes that name a place
- *                                   within a page
+ *                                   #learn/lesson, and #/learn/... alike), for
+ *                                   routes that name a place within a page; a whole
+ *                                   number from 1 to 99, anything else keeps all
  *   data-query="post"               query parameters that are part of the page,
  *                                   for pages told apart only by their query
  *                                   (/?post=hello); every other parameter stays
@@ -66,7 +67,8 @@
     if (hosts.length && !hosts.includes(location.hostname.toLowerCase())) return;
     const hashRoutes = (script.dataset.hash || '').split(',').map((prefix) => prefix.trim()).filter(Boolean);
     // A whole number of parts, or every part.
-    const hashDepth = /^[1-9]\d?$/.test(script.dataset.hashDepth || '') ? Number(script.dataset.hashDepth) : Infinity;
+    const depthValue = (script.dataset.hashDepth || '').trim();
+    const hashDepth = /^[1-9]\d?$/.test(depthValue) ? Number(depthValue) : Infinity;
     // As the server accepts them: never a campaign tag, which is sent on its own.
     const pageParameters = [...new Set((script.dataset.query || '').split(',').map((name) => name.trim())
         .filter((name) => /^(?!utm_)[A-Za-z0-9_.-]{1,64}$/.test(name)))].slice(0, 10);
@@ -140,8 +142,10 @@
         }
         kept.sort();
         const named = kept.toString();
+        // The parts are counted after the route's head, "#" or the "#/" of a router that writes one.
+        const head = location.hash.startsWith('#/') ? '#/' : '#';
         const route = hashRoutes.some((prefix) => location.hash.startsWith(prefix))
-            ? location.hash.split('/').slice(0, hashDepth).join('/')
+            ? head + location.hash.slice(head.length).split('/').slice(0, hashDepth).join('/')
             : '';
         return location.pathname + (named ? `?${named}` : '') + route;
     };
