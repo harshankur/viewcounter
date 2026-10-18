@@ -305,6 +305,29 @@ test('a fragment listed in data-hash is its own page, and any other fragment is 
     expect(sent.views).toHaveLength(3);
 });
 
+test('data-hash-depth keeps the first parts of a route, so a place within a page is the same page', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto(`/tracker-lab/start?hash=${encodeURIComponent('#learn')}&hash-depth=2#learn/lesson-a/part-1`);
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start#learn/lesson-a');
+
+    // Another part of the same lesson, by address or by the history: the same page.
+    await page.waitForTimeout(100);
+    await page.evaluate(() => { window.location.hash = '#learn/lesson-a/part-2'; });
+    await page.evaluate(() => window.history.replaceState({}, '', '#learn/lesson-a/part-3'));
+    await page.waitForTimeout(200);
+    expect(sent.views).toHaveLength(1);
+
+    // Another lesson is another page, and so is the list of lessons.
+    await page.evaluate(() => { window.location.hash = '#learn/lesson-b/part-1'; });
+    await expect.poll(() => sent.views.length).toBe(2);
+    expect(sent.views[1].searchParams.get('page')).toBe('/tracker-lab/start#learn/lesson-b');
+    await page.evaluate(() => { window.location.hash = '#learn'; });
+    await expect.poll(() => sent.views.length).toBe(3);
+    expect(sent.views[2].searchParams.get('page')).toBe('/tracker-lab/start#learn');
+});
+
 test('without data-hash, a fragment is never part of the page', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

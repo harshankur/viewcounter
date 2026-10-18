@@ -230,7 +230,7 @@ function start(port = PORT) {
   <a id="download" href="/files/report%20final.pdf">report</a>
   <a id="internal" href="/tracker-lab/other">internal</a>
   ${req.query.short ? '' : '<div style="height: 4000px"></div>'}
-  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('hash')}${attribute('query')}${attribute('heartbeat')}${attribute('campaigns')}${attribute('outbound')}${attribute('downloads')}></script>
+  <script src="/tracker.js" data-app="blog"${attribute('hosts')}${attribute('spa')}${attribute('hash')}${attribute('hash-depth')}${attribute('query')}${attribute('heartbeat')}${attribute('campaigns')}${attribute('outbound')}${attribute('downloads')}></script>
 </body></html>`);
     });
 
@@ -241,7 +241,7 @@ function start(port = PORT) {
     });
     app.get(/^\/consent-lab\//, (req, res) => {
         const OPTIONS = {
-            hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', query: 'query', heartbeat: 'heartbeat', privacy: 'privacy-url', key: 'consent-key',
+            hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', hash: 'hash', hashDepth: 'hash-depth', query: 'query', heartbeat: 'heartbeat', privacy: 'privacy-url', key: 'consent-key',
         };
         const appId = typeof req.query.app === 'string' ? req.query.app.replace(/[^a-z0-9_-]/gi, '') : 'blog';
         const attributes = Object.entries(OPTIONS).map(([param, name]) => {

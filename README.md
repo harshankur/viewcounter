@@ -1109,6 +1109,7 @@ prerender either.
 | `data-hosts` | every host | Only track on these hostnames, comma-separated, so development servers and previews stay out of the data |
 | `data-spa` | `true` | Treat history changes as page views |
 | `data-hash` | none | Fragment prefixes, comma-separated (`#docs/,#spec/`), that count as their own page, for pages that route by fragment. Any other fragment stays part of the same page. A matching fragment is stored whole as part of the page, so list only prefixes whose fragments carry nothing private. As a referrer, such a page is its path alone |
+| `data-hash-depth` | every part | With `data-hash`, keep only the first parts of a matching fragment, counted between `/` (`2`: `#learn/lesson/section` counts as `#learn/lesson`), for routes that name a place within a page, so moving within it is not a new page view |
 | `data-query` | none | Query parameters, comma-separated (`post`), that are part of the page, for sites whose pages differ only in their query (`/?post=hello`). The page is sent as its path and these parameters, sorted by name, each with its first non-empty value; a change to one of them in a single-page app is a new page view. Every other parameter stays in the browser, so list only parameters that carry nothing private. As a referrer, such a page is its path alone. Name the same parameters in the edge Worker's `SITES` entry, so both count a page alike |
 | `data-heartbeat` | `true` | Report time on page every half minute while the page is visible and in use, not only when it is hidden or left. It keeps the visitor in the admin's **Right now** while they read one page, and saves the time of a tab the browser closes without warning. It stops after half an hour without any input |
 | `data-campaigns` | `true` | Send the landing URL's `utm_*` tags with the view |
@@ -1170,7 +1171,7 @@ one tab holds in the site's other tabs too.
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise, read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place is asked in the one it shows |
 | `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
 | `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
-| `data-spa`, `data-hash`, `data-query`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
+| `data-spa`, `data-hash`, `data-hash-depth`, `data-query`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
 
 **API**, on `window.viewcounterConsent`:
 

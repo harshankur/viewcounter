@@ -39,6 +39,10 @@
  *   data-spa="false"                do not treat history changes as page views
  *   data-hash="#docs/,#spec/"       count a URL fragment that starts with one of
  *                                   these as its own page (hash-routed pages)
+ *   data-hash-depth="2"             of such a fragment, keep only its first parts
+ *                                   between "/" (#learn/lesson/section counts as
+ *                                   #learn/lesson), for routes that name a place
+ *                                   within a page
  *   data-query="post"               query parameters that are part of the page,
  *                                   for pages told apart only by their query
  *                                   (/?post=hello); every other parameter stays
@@ -61,6 +65,8 @@
     const hosts = (script.dataset.hosts || '').split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
     if (hosts.length && !hosts.includes(location.hostname.toLowerCase())) return;
     const hashRoutes = (script.dataset.hash || '').split(',').map((prefix) => prefix.trim()).filter(Boolean);
+    // A whole number of parts, or every part.
+    const hashDepth = /^[1-9]\d?$/.test(script.dataset.hashDepth || '') ? Number(script.dataset.hashDepth) : Infinity;
     // As the server accepts them: never a campaign tag, which is sent on its own.
     const pageParameters = [...new Set((script.dataset.query || '').split(',').map((name) => name.trim())
         .filter((name) => /^(?!utm_)[A-Za-z0-9_.-]{1,64}$/.test(name)))].slice(0, 10);
@@ -123,7 +129,7 @@
     /**
      * The page on screen: its path, the query parameters named as part of it
      * (sorted by name, as the server keeps an edge report's), and its fragment
-     * when that is one of the site's own routes.
+     * when that is one of the site's own routes, cut to data-hash-depth parts.
      */
     const currentPage = () => {
         const query = new URLSearchParams(location.search);
@@ -134,8 +140,10 @@
         }
         kept.sort();
         const named = kept.toString();
-        return location.pathname + (named ? `?${named}` : '')
-            + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');
+        const route = hashRoutes.some((prefix) => location.hash.startsWith(prefix))
+            ? location.hash.split('/').slice(0, hashDepth).join('/')
+            : '';
+        return location.pathname + (named ? `?${named}` : '') + route;
     };
 
     /**

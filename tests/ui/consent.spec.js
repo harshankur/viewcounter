@@ -156,6 +156,15 @@ test('the page parameters reach the tracker too', async ({ page }) => {
     expect(sent.views[0].searchParams.get('page')).toBe('/consent-lab/start?post=hello');
 });
 
+test('the route options reach the tracker too', async ({ page }) => {
+    const sent = await visitor(page);
+    await page.goto(`${lab(`hash=${encodeURIComponent('#learn')}&hashDepth=2`)}#learn/lesson-a/part-1`);
+    await prompt(page).getByRole('button', { name: 'Allow' }).click();
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(await trackerTags(page).evaluate((node) => ({ hash: node.dataset.hash, hashDepth: node.dataset.hashDepth }))).toEqual({ hash: '#learn', hashDepth: '2' });
+    expect(sent.views[0].searchParams.get('page')).toBe('/consent-lab/start#learn/lesson-a');
+});
+
 test('No thanks loads nothing and sends nothing, now or after a reload', async ({ page }) => {
     await recordEvents(page);
     const sent = await visitor(page);

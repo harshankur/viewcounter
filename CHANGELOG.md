@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- **`data-hash-depth`** on `tracker.js` and `consent.js`: of a fragment that
+  `data-hash` counts as a page, only its first parts between `/` are kept
+  (`2`: `#learn/lesson/section` counts as `#learn/lesson`). A site whose
+  address names a place within a page, such as a section, counts the page
+  once instead of every place in it.
+
 ## [3.7.1]
 
 The consent prompt follows a site that switches its language in place: it
