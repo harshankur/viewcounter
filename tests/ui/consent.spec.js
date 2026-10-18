@@ -316,6 +316,24 @@ test.describe('language', () => {
         await expect(prompt(page)).toBeVisible();
     });
 
+    test('a page that switches its language in place is asked in the language it shows now', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        await page.evaluate(() => { document.documentElement.lang = 'de'; });
+        await page.evaluate(() => window.viewcounterConsent.open());
+        const region = page.getByRole('region', { name: 'Nutzungsstatistik' });
+        await expect(region).toBeVisible();
+        await expect(region).toContainText('Ihre aktuelle Antwort: erlaubt.');
+        // One prompt on the page, not one per language.
+        await expect(page.locator('viewcounter-consent')).toHaveCount(1);
+        // A fixed data-lang stays as it is.
+        await page.goto(lab('lang=en'));
+        await page.evaluate(() => { document.documentElement.lang = 'de'; });
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(prompt(page)).toBeVisible();
+    });
+
     test('data-edge="false" does not claim that pages are counted without consent', async ({ page }) => {
         await visitor(page);
         await page.goto(lab('edge=false'));

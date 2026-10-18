@@ -1167,7 +1167,7 @@ one tab holds in the site's other tabs too.
 | `data-hosts` | every host | Only on these hostnames; anywhere else it does nothing at all, so development servers show no prompt |
 | `data-consent-key` | the app ID | The name the answer is kept under (letters, digits, `_` and `-`). Apps on one site that share a key share one answer, so a site whose blog is another app asks once |
 | `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab). No link without it |
-| `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise |
+| `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise, read each time the prompt is shown, so a site that switches its language in place is asked in the one it shows |
 | `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
 | `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
 | `data-spa`, `data-hash`, `data-query`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |

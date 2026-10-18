@@ -34,7 +34,8 @@
  *                                   sharing the key
  *   data-privacy-url="https://..."  the privacy notice the prompt links to
  *   data-lang="de"                  "de" or "en"; otherwise German when <html lang>
- *                                   starts with "de", English when it does not
+ *                                   starts with "de", English when it does not,
+ *                                   as it is each time the prompt is shown
  *   data-ui="none"                  never show the prompt by itself; the site
  *                                   asks through the API below
  *   data-edge="false"               nothing counts this site's pages without
@@ -103,12 +104,18 @@
             announce: 'Am Ende der Seite wartet eine Frage zur Nutzungsstatistik.',
         },
     };
-    const lang = (() => {
+    /**
+     * The prompt's language: data-lang, or the page's own, read each time the
+     * prompt is shown, so a site that switches its language in place (a
+     * single-page app) is asked in the language it shows now.
+     */
+    const language = () => {
         const wanted = (script.dataset.lang || '').toLowerCase();
         if (Object.hasOwn(TEXT, wanted)) return wanted;
         return document.documentElement.lang.toLowerCase().startsWith('de') ? 'de' : 'en';
-    })();
-    const text = TEXT[lang];
+    };
+    let lang = language();
+    let text = TEXT[lang];
 
     /** Only an http(s) address is linked, never a script URL. */
     const privacyUrl = (() => {
@@ -265,6 +272,8 @@
     }
 
     function build() {
+        lang = language();
+        text = TEXT[lang];
         host = document.createElement('viewcounter-consent');
         // Closed: the page's scripts and styles cannot reach in, and nothing in here reaches out.
         const root = host.attachShadow({ mode: 'closed' });
@@ -308,6 +317,11 @@
 
     /** Show the prompt; `focus` when the visitor asked for it, so the keyboard lands in it. */
     function show(focus) {
+        // Built again in the page's language, if it changed since.
+        if (host && language() !== lang) {
+            host.remove();
+            host = null;
+        }
         if (!host) build();
         if (!host.isConnected) (document.body || document.documentElement).appendChild(host);
         const answered = status();
