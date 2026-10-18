@@ -247,9 +247,10 @@ describe('reportedUrl and reportedReferrer', () => {
         expect(reportedUrl(new URL('https://example.com/?q=search'), {})).toBe('https://example.com/');
     });
 
-    test('the page parameters come first, in their order, with the first value of each; an empty one is left out', () => {
-        const url = new URL('https://example.com/?token=T&tab=&utm_source=feed&post=hello%20world&post=other');
-        expect(reportedUrl(url, {}, ['post', 'tab'])).toBe('https://example.com/?post=hello+world&utm_source=feed');
+    test('the page parameters come first, sorted by name, with the first value of each; an empty one is left out', () => {
+        const url = new URL('https://example.com/?token=T&tab=&utm_source=feed&post=hello%20world&post=other&lang=de');
+        expect(reportedUrl(url, {}, ['post', 'tab', 'lang'])).toBe('https://example.com/?lang=de&post=hello+world&utm_source=feed');
+        expect(reportedUrl(url, {}, ['lang', 'post'])).toBe('https://example.com/?lang=de&post=hello+world&utm_source=feed');
         expect(reportedUrl(url, { CAMPAIGNS: 'false' }, ['post'])).toBe('https://example.com/?post=hello+world');
     });
 

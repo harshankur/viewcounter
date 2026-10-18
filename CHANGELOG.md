@@ -16,8 +16,8 @@ parameters is counted as before.
   those parameters: `data-query="post"` on `tracker.js` or `consent.js`, and
   `"query": ["post"]` on the site's entry in the edge Worker's `SITES`
   (`{"app": "blog", "query": ["post"]}`). The page is then its path and these
-  parameters, in the order named, each with its first non-empty value
-  (`/?post=hello`); in a single-page app a change to one of them is a new
+  parameters, sorted by name, each with its first non-empty value
+  (`/?post=hello`), so the two sides agree whatever order they list them in; in a single-page app a change to one of them is a new
   page view. Every other parameter still never leaves the browser or the
   Worker, and the server keeps of an edge report's query only the parameters
   the report names in its new `pageQuery` field, so a token or an email in a

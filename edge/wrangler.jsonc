@@ -32,7 +32,8 @@
     "preview_urls": false,
     "vars": {
         "VIEWCOUNTER_URL": "https://views.harshankur.com",
-        // hostname -> appId, or hostname -> [{ prefix, app }]: the longest matching prefix wins.
+        // hostname -> appId, hostname -> { app, query }, or hostname -> [{ prefix, app, query? }]:
+        // the longest matching prefix wins; "query" names the parameters that are part of a page.
         "SITES": "{\"harshankur.com\":\"homepage\",\"viewcounter.harshankur.com\":\"viewcounter\",\"officeparser.harshankur.com\":[{\"prefix\":\"/blog/\",\"app\":\"officeparserblog\"},{\"prefix\":\"/\",\"app\":\"officeparser\"}],\"inscript.harshankur.com\":\"inscript\",\"inscript-editor.harshankur.com\":\"inscript-editor\",\"blog.harshankur.com\":{\"app\":\"blog\",\"query\":[\"post\"]},\"balloonpop.harshankur.com\":\"balloonpop\",\"pdfstitch.com\":\"pdfstitch\",\"lidpractice.de\":\"lidpractice\"}"
     },
     "routes": [

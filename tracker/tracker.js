@@ -122,8 +122,8 @@
 
     /**
      * The page on screen: its path, the query parameters named as part of it
-     * (in the order they are named, as the edge Worker reports them), and its
-     * fragment when that is one of the site's own routes.
+     * (sorted by name, as the server keeps an edge report's), and its fragment
+     * when that is one of the site's own routes.
      */
     const currentPage = () => {
         const query = new URLSearchParams(location.search);
@@ -132,6 +132,7 @@
             const value = query.get(name);
             if (value) kept.set(name, value);
         }
+        kept.sort();
         const named = kept.toString();
         return location.pathname + (named ? `?${named}` : '')
             + (hashRoutes.some((prefix) => location.hash.startsWith(prefix)) ? location.hash : '');

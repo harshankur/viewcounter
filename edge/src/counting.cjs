@@ -9,8 +9,9 @@
  * reports the page view to viewcounter's POST /edge/view, server to server,
  * after the visitor already has the page. The report carries only what the
  * request for the page carried, and less: its URL as an origin, a path, the
- * query parameters the site's pages are told apart by, and the campaign tags; its Referer as an origin and a path; the visitor's
- * address, user agent, Sec-CH-UA-Mobile, and Accept-Language. Nothing is read
+ * query parameters the site's pages are told apart by, and the campaign
+ * tags; its Referer as an origin and a path; the visitor's address, user
+ * agent, Sec-CH-UA-Mobile, and Accept-Language. Nothing is read
  * from or stored on the visitor's device, and no cookie or other header is
  * forwarded. viewcounter keeps a masked address and coarse details.
  *
@@ -40,7 +41,7 @@ const REPORT_TIMEOUT_MS = 5000;
 const HTML = 'text/html';
 /** The answer to a browser revalidating a page it already holds: a page view all the same. */
 const NOT_MODIFIED = 304;
-/** The only query parameters of a page URL that are ever reported. */
+/** The campaign tags of a page URL, reported with the site's page parameters (SITES "query") and nothing else of its query. */
 const UTM_PARAMETERS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'];
 /** A Do Not Track or Global Privacy Control header that says no. */
 const OPTED_OUT = '1';
@@ -105,7 +106,8 @@ function optedOut(request, env) {
 
 /**
  * A page URL as it is reported: its origin, its path, the query parameters
- * the site names as part of its pages, and its campaign tags (unless
+ * the site names as part of its pages (sorted by name, as viewcounter keeps
+ * them), and its campaign tags (unless
  * CAMPAIGNS is "false"). The rest of a query string can carry tokens or
  * emails, and the fragment never reaches a server at all.
  *
@@ -120,6 +122,7 @@ function reportedUrl(url, env, pageQuery = []) {
         const value = url.searchParams.get(name);
         if (value) kept.set(name, value);
     }
+    kept.sort();
     if (String(env.CAMPAIGNS) !== 'false') {
         for (const name of UTM_PARAMETERS) {
             const value = url.searchParams.get(name);

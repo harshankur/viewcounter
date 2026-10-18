@@ -341,6 +341,14 @@ test('a query parameter named in data-query is part of the page, and nothing els
     expect(sent.views).toHaveLength(2);
 });
 
+test('several page parameters are sent sorted by name, as the server keeps an edge report\'s', async ({ page }) => {
+    await asVisitor(page);
+    const sent = await capture(page);
+    await page.goto(`/tracker-lab/start?query=${encodeURIComponent('post,lang')}&post=a&lang=de`);
+    await expect.poll(() => sent.views.length).toBe(1);
+    expect(sent.views[0].searchParams.get('page')).toBe('/tracker-lab/start?lang=de&post=a');
+});
+
 test('without data-query, the query is never part of the page', async ({ page }) => {
     await asVisitor(page);
     const sent = await capture(page);

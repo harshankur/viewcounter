@@ -76,8 +76,10 @@ paths:
           schema:
             type: string
           description: >-
-            Path of the page (e.g., /blog/post-1). The tracker script appends the
-            URL fragment when it is one of the routes named in its `data-hash`.
+            Path of the page (e.g., /blog/post-1). The tracker script adds the
+            query parameters named in its `data-query`, sorted by name
+            (/?post=hello), and appends the URL fragment when it is one of the
+            routes named in its `data-hash`.
         - name: title
           in: query
           schema:
@@ -314,6 +316,7 @@ paths:
                   description: The raw Accept-Language header. Only its first primary subtag is kept.
                 pageQuery:
                   type: array
+                  nullable: true
                   maxItems: 10
                   items:
                     type: string
@@ -322,8 +325,8 @@ paths:
                   description: >-
                     The query parameters of url that are part of the page, for
                     a site whose pages differ only in their query (/?post=hello).
-                    The page is stored as its path and these parameters, in this
-                    order, each with its first non-empty value.
+                    The page is stored as its path and these parameters, sorted
+                    by name, each with its first non-empty value.
       responses:
         '204':
           description: >-

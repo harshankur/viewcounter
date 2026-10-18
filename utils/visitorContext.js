@@ -110,20 +110,22 @@ function urlUtmTags(url) {
 
 /**
  * The query parameters that are part of a page, for a site whose pages differ
- * only in their query ("/?post=hello"): the named ones the URL has, in the
- * order they are named, each with its first value, and nothing else. The
- * tracker builds a page the same way, so both see one page alike.
+ * only in their query ("/?post=hello"): the named ones the URL has, sorted by
+ * name, each with its first non-empty value, and nothing else. The tracker
+ * builds a page the same way, so both see one page alike, whatever order
+ * either side lists the names in.
  *
  * @param {URL} url
- * @param {string[]} [names] already validated
+ * @param {string[]|null} [names] already validated
  * @returns {string} e.g. "?post=hello", or '' for none
  */
-function pageQuery(url, names = []) {
+function pageQuery(url, names) {
     const kept = new URLSearchParams();
-    for (const name of names) {
+    for (const name of names || []) {
         const value = url.searchParams.get(name);
         if (value) kept.set(name, value);
     }
+    kept.sort();
     const query = kept.toString();
     return query ? `?${query}` : '';
 }

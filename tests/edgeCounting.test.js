@@ -105,6 +105,16 @@ test('of the query, only the parameters the report names as part of the page are
     expect(JSON.stringify(statements)).not.toContain('SECRET-TOKEN');
 });
 
+test('the parameters are kept sorted by name, whatever order the report names them in, and null names none', async () => {
+    const from = dbManager.pool.queries.length;
+    await report('192.0.2.89', 'https://site.example/?post=a&lang=de').send({ pageQuery: ['post', 'lang'] }).expect(204);
+    await report('192.0.2.90', 'https://site.example/?post=a&lang=de').send({ pageQuery: null }).expect(204);
+    const inserts = statementsSince(from).filter((q) => /^\s*INSERT INTO `site`/.test(q.sql));
+    expect(inserts[0].params).toContain('/?lang=de&post=a');
+    expect(inserts[1].params).toContain('/');
+    expect(JSON.stringify(inserts[1].params)).not.toContain('post=a');
+});
+
 test.each([
     ['a campaign tag', ['utm_source']],
     ['a name with other characters', ['post name']],

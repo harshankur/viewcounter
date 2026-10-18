@@ -124,7 +124,7 @@ const validateEdgeView = (allowedValues) => [
     nullableBody('acceptLanguage', EDGE.MAX_ACCEPT_LANGUAGE_LENGTH),
     // The query parameters the site's pages are told apart by; the rest of the query is dropped.
     body('pageQuery')
-        .optional()
+        .optional({ values: 'null' })
         .isArray({ max: EDGE.MAX_PAGE_QUERY }).withMessage(`pageQuery must be a list of at most ${EDGE.MAX_PAGE_QUERY} parameter names`)
         .custom((names) => names.every((name) => typeof name === 'string' && PAGE_QUERY_NAME.test(name)))
         .withMessage('pageQuery must name query parameters (letters, digits, _, - and .), and no utm_ tag'),
