@@ -48,7 +48,13 @@ async function recordEvents(page) {
 const lab = (query = '') => `/consent-lab/start?privacy=${encodeURIComponent(PRIVACY)}${query ? `&${query}` : ''}`;
 const prompt = (page) => page.getByRole('region', { name: 'Usage statistics' });
 const status = (page) => page.evaluate(() => window.viewcounterConsent.status());
-const stored = (page) => page.evaluate((key) => window.localStorage.getItem(key), KEY);
+/** The stored answer, without the time it was given. */
+const stored = (page) => page.evaluate((key) => {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? null : raw.split('@')[0];
+}, KEY);
+const storedRaw = (page) => page.evaluate((key) => window.localStorage.getItem(key), KEY);
+const DAY_MS = 24 * 60 * 60 * 1000;
 const trackerTags = (page) => page.locator('script[src$="/tracker.js"]');
 /**
  * Whether the prompt is on screen, for a test that cannot see into its closed
@@ -559,13 +565,91 @@ test.describe('look', () => {
     });
 });
 
+test.describe('how long an answer holds', () => {
+    const setStored = (page, value) => page.evaluate(([key, v]) => window.localStorage.setItem(key, v), [KEY, value]);
+
+    test('an answer is stored with the time it was given, and holds for a year', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        const before = Date.now();
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        const raw = await storedRaw(page);
+        const given = Number(raw.split('@')[1]);
+        expect(raw).toMatch(/^granted@\d+$/);
+        expect(given).toBeGreaterThanOrEqual(before - 1000);
+        expect(given).toBeLessThanOrEqual(Date.now() + 1000);
+        // A year later less a day it still holds: no question, the tracker loads.
+        await setStored(page, `granted@${Date.now() - 364 * DAY_MS}`);
+        await page.reload();
+        await expect(trackerTags(page)).toHaveCount(1);
+        await expect(prompt(page)).toHaveCount(0);
+        expect(await status(page)).toBe('granted');
+    });
+
+    test('an answer older than a year has run out: the site asks again and loads nothing', async ({ page }) => {
+        const sent = await visitor(page);
+        await page.goto(lab());
+        await setStored(page, `granted@${Date.now() - 366 * DAY_MS}`);
+        await page.reload();
+        await expect(prompt(page)).toBeVisible();
+        expect(await status(page)).toBe('unset');
+        expect(await storedRaw(page)).toBeNull();
+        await page.waitForTimeout(300);
+        await expect(trackerTags(page)).toHaveCount(0);
+        expect(sent.views).toHaveLength(0);
+        // The same for a no: asked again.
+        await setStored(page, `denied@${Date.now() - 366 * DAY_MS}`);
+        await page.reload();
+        await expect(prompt(page)).toBeVisible();
+    });
+
+    test('an answer stored without a time, by an older version, is dated the day it is first read', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await setStored(page, 'granted');
+        const before = Date.now();
+        await page.reload();
+        await expect(trackerTags(page)).toHaveCount(1);
+        const raw = await storedRaw(page);
+        expect(raw).toMatch(/^granted@\d+$/);
+        expect(Number(raw.split('@')[1])).toBeGreaterThanOrEqual(before - 1000);
+    });
+
+    test('data-consent-days sets how long, within 1 to 3650 days', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab('days=30'));
+        await setStored(page, `denied@${Date.now() - 31 * DAY_MS}`);
+        await page.reload();
+        await expect(prompt(page)).toBeVisible();
+        await setStored(page, `denied@${Date.now() - 29 * DAY_MS}`);
+        await page.reload();
+        await page.waitForTimeout(300);
+        await expect(prompt(page)).toHaveCount(0);
+        // Out of range means the year.
+        await page.goto(lab('days=0'));
+        await setStored(page, `denied@${Date.now() - 200 * DAY_MS}`);
+        await page.reload();
+        await page.waitForTimeout(300);
+        await expect(prompt(page)).toHaveCount(0);
+    });
+
+    test('anything else under the key is no answer', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await setStored(page, 'maybe@123');
+        await page.reload();
+        await expect(prompt(page)).toBeVisible();
+        expect(await status(page)).toBe('unset');
+    });
+});
+
 test.describe('data-consent-key', () => {
     test('apps that share a key share one answer: a site whose blog is another app asks once', async ({ page }) => {
         const sent = await visitor(page);
         await page.goto(lab('key=officeparser'));
         await prompt(page).getByRole('button', { name: 'Allow' }).click();
         await expect.poll(() => sent.views.length).toBe(1);
-        expect(await page.evaluate(() => window.localStorage.getItem('viewcounter-consent:officeparser'))).toBe('granted');
+        expect(await page.evaluate(() => window.localStorage.getItem('viewcounter-consent:officeparser'))).toMatch(/^granted@\d+$/);
         expect(await stored(page)).toBeNull();
 
         await page.goto(lab('app=officeparserblog&key=officeparser'));

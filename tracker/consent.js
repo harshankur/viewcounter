@@ -12,9 +12,11 @@
  *     it is scrolled, and which links and features are used. It sets no
  *     cookie and sends nothing that identifies you.
  *   - Your answer is the one thing kept on your device: "granted" or "denied"
- *     in this site's localStorage, under "viewcounter-consent:" and the
- *     site's name for it. Change it at any time with the site's privacy
- *     settings button or link; saying no costs you nothing.
+ *     with the day you gave it, in this site's localStorage, under
+ *     "viewcounter-consent:" and the site's name for it. It holds for a year
+ *     (the site may set less); then the site asks again. Change it at any
+ *     time with the site's privacy settings button or link; saying no costs
+ *     you nothing.
  * Check it yourself: the source is at https://github.com/harshankur/viewcounter
  * and the homepage at https://viewcounter.harshankur.com.
  *
@@ -32,6 +34,8 @@
  *                                   digits, _ and -); the app ID by default.
  *                                   Apps sharing one site share one answer by
  *                                   sharing the key
+ *   data-consent-days="365"         how long an answer holds before the site asks
+ *                                   again: 1 to 3650 days, a year by default
  *   data-privacy-url="https://..."  the privacy notice the prompt links to, read
  *                                   each time the prompt is shown
  *   data-lang="de"                  "de" or "en"; otherwise German when <html lang>
@@ -71,6 +75,16 @@
     // One answer per key: the app's own, unless the site shares one across its apps.
     const CONSENT_KEY = /^[A-Za-z0-9_-]{1,64}$/;
     const KEY = `viewcounter-consent:${CONSENT_KEY.test(script.dataset.consentKey || '') ? script.dataset.consentKey : app}`;
+    /**
+     * How long an answer holds. Stored with the answer, as "granted@<ms>"; an
+     * answer without a day (stored by an older version) is dated the day it
+     * is first read, so it runs out a year after the upgrade.
+     */
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const DEFAULT_CONSENT_DAYS = 365;
+    const consentDays = /^[1-9]\d{0,3}$/.test((script.dataset.consentDays || '').trim()) && Number(script.dataset.consentDays) <= 3650
+        ? Number(script.dataset.consentDays)
+        : DEFAULT_CONSENT_DAYS;
     const EVENT = 'viewcounter:consent';
     const TRIGGER = 'data-viewcounter-consent';
     /** The tracker's own options, passed on to it as they are. */
@@ -146,15 +160,36 @@
     /** The status last made known, by the events below; set once the API is up. */
     let known = UNSET;
 
+    /**
+     * The stored answer, if it is one and still holds: "granted" or "denied",
+     * with the time it was given after "@". One without a time is given the
+     * present and stored again; one that has run out is removed.
+     */
+    function storedAnswer() {
+        const stored = localStorage.getItem(KEY);
+        if (stored === null) return UNSET;
+        const [value, when] = String(stored).split('@');
+        if (value !== GRANTED && value !== DENIED) return UNSET;
+        const given = Number(when);
+        if (!Number.isFinite(given) || when === undefined) {
+            localStorage.setItem(KEY, `${value}@${Date.now()}`);
+            return value;
+        }
+        if (Date.now() - given > consentDays * DAY_MS) {
+            localStorage.removeItem(KEY);
+            return UNSET;
+        }
+        return value;
+    }
+
     function status() {
         if (answer) return answer;
         try {
-            const stored = localStorage.getItem(KEY);
-            if (stored === GRANTED || stored === DENIED) return stored;
+            return storedAnswer();
         } catch {
             // Storage unavailable: unanswered, as far as this page knows.
+            return UNSET;
         }
-        return UNSET;
     }
 
     function announce(value) {
@@ -166,7 +201,7 @@
     function decide(value) {
         answer = value;
         try {
-            localStorage.setItem(KEY, value);
+            localStorage.setItem(KEY, `${value}@${Date.now()}`);
         } catch {
             // Kept for this page only.
         }

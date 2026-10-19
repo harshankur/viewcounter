@@ -241,7 +241,7 @@ function start(port = PORT) {
     });
     app.get(/^\/consent-lab\//, (req, res) => {
         const OPTIONS = {
-            hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', spa: 'spa', hash: 'hash', hashDepth: 'hash-depth', query: 'query', heartbeat: 'heartbeat', privacy: 'privacy-url', key: 'consent-key',
+            hosts: 'hosts', lang: 'lang', ui: 'ui', edge: 'edge', days: 'consent-days', spa: 'spa', hash: 'hash', hashDepth: 'hash-depth', query: 'query', heartbeat: 'heartbeat', privacy: 'privacy-url', key: 'consent-key',
         };
         const appId = typeof req.query.app === 'string' ? req.query.app.replace(/[^a-z0-9_-]/gi, '') : 'blog';
         const attributes = Object.entries(OPTIONS).map(([param, name]) => {

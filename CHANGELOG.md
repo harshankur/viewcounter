@@ -7,6 +7,12 @@ All notable changes to this project are documented here. This project follows
 
 ### Added
 
+- **An answer to the consent prompt holds for a year**, then the visitor is
+  asked again: `consent.js` stores the answer with the time it was given
+  (`granted@<ms>`) and treats one older than `data-consent-days` (365 by
+  default, 1 to 3650) as not given. An answer stored by an older version,
+  without a time, is dated the day it is first read.
+
 - **`VIEW_RETENTION_DAYS`**: views older than this go to the trash every
   hour and are erased with it after `TRASH_RETENTION_DAYS` (at once when the
   trash is kept forever), so a privacy notice can name how long views are

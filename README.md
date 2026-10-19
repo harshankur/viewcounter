@@ -1175,8 +1175,11 @@ not take focus; opened from a settings link, it takes focus, and gives it back
 when it closes.
 
 The answer is kept in `localStorage` under `viewcounter-consent:<key>`
-(`granted` or `denied`), where the key is the app ID or `data-consent-key`, the one thing on the device, which the visitor asked
-for. Where storage is unavailable (a private window, blocked site data), the
+(`granted` or `denied`, with the time it was given, as `granted@<ms>`), where
+the key is the app ID or `data-consent-key`, the one thing on the device, which
+the visitor asked for. It holds for a year (`data-consent-days`); then it is
+removed and the visitor is asked again, as supervisory authorities expect of a
+consent. Where storage is unavailable (a private window, blocked site data), the
 visitor is asked on every page and the answer holds for that page. A yes in
 one tab holds in the site's other tabs too.
 
@@ -1184,6 +1187,7 @@ one tab holds in the site's other tabs too.
 |---|---|---|
 | `data-app` | required | The app ID, as for the tracker |
 | `data-hosts` | every host | Only on these hostnames; anywhere else it does nothing at all, so development servers show no prompt |
+| `data-consent-days` | `365` | How long an answer holds before the site asks again, 1 to 3650 days. The answer is stored with the day it was given; one that has run out is removed and the visitor is asked afresh |
 | `data-consent-key` | the app ID | The name the answer is kept under (letters, digits, `_` and `-`). Apps on one site that share a key share one answer, so a site whose blog is another app asks once |
 | `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab), read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place can point it at the notice in that language. No link without it |
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise, read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place is asked in the one it shows |
