@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.9.0]
+
+Views can be kept for a set time, so a privacy notice can name it, an app
+can keep no language at all, and an answer to the consent prompt holds for a
+year before the visitor is asked again. Nothing needs doing to upgrade: the
+first two are off until set.
+
 ### Added
 
 - **An answer to the consent prompt holds for a year**, then the visitor is
@@ -17,14 +24,16 @@ All notable changes to this project are documented here. This project follows
   hour and are erased with it after `TRASH_RETENTION_DAYS` (at once when the
   trash is kept forever), so a privacy notice can name how long views are
   kept (GDPR Art. 5(1)(e), Art. 13(2)(a)). Each run is recorded in the admin
-  log as "Old views retired". Unset or 0 keeps views until an admin deletes
-  them, as before.
+  log as "Old views retired". Old views are retired oldest first in batches,
+  so no statement holds its locks for long. Unset or 0 keeps views until an
+  admin deletes them, as before.
 - **`NO_LANGUAGE_APPS`**: the views of these apps never keep a language, from
   the tracker, an event, or the edge, for a site whose visitors' language could
   hint at their origin. The edge Worker's `SITES` entry takes
   `"language": false`, so the Worker does not send it either. The edge Worker
   of this repository now also honours Do Not Track and Global Privacy Control
-  (`RESPECT_DNT`).
+  (`RESPECT_DNT`). An entry that names no configured app is warned about at
+  start.
 
 ## [3.8.0]
 

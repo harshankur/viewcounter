@@ -1037,8 +1037,8 @@ describe('GET /consent.js', () => {
         const { text } = await request(app).get('/consent.js').expect(200);
         const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
         expect(code).not.toMatch(/document\.cookie|sessionStorage|indexedDB/);
-        // localStorage, under the one per-app key.
-        expect(code.match(/localStorage\.\w+\(/g)).toEqual(['localStorage.getItem(', 'localStorage.setItem(']);
+        // localStorage, under the one per-app key: read, written with the answer's time, and removed once it has run out.
+        expect([...new Set(code.match(/localStorage\.\w+\(/g))].sort()).toEqual(['localStorage.getItem(', 'localStorage.removeItem(', 'localStorage.setItem(']);
         expect(code).toContain('`viewcounter-consent:${');
     });
 
