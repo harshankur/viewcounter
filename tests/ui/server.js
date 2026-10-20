@@ -248,6 +248,11 @@ function start(port = PORT) {
             const value = typeof req.query[param] === 'string' ? req.query[param].replace(/[^a-z0-9.,:#/_-]/gi, '') : '';
             return value ? ` data-${name}="${value}"` : '';
         }).join('');
+        // Who runs the site: any text, escaped for the attribute, so a name that looks like HTML arrives as written.
+        const ESCAPES = { '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' };
+        const operator = typeof req.query.operator === 'string'
+            ? ` data-operator="${req.query.operator.replace(/[&"<>]/g, (character) => ESCAPES[character])}"`
+            : '';
         const lang = typeof req.query.htmlLang === 'string' ? req.query.htmlLang.replace(/[^a-z-]/gi, '') : 'en';
         // An answer the site gives through the API as the page loads, before it is ready.
         const answer = ['grant', 'deny'].includes(req.query.answer) ? `\n  <script src="/consent-lab-answer.js?${req.query.answer}"></script>` : '';
@@ -260,7 +265,7 @@ function start(port = PORT) {
   <input id="page-input" aria-label="A field of the page">
   <div style="height: 3000px"></div>
   <footer><a id="settings" href="#" data-viewcounter-consent>Privacy settings</a></footer>
-  <script src="/consent.js" data-app="${appId || 'blog'}"${attributes}></script>${answer}${tracker}
+  <script src="/consent.js" data-app="${appId || 'blog'}"${attributes}${operator}></script>${answer}${tracker}
 </body></html>`);
     });
     app.get('/consent-lab-answer.js', (req, res) => {

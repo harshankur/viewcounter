@@ -10,8 +10,14 @@
  * keyboard and closed-root tests use the page as it really is.
  */
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('@playwright/test');
 const { captureTracking, asVisitor } = require('./helpers');
+
+/** The operator name's limit, as consent.js defines it. */
+const OPERATOR_MAX_LENGTH = Number(fs.readFileSync(path.join(__dirname, '..', '..', 'tracker', 'consent.js'), 'utf8')
+    .match(/const OPERATOR_MAX_LENGTH = (\d+);/)[1]);
 
 test.skip(({ isMobile }) => isMobile, 'one browser profile is enough for the consent prompt');
 
@@ -401,6 +407,97 @@ test.describe('language', () => {
         await page.goto(lab('edge=false'));
         await expect(prompt(page)).toContainText('Without your consent nothing is counted.');
         await expect(prompt(page)).not.toContainText('I only count');
+    });
+});
+
+test.describe('who runs the site (data-operator)', () => {
+    const QUESTION = 'May I count in more detail how this site is used?';
+    const EXPLANATION = 'Without your consent I only count which pages are opened. With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared.';
+    const named = (name, query = '') => lab(`operator=${encodeURIComponent(name)}${query ? `&${query}` : ''}`);
+    const sentence = (page) => prompt(page).locator('.operator');
+    const paragraph = (page) => prompt(page).locator('p').first();
+    const setOperator = (page, name) => page.evaluate((value) => {
+        const script = document.querySelector('script[src$="consent.js"]');
+        if (value === null) delete script.dataset.operator;
+        else script.dataset.operator = value;
+    }, name);
+
+    test('without it, the prompt names nobody and reads exactly as before', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await expect(prompt(page)).toBeVisible();
+        await expect(sentence(page)).toHaveCount(0);
+        expect(await paragraph(page).evaluate((node) => [...node.children].map((child) => child.localName))).toEqual(['strong']);
+        expect(await paragraph(page).evaluate((node) => node.textContent)).toBe(`${QUESTION}${EXPLANATION}`);
+    });
+
+    test('names who runs the site, on a line of its own before the question', async ({ page }) => {
+        await visitor(page);
+        await page.goto(named('Harsh Ankur'));
+        await expect(sentence(page)).toHaveText('This site is run by Harsh Ankur.');
+        expect(await paragraph(page).evaluate((node) => node.firstChild.className)).toBe('operator');
+        const who = await sentence(page).boundingBox();
+        const question = await prompt(page).locator('strong').boundingBox();
+        expect(who.y + who.height).toBeLessThanOrEqual(question.y);
+        // The region keeps its name, and the announcement stays short: where the question is, not who asks.
+        await expect(page.getByRole('region', { name: 'Usage statistics' })).toContainText(`This site is run by Harsh Ankur.${QUESTION}`);
+        await expect(page.getByRole('status')).toHaveText('A question about usage statistics is waiting at the end of the page.');
+    });
+
+    test('and in German', async ({ page }) => {
+        await visitor(page);
+        await page.goto(named('Harsh Ankur', 'lang=de'));
+        const region = page.getByRole('region', { name: 'Nutzungsstatistik' });
+        await expect(region.locator('.operator')).toHaveText('Diese Seite wird von Harsh Ankur betrieben.');
+        await expect(region).toContainText('Diese Seite wird von Harsh Ankur betrieben.Darf ich genauer zählen, wie diese Seite genutzt wird?');
+        await expect(page.getByRole('status')).toHaveText('Am Ende der Seite wartet eine Frage zur Nutzungsstatistik.');
+    });
+
+    test('a name that looks like HTML is shown as written, never parsed', async ({ page }) => {
+        await visitor(page);
+        const name = '<b>x</b><img src=x onerror="window.__parsed = true">';
+        await page.goto(named(name));
+        await expect(sentence(page)).toHaveText(`This site is run by ${name}.`);
+        await expect(prompt(page).locator('b, img')).toHaveCount(0);
+        expect(await page.evaluate(() => window.__parsed)).toBeUndefined();
+    });
+
+    test(`a name of up to ${OPERATOR_MAX_LENGTH} characters fits the card; a longer one is not shown at all`, async ({ page }) => {
+        await visitor(page);
+        const longest = 'a'.repeat(OPERATOR_MAX_LENGTH);
+        await page.goto(named(longest));
+        await expect(sentence(page)).toHaveText(`This site is run by ${longest}.`);
+        // One unbroken word wraps inside the card, which does not scroll sideways or grow past its width.
+        const fits = await prompt(page).evaluate((card) => card.scrollWidth <= card.clientWidth && card.getBoundingClientRect().width <= 360);
+        expect(fits).toBe(true);
+        await page.goto(named(`${longest}b`));
+        await expect(prompt(page)).toBeVisible();
+        await expect(sentence(page)).toHaveCount(0);
+    });
+
+    test('control and direction-changing characters are dropped', async ({ page }) => {
+        await visitor(page);
+        await page.goto(lab());
+        await prompt(page).getByRole('button', { name: 'No thanks' }).click();
+        await setOperator(page, '‮Harsh\u0000 \n Ankur⁩');
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(sentence(page)).toHaveText('This site is run by Harsh Ankur.');
+    });
+
+    test('a changed name is named the next time, and a prompt on screen follows at once, keeping the keyboard', async ({ page }) => {
+        await visitor(page);
+        await page.goto(named('Harsh Ankur'));
+        await prompt(page).getByRole('button', { name: 'Allow' }).click();
+        await setOperator(page, 'Example Ltd');
+        await page.evaluate(() => window.viewcounterConsent.open());
+        await expect(sentence(page)).toHaveText('This site is run by Example Ltd.');
+        await expect(prompt(page).getByRole('button', { name: 'Allow' })).toBeFocused();
+        // Removed while the prompt is open: the sentence goes at once, and the keyboard stays in the prompt.
+        await setOperator(page, null);
+        await expect(sentence(page)).toHaveCount(0);
+        await expect(prompt(page)).toContainText(QUESTION);
+        await expect(prompt(page).getByRole('button', { name: 'Allow' })).toBeFocused();
+        await expect(page.locator('viewcounter-consent')).toHaveCount(1);
     });
 });
 

@@ -23,7 +23,8 @@
  * For site owners, instead of tracker.js:
  *
  *   <script defer src="https://your-server/consent.js" data-app="blog"
- *     data-hosts="example.com" data-privacy-url="https://example.com/privacy"></script>
+ *     data-hosts="example.com" data-privacy-url="https://example.com/privacy"
+ *     data-operator="Example Ltd"></script>
  *
  * Options, as attributes on the script tag:
  *   data-app="blog"                 required: the app ID, as for the tracker
@@ -38,6 +39,11 @@
  *                                   again: 1 to 3650 days, a year by default
  *   data-privacy-url="https://..."  the privacy notice the prompt links to, read
  *                                   each time the prompt is shown
+ *   data-operator="Example Ltd"     who runs the site, named before the question
+ *                                   ("This site is run by Example Ltd."), as plain
+ *                                   text of up to 100 characters (a longer name is
+ *                                   not shown); read each time the prompt is
+ *                                   shown. Without it the prompt names nobody
  *   data-lang="de"                  "de" or "en"; otherwise German when <html lang>
  *                                   starts with "de", English when it does not,
  *                                   as it is each time the prompt is shown
@@ -94,6 +100,7 @@
     const TEXT = {
         en: {
             label: 'Usage statistics',
+            operator: (name) => `This site is run by ${name}.`,
             question: 'May I count in more detail how this site is used?',
             edge: 'Without your consent I only count which pages are opened.',
             noEdge: 'Without your consent nothing is counted.',
@@ -107,6 +114,7 @@
         },
         de: {
             label: 'Nutzungsstatistik',
+            operator: (name) => `Diese Seite wird von ${name} betrieben.`,
             question: 'Darf ich genauer zählen, wie diese Seite genutzt wird?',
             edge: 'Ohne Ihre Einwilligung zähle ich nur, welche Seiten aufgerufen werden.',
             noEdge: 'Ohne Ihre Einwilligung wird nichts gezählt.',
@@ -148,6 +156,24 @@
     };
     /** The address the prompt was built with. */
     let builtPrivacyUrl = '';
+
+    /**
+     * Who runs the site: data-operator, named before the question so the
+     * visitor knows who asks (an informed consent names the controller, GDPR
+     * recital 42). Read each time the prompt is built, like the privacy
+     * notice, and only ever set as text: runs of whitespace become one space,
+     * control and bidirectional formatting characters are dropped, and a name
+     * longer than OPERATOR_MAX_LENGTH characters is not shown at all, since a
+     * part of a name could name someone else.
+     */
+    const OPERATOR_MAX_LENGTH = 100;
+    const OPERATOR_IGNORED = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
+    const operator = () => {
+        const name = (script.dataset.operator || '').replace(/\s+/g, ' ').replace(OPERATOR_IGNORED, '').replace(/ {2,}/g, ' ').trim();
+        return [...name].length <= OPERATOR_MAX_LENGTH ? name : '';
+    };
+    /** The name the prompt was built with, or '' for none. */
+    let builtOperator = '';
 
     // ---- The answer ---------------------------------------------------------
 
@@ -273,6 +299,7 @@
         .card[hidden] { display: none; }
         p { margin: 0 0 12px; }
         p[hidden] { display: none; }
+        .operator { display: block; margin-bottom: 4px; overflow-wrap: anywhere; }
         strong { display: block; margin-bottom: 4px; font-weight: 600; }
         .actions { display: flex; gap: 8px; }
         button {
@@ -326,11 +353,15 @@
             return node;
         };
         current = element('p', { hidden: true });
+        const question = [
+            element('strong', { textContent: text.question }),
+            `${script.dataset.edge === 'false' ? text.noEdge : text.edge} ${text.detail}`,
+        ];
+        // Who asks, before the question; nothing at all when the site names nobody.
+        builtOperator = operator();
+        if (builtOperator) question.unshift(element('span', { className: 'operator', textContent: text.operator(builtOperator) }));
         const content = [
-            element('p', {}, [
-                element('strong', { textContent: text.question }),
-                `${script.dataset.edge === 'false' ? text.noEdge : text.edge} ${text.detail}`,
-            ]),
+            element('p', {}, question),
             current,
             // Equal weight: the same look, side by side, neither preselected.
             element('div', { className: 'actions' }, [button(text.allow, GRANTED), button(text.deny, DENIED)]),
@@ -359,14 +390,14 @@
         (document.body || document.documentElement).appendChild(host);
     }
 
-    /** Whether the prompt was built in another language, or with another privacy notice, than the page names now. */
-    const outdated = () => host !== null && (language() !== lang || privacyUrl() !== builtPrivacyUrl);
+    /** Whether the prompt was built in another language, privacy notice, or operator than the page names now. */
+    const outdated = () => host !== null && (language() !== lang || privacyUrl() !== builtPrivacyUrl || operator() !== builtOperator);
 
     /** Show the prompt; `focus` when the visitor asked for it, so the keyboard lands in it. */
     function show(focus) {
         // Focus inside the old prompt is not where it should go back to when this one closes.
         const focusWasInside = host !== null && document.activeElement === host;
-        // Built again in the page's language, or with its privacy notice, if either changed since.
+        // Built again in the page's language, or with its privacy notice or operator, if any changed since.
         if (outdated()) {
             host.remove();
             host = null;
@@ -401,14 +432,14 @@
     }
 
     // A prompt on screen while the page switches its language, or names
-    // another privacy notice, is built again at once, as it was shown: with
-    // the keyboard in it if it was there.
+    // another privacy notice or operator, is built again at once, as it was
+    // shown: with the keyboard in it if it was there.
     const refresh = () => {
         if (card && !card.hidden && outdated()) show(document.activeElement === host);
     };
     if (window.MutationObserver) {
         new window.MutationObserver(refresh).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
-        new window.MutationObserver(refresh).observe(script, { attributes: true, attributeFilter: ['data-privacy-url', 'data-lang'] });
+        new window.MutationObserver(refresh).observe(script, { attributes: true, attributeFilter: ['data-privacy-url', 'data-lang', 'data-operator'] });
     }
 
     // Escape puts the prompt away for this page view, without an answer:

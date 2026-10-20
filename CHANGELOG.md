@@ -5,6 +5,18 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- **`data-operator` names who runs the site in the consent prompt**: with
+  `data-operator="Harsh Ankur"` on the `consent.js` tag, the prompt says
+  "This site is run by Harsh Ankur." ("Diese Seite wird von Harsh Ankur
+  betrieben.") before its question, since an informed consent names who asks
+  for it (GDPR recital 42). The name is shown as plain text, never as HTML;
+  control and text-direction characters are dropped, and a name longer than
+  100 characters is not shown at all rather than in part. It is read each
+  time the prompt is shown, and an open prompt follows a change at once.
+  Without the attribute the prompt is as before.
+
 ## [3.9.0]
 
 Views can be kept for a set time, so a privacy notice can name it, an app

@@ -1157,14 +1157,16 @@ yes:
 
 ```html
 <script defer src="https://your-server.com/consent.js" data-app="blog"
-        data-hosts="blog.example.com" data-privacy-url="https://blog.example.com/privacy"></script>
+        data-hosts="blog.example.com" data-privacy-url="https://blog.example.com/privacy"
+        data-operator="Example Ltd"></script>
 
 <!-- in the footer, so the answer can be changed at any time -->
 <button type="button" data-viewcounter-consent>Privacy settings</button>
 ```
 
 The prompt is a small card in the bottom corner. It blocks nothing, takes no
-focus by itself, and says plainly what a yes changes: without consent only
+focus by itself, says who asks when the site names itself (`data-operator`),
+and says plainly what a yes changes: without consent only
 which pages are opened is counted (by the [edge](#edge-counting)); with it,
 also how long a page stays open, how far it is scrolled, and which links and
 features are used. **Allow** and **No thanks** look the same, side by side. A
@@ -1190,6 +1192,7 @@ one tab holds in the site's other tabs too.
 | `data-consent-days` | `365` | How long an answer holds before the site asks again, 1 to 3650 days. The answer is stored with the day it was given; one that has run out is removed and the visitor is asked afresh |
 | `data-consent-key` | the app ID | The name the answer is kept under (letters, digits, `_` and `-`). Apps on one site that share a key share one answer, so a site whose blog is another app asks once |
 | `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab), read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place can point it at the notice in that language. No link without it |
+| `data-operator` | none | Who runs the site, named before the question ("This site is run by Example Ltd.", "Diese Seite wird von Example Ltd betrieben."), since an informed consent names who asks for it. Shown as plain text, never as HTML: runs of whitespace become one space, control and text-direction characters are dropped, and a name longer than 100 characters is not shown at all rather than in part. Read each time the prompt is shown (an open prompt follows a change at once). Without it the prompt names nobody, as before |
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise, read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place is asked in the one it shows |
 | `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
 | `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
