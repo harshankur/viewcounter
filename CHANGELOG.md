@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.10.0]
+
+The consent prompt can say who runs the site, so a visitor knows who asks
+before answering. Nothing needs doing to upgrade: without the new attribute
+the prompt is as before.
+
 ### Added
 
 - **`data-operator` names who runs the site in the consent prompt**: with
