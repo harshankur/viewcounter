@@ -92,6 +92,8 @@ test('on a listed host, an unanswered visitor is asked, plainly, with both answe
     await expect(region).toContainText('May I count in more detail how this site is used?');
     await expect(region).toContainText('Without your consent I only count which pages are opened.');
     await expect(region).toContainText('No cookies, nothing personal, nothing shared.');
+    // Consent to an online service from someone under 16 needs a parent's (Art. 8 GDPR, Germany's age).
+    await expect(region).toContainText('If you are under 16, ask a parent first.');
     const allow = region.getByRole('button', { name: 'Allow' });
     const deny = region.getByRole('button', { name: 'No thanks' });
     await expect(allow).toBeVisible();
@@ -318,6 +320,7 @@ test.describe('language', () => {
         await expect(region).toContainText('Darf ich genauer zählen, wie diese Seite genutzt wird?');
         await expect(region).toContainText('Ohne Ihre Einwilligung zähle ich nur, welche Seiten aufgerufen werden.');
         await expect(region).toContainText('Keine Cookies, nichts Persönliches, keine Weitergabe.');
+        await expect(region).toContainText('Wenn Sie unter 16 sind, fragen Sie bitte vorher Ihre Eltern.');
         await expect(region.getByRole('button', { name: 'Erlauben' })).toBeVisible();
         await expect(region.getByRole('button', { name: 'Nein danke' })).toBeVisible();
         await expect(region.getByRole('link', { name: 'Datenschutzerklärung' })).toHaveAttribute('href', PRIVACY);
@@ -412,7 +415,7 @@ test.describe('language', () => {
 
 test.describe('who runs the site (data-operator)', () => {
     const QUESTION = 'May I count in more detail how this site is used?';
-    const EXPLANATION = 'Without your consent I only count which pages are opened. With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared.';
+    const EXPLANATION = 'Without your consent I only count which pages are opened. With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared. If you are under 16, ask a parent first.';
     const named = (name, query = '') => lab(`operator=${encodeURIComponent(name)}${query ? `&${query}` : ''}`);
     const sentence = (page) => prompt(page).locator('.operator');
     const paragraph = (page) => prompt(page).locator('p').first();

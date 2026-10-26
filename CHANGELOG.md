@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+### Changed
+
+- **The consent prompt asks anyone under 16 to ask a parent first**: "If you
+  are under 16, ask a parent first." ("Wenn Sie unter 16 sind, fragen Sie
+  bitte vorher Ihre Eltern.") ends its explanation, since consent to an
+  online service from someone younger needs a parent's (Art. 8 GDPR, with
+  Germany's age of 16).
+
 ## [3.10.0]
 
 The consent prompt can say who runs the site, so a visitor knows who asks
