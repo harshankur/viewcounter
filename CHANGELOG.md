@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This project follows
 
 ## [Unreleased]
 
+## [3.10.1]
+
+The consent prompt asks anyone under 16 to ask a parent first. Nothing needs
+doing to upgrade.
+
 ### Changed
 
 - **The consent prompt asks anyone under 16 to ask a parent first**: "If you
