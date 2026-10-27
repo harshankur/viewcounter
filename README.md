@@ -1169,9 +1169,12 @@ focus by itself, says who asks when the site names itself (`data-operator`),
 and says plainly what a yes changes: without consent only
 which pages are opened is counted (by the [edge](#edge-counting)); with it,
 also how long a page stays open, how far it is scrolled, and which links and
-features are used. **Allow** and **No thanks** look the same, side by side. A
-no loads nothing and costs the visitor nothing. **Escape** puts the card away
-for that page without an answer. It is in German or English. A card that
+features are used. It asks anyone under 16 to ask a parent or guardian before
+allowing it, as consent from someone younger needs theirs (Art. 8 GDPR, with
+Germany's age of 16); a no needs nobody's. **Allow** and **No thanks** look the
+same, side by side. A no loads nothing and costs the visitor nothing. **Escape**
+puts the card away for that page without an answer. On a short screen the card
+scrolls rather than reaching past its top. It is in German or English. A card that
 appears by itself is announced once to screen readers, politely, since it does
 not take focus; opened from a settings link, it takes focus, and gives it back
 when it closes.
@@ -1194,7 +1197,7 @@ one tab holds in the site's other tabs too.
 | `data-privacy-url` | none | The privacy notice the prompt links to (opened in a new tab), read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place can point it at the notice in that language. No link without it |
 | `data-operator` | none | Who runs the site, named before the question ("This site is run by Example Ltd.", "Diese Seite wird von Example Ltd betrieben."), since an informed consent names who asks for it. Shown as plain text, never as HTML: runs of whitespace become one space, control and text-direction characters are dropped, and a name longer than 100 characters is not shown at all rather than in part. Read each time the prompt is shown (an open prompt follows a change at once). Without it the prompt names nobody, as before |
 | `data-lang` | from `<html lang>` | `de` or `en`. Without it, German when the page's language starts with `de`, English otherwise, read each time the prompt is shown (an open prompt follows a change at once), so a site that switches its language in place is asked in the one it shows |
-| `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API |
+| `data-ui` | shown | `none`: never show the prompt by itself; the site asks through the API. Its own prompt should then say what this one says, the line for anyone under 16 included |
 | `data-edge` | `true` | `false` when no edge Worker counts the site's pages, so the prompt says nothing is counted without consent |
 | `data-spa`, `data-hash`, `data-hash-depth`, `data-query`, `data-heartbeat`, `data-campaigns`, `data-outbound`, `data-downloads`, `data-respect-dnt` | as the tracker's | Passed on to the tracker it loads |
 

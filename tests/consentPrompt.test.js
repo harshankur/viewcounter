@@ -17,7 +17,7 @@ const SOURCE = fs.readFileSync(path.join(__dirname, '..', 'tracker', 'consent.js
 const OPERATOR_MAX_LENGTH = Number(SOURCE.match(/const OPERATOR_MAX_LENGTH = (\d+);/)[1]);
 
 const QUESTION = 'May I count in more detail how this site is used?';
-const EXPLANATION = 'Without your consent I only count which pages are opened. With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared. If you are under 16, ask a parent first.';
+const EXPLANATION = 'Without your consent I only count which pages are opened. With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared. If you are under 16, ask a parent or guardian before you allow it.';
 
 /** A DOM element, with only what consent.js uses. */
 class FakeElement {

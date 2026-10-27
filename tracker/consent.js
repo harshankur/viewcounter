@@ -11,6 +11,7 @@
  *     to this file), which also measures how long a page stays open, how far
  *     it is scrolled, and which links and features are used. It sets no
  *     cookie and sends nothing that identifies you.
+ *   - If you are under 16, ask a parent or guardian before you allow it.
  *   - Your answer is the one thing kept on your device: "granted" or "denied"
  *     with the day you gave it, in this site's localStorage, under
  *     "viewcounter-consent:" and the site's name for it. It holds for a year
@@ -104,7 +105,7 @@
             question: 'May I count in more detail how this site is used?',
             edge: 'Without your consent I only count which pages are opened.',
             noEdge: 'Without your consent nothing is counted.',
-            detail: 'With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared. If you are under 16, ask a parent first.',
+            detail: 'With it, also how long a page stays open, how far it is scrolled, and which links and features are used. No cookies, nothing personal, nothing shared. If you are under 16, ask a parent or guardian before you allow it.',
             allow: 'Allow',
             deny: 'No thanks',
             privacy: 'Privacy notice',
@@ -118,7 +119,7 @@
             question: 'Darf ich genauer zählen, wie diese Seite genutzt wird?',
             edge: 'Ohne Ihre Einwilligung zähle ich nur, welche Seiten aufgerufen werden.',
             noEdge: 'Ohne Ihre Einwilligung wird nichts gezählt.',
-            detail: 'Mit ihr auch, wie lange eine Seite offen ist, wie weit gescrollt wird und welche Links und Funktionen genutzt werden. Keine Cookies, nichts Persönliches, keine Weitergabe. Wenn Sie unter 16 sind, fragen Sie bitte vorher Ihre Eltern.',
+            detail: 'Mit ihr auch, wie lange eine Seite offen ist, wie weit gescrollt wird und welche Links und Funktionen genutzt werden. Keine Cookies, nichts Persönliches, keine Weitergabe. Wenn Sie unter 16 sind, fragen Sie bitte Ihre Eltern oder Erziehungsberechtigten, bevor Sie zustimmen.',
             allow: 'Erlauben',
             deny: 'Nein danke',
             privacy: 'Datenschutzerklärung',
@@ -278,6 +279,7 @@
             --bg: #ffffff; --fg: #1f2328; --line: #d0d7de; --button: #f6f8fa; --link: #0b5cad; --focus: #0b5cad;
             position: fixed; z-index: var(--viewcounter-consent-z-index, 2147483000);
             inset-inline-end: 16px; bottom: 16px; box-sizing: border-box; width: min(360px, calc(100vw - 32px));
+            max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain;
             padding: 16px; border-radius: var(--viewcounter-consent-radius, 12px);
             border: 1px solid var(--viewcounter-consent-border, var(--line));
             background: var(--viewcounter-consent-background, var(--bg));
@@ -290,7 +292,7 @@
             .card { --bg: #1c2128; --fg: #e6edf3; --line: #3d444d; --button: #2d333b; --link: #6cb6ff; --focus: #6cb6ff; }
         }
         @media (max-width: 480px) {
-            .card { inset-inline: 12px; bottom: 12px; width: auto; }
+            .card { inset-inline: 12px; bottom: 12px; width: auto; max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); }
         }
         @media (prefers-reduced-motion: no-preference) {
             .card { animation: enter 0.18s ease-out; }

@@ -7,16 +7,45 @@ All notable changes to this project are documented here. This project follows
 
 ## [3.10.1]
 
-The consent prompt asks anyone under 16 to ask a parent first. Nothing needs
-doing to upgrade.
+The consent prompt asks anyone under 16 to ask a parent or guardian before
+allowing it, and three runtime dependency advisories are fixed. The server
+needs nothing to upgrade. An application that installs viewcounter as a
+dependency should raise its `ip-address` override to `^10.7.5` (see Fixed).
 
 ### Changed
 
-- **The consent prompt asks anyone under 16 to ask a parent first**: "If you
-  are under 16, ask a parent first." ("Wenn Sie unter 16 sind, fragen Sie
-  bitte vorher Ihre Eltern.") ends its explanation, since consent to an
-  online service from someone younger needs a parent's (Art. 8 GDPR, with
-  Germany's age of 16).
+- **The consent prompt asks anyone under 16 to ask a parent or guardian before
+  allowing it**: "If you are under 16, ask a parent or guardian before you
+  allow it." ("Wenn Sie unter 16 sind, fragen Sie bitte Ihre Eltern oder
+  Erziehungsberechtigten, bevor Sie zustimmen.") ends its explanation, since
+  consent to an online service from someone younger needs theirs (Art. 8
+  GDPR, with Germany's age of 16). It speaks of allowing only: a no needs
+  nobody's. A site that asks through the API (`data-ui="none"`) should say
+  the same in its own prompt.
+
+### Fixed
+
+- **The consent prompt fits a short screen**: on a landscape phone or a page
+  zoomed far in, the card was taller than the window and its top could not be
+  reached. It is now at most the window's height and scrolls.
+- Runtime dependency advisories reported by `npm audit --omit=dev`, which
+  stopped the release:
+  - `body-parser` (high, denial of service through trailing bytes after a
+    compressed request body,
+    [GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)),
+    used by Express. The lockfile now has 2.4.0, which Express's range already
+    accepts. It also decodes zstd request bodies, under the same size limit.
+  - `ip-address` (moderate, a zone identifier matched in quadratic time,
+    [GHSA-rxp7-6hxx-x8q5](https://github.com/advisories/GHSA-rxp7-6hxx-x8q5)).
+    The override now requires `^10.7.5`. npm overrides only affect this
+    repository's own installs, so an application that installs viewcounter as
+    a dependency should raise its own `"overrides": { "ip-address": "^10.7.2" }`
+    (from 3.1.0) to `^10.7.5`.
+  - `qs` (moderate, `stringify` with `arrayFormat: 'comma'` throwing on
+    unusual array elements,
+    [GHSA-6pq8-jhm2-2vcw](https://github.com/advisories/GHSA-6pq8-jhm2-2vcw)),
+    used by Express and body-parser. The lockfile now has 6.17.0; no override is
+    needed.
 
 ## [3.10.0]
 

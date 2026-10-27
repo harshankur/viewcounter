@@ -86,6 +86,6 @@
     "url-parse": "^1.5.10"
   },
   "overrides": {
-    "ip-address": "^10.7.2"
+    "ip-address": "^10.7.5"
   }
 }
